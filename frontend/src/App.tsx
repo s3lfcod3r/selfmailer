@@ -211,7 +211,11 @@ export function App() {
       )}
 
       <main className="app-main">
-        {view === "mail" && <Mail search={search} filter={filter} pollMin={pollMin} />}
+        {/* Mail bleibt gemountet (nur versteckt), damit beim Zurückwechseln
+            nicht neu geladen wird – kein sichtbares Nachladen. */}
+        <div style={{ display: view === "mail" ? "contents" : "none" }}>
+          <Mail search={search} filter={filter} pollMin={pollMin} />
+        </div>
         {view === "calendar" && <Calendar />}
         {view === "contacts" && <Contacts />}
         {view === "notes" && <Notes />}
