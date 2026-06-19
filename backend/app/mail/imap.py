@@ -373,19 +373,28 @@ def ensure_default_folders(account: MailAccount, password: str) -> None:
         def kind_of(name: str) -> str | None:
             return _special_kind(re.split(r"[/.]", name)[-1])
 
-        # 1) Unsere leeren Doppel entfernen, wenn es einen Server-Ordner gleicher Art gibt.
+        # 1) Unsere Doppel auf den Server-Ordner gleicher Art zusammenfuehren:
+        #    evtl. Inhalt dorthin VERSCHIEBEN (kein Verlust), dann unseren Ordner loeschen.
         for path, kind in ours.items():
             if path not in names:
                 continue
-            if not any(n != path and kind_of(n) == kind for n in names):
+            others = [n for n in names if n != path and kind_of(n) == kind]
+            if not others:
                 continue
+            target = others[0]  # Server-eigener Ordner
             try:
-                st = box.folder.status(path, ["MESSAGES"])
-                if int(st.get("MESSAGES", 0) or 0) == 0:
-                    box.folder.delete(path)
-                    names.remove(path)
-            except Exception:  # noqa: BLE001 - Loeschen darf scheitern
-                pass
+                box.folder.set(path)
+                uids = box.uids()
+                if uids:
+                    box.move(uids, target)  # Inhalt in den Server-Ordner
+                box.folder.set("INBOX")
+                box.folder.delete(path)
+                names.remove(path)
+            except Exception:  # noqa: BLE001 - best effort
+                try:
+                    box.folder.set("INBOX")
+                except Exception:
+                    pass
 
         # 2) Nur komplett fehlende Arten anlegen.
         present = {kind_of(n) for n in names if kind_of(n)}
