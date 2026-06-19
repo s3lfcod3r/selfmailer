@@ -40,7 +40,7 @@
   /* --- Typografie ---------------------------------------- */
   --self-font-sans: "Exo 2", system-ui, -apple-system, sans-serif;
   --self-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
-  --self-font-wordmark: "Rubik", var(--self-font-sans); /* Logo-Schriftzug "SelfXxx" (Weight 800) — trifft das Original-Logo am besten */
+  --self-font-wordmark: "Orbitron", var(--self-font-sans); /* Logo-Schriftzug "SelfXxx" (Weight 800) — trifft das Original */
 
   /* --- Radius / Elevation -------------------------------- */
   --self-radius: 10px;
