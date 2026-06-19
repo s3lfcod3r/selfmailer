@@ -83,7 +83,14 @@ export type CalEvent = {
 };
 export type Contact = {
   id: number; first_name: string; last_name: string; email: string;
-  phone: string; organization: string; notes: string; birthday: string | null;
+  phone: string; mobile: string; work_phone: string;
+  organization: string; title: string; website: string;
+  street: string; postal_code: string; city: string; country: string;
+  notes: string; birthday: string | null;
+};
+export type Task = {
+  id: number; title: string; notes: string; due: string | null;
+  done: boolean; position: number;
 };
 
 export type DavKind = "caldav" | "carddav";

@@ -143,7 +143,15 @@ def _sync_contacts(
             target.last_name = card["last_name"]
             target.email = card["email"]
             target.phone = card["phone"]
+            target.mobile = card.get("mobile", "")
+            target.work_phone = card.get("work_phone", "")
             target.organization = card["organization"]
+            target.title = card.get("title", "")
+            target.website = card.get("website", "")
+            target.street = card.get("street", "")
+            target.postal_code = card.get("postal_code", "")
+            target.city = card.get("city", "")
+            target.country = card.get("country", "")
             target.notes = card["notes"]
             target.birthday = card.get("birthday")
             target.updated_at = dt.datetime.now(dt.timezone.utc)

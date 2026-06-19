@@ -31,6 +31,14 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("dav_account_id", "INTEGER"),
         ("external_uid", "VARCHAR"),
         ("birthday", "DATE"),
+        ("mobile", "VARCHAR"),
+        ("work_phone", "VARCHAR"),
+        ("title", "VARCHAR"),
+        ("website", "VARCHAR"),
+        ("street", "VARCHAR"),
+        ("postal_code", "VARCHAR"),
+        ("city", "VARCHAR"),
+        ("country", "VARCHAR"),
     ],
 }
 

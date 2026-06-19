@@ -325,6 +325,39 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   .cal-chip { font-size: 0.62rem; }
 }
 
+/* --- Kalender: 2-spaltiges Layout mit Seitenpanel --- */
+.cal-body { display: grid; grid-template-columns: 1fr 300px; gap: 1rem; align-items: start; }
+.cal-main { min-width: 0; }
+.cal-aside { display: flex; flex-direction: column; gap: 1rem; }
+.cal-panel { background: var(--self-bg-2); border: 1px solid var(--self-line); border-radius: var(--self-radius); padding: 0.7rem 0.8rem; }
+.cal-panel-head { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--self-text-3); margin-bottom: 0.5rem; }
+.cal-agenda-item {
+  display: flex; align-items: baseline; gap: 0.5rem; width: 100%; text-align: left;
+  background: transparent; border: none; border-top: 1px solid var(--self-line);
+  padding: 0.4rem 0.1rem; cursor: pointer; color: var(--self-text);
+}
+.cal-agenda-item:first-of-type { border-top: none; }
+.cal-agenda-item:hover:not(:disabled) { color: var(--self-teal-bright); }
+.cal-agenda-item:disabled { cursor: default; }
+.cal-agenda-day { font-family: var(--self-font-mono); font-weight: 700; color: var(--self-teal); min-width: 1.6rem; }
+.cal-agenda-label { flex: 1; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-agenda-item.is-birthday .cal-agenda-label { color: var(--self-ice-bright); }
+.cal-agenda-time { font-size: 0.74rem; color: var(--self-text-3); }
+
+.cal-task-add { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.6rem; }
+.cal-task-add input { font-size: 0.85rem; }
+.cal-task { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0; border-top: 1px solid var(--self-line); }
+.cal-task-check { background: transparent; border: none; cursor: pointer; font-size: 1.05rem; color: var(--self-teal); padding: 0; line-height: 1; }
+.cal-task-body { flex: 1; min-width: 0; }
+.cal-task-title { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-task.done .cal-task-title { text-decoration: line-through; color: var(--self-text-3); }
+.cal-task-due { font-size: 0.72rem; color: var(--self-text-3); }
+.cal-task-due.overdue { color: var(--self-red); }
+.cal-task-del { padding: 0 0.3rem; opacity: 0; }
+.cal-task:hover .cal-task-del { opacity: 1; }
+.cal-done-head { font-size: 0.74rem; color: var(--self-text-3); margin-top: 0.6rem; padding-top: 0.3rem; }
+@media (max-width: 900px) { .cal-body { grid-template-columns: 1fr; } }
+
 /* --- Empfänger-Autocomplete (Compose) --- */
 .recipient-field { position: relative; }
 .recipient-suggest {

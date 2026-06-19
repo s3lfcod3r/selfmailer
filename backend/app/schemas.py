@@ -206,7 +206,15 @@ class ContactCreate(BaseModel):
     last_name: str = ""
     email: str = ""
     phone: str = ""
+    mobile: str = ""
+    work_phone: str = ""
     organization: str = ""
+    title: str = ""
+    website: str = ""
+    street: str = ""
+    postal_code: str = ""
+    city: str = ""
+    country: str = ""
     notes: str = ""
     birthday: dt.date | None = None
 
@@ -216,7 +224,15 @@ class ContactUpdate(BaseModel):
     last_name: str | None = None
     email: str | None = None
     phone: str | None = None
+    mobile: str | None = None
+    work_phone: str | None = None
     organization: str | None = None
+    title: str | None = None
+    website: str | None = None
+    street: str | None = None
+    postal_code: str | None = None
+    city: str | None = None
+    country: str | None = None
     notes: str | None = None
     birthday: dt.date | None = None
 
@@ -227,9 +243,41 @@ class ContactOut(BaseModel):
     last_name: str
     email: str
     phone: str
+    mobile: str = ""
+    work_phone: str = ""
     organization: str
+    title: str = ""
+    website: str = ""
+    street: str = ""
+    postal_code: str = ""
+    city: str = ""
+    country: str = ""
     notes: str
     birthday: dt.date | None = None
+
+
+# ---- Aufgaben / Tasks ----------------------------------------------------
+class TaskCreate(BaseModel):
+    title: str = ""
+    notes: str = ""
+    due: dt.date | None = None
+
+
+class TaskUpdate(BaseModel):
+    title: str | None = None
+    notes: str | None = None
+    due: dt.date | None = None
+    done: bool | None = None
+    position: int | None = None
+
+
+class TaskOut(BaseModel):
+    id: int
+    title: str
+    notes: str
+    due: dt.date | None
+    done: bool
+    position: int
 
 
 # ---- DAV-Konten (externe CalDAV/CardDAV-Quellen) ------------------------

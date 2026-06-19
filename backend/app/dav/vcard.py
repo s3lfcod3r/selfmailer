@@ -58,9 +58,28 @@ def build_vcards(contacts: Iterable[Any]) -> str:
         if getattr(ct, "email", ""):
             lines.append(f"EMAIL;TYPE=INTERNET:{rfc.escape_text(ct.email)}")
         if getattr(ct, "phone", ""):
-            lines.append(f"TEL:{rfc.escape_text(ct.phone)}")
+            lines.append(f"TEL;TYPE=HOME:{rfc.escape_text(ct.phone)}")
+        if getattr(ct, "mobile", ""):
+            lines.append(f"TEL;TYPE=CELL:{rfc.escape_text(ct.mobile)}")
+        if getattr(ct, "work_phone", ""):
+            lines.append(f"TEL;TYPE=WORK:{rfc.escape_text(ct.work_phone)}")
         if org:
             lines.append(f"ORG:{rfc.escape_text(org)}")
+        if getattr(ct, "title", ""):
+            lines.append(f"TITLE:{rfc.escape_text(ct.title)}")
+        if getattr(ct, "website", ""):
+            lines.append(f"URL:{rfc.escape_text(ct.website)}")
+        street = getattr(ct, "street", "") or ""
+        city = getattr(ct, "city", "") or ""
+        postal = getattr(ct, "postal_code", "") or ""
+        country = getattr(ct, "country", "") or ""
+        if street or city or postal or country:
+            # ADR: PObox;ext;street;locality;region;postal;country
+            lines.append(
+                "ADR;TYPE=HOME:;;"
+                f"{rfc.escape_text(street)};{rfc.escape_text(city)};;"
+                f"{rfc.escape_text(postal)};{rfc.escape_text(country)}"
+            )
         if getattr(ct, "notes", ""):
             lines.append(f"NOTE:{rfc.escape_text(ct.notes)}")
         bday = getattr(ct, "birthday", None)
@@ -86,7 +105,15 @@ def parse_vcards(text: str) -> list[dict[str, Any]]:
                 "last_name": "",
                 "email": "",
                 "phone": "",
+                "mobile": "",
+                "work_phone": "",
                 "organization": "",
+                "title": "",
+                "website": "",
+                "street": "",
+                "postal_code": "",
+                "city": "",
+                "country": "",
                 "notes": "",
                 "birthday": None,
             }
@@ -98,7 +125,8 @@ def parse_vcards(text: str) -> list[dict[str, Any]]:
             continue
         if current is None:
             continue
-        name, _params, value = rfc.split_property(line)
+        name, params, value = rfc.split_property(line)
+        types = ",".join(params.values()).upper()
         if name == "UID":
             current["uid"] = value.strip()
         elif name == "N":
@@ -110,10 +138,29 @@ def parse_vcards(text: str) -> list[dict[str, Any]]:
             current["first_name"] = rfc.unescape_text(value)
         elif name == "EMAIL" and not current["email"]:
             current["email"] = rfc.unescape_text(value)
-        elif name == "TEL" and not current["phone"]:
-            current["phone"] = rfc.unescape_text(value)
+        elif name == "TEL":
+            tel = rfc.unescape_text(value)
+            if "CELL" in types and not current["mobile"]:
+                current["mobile"] = tel
+            elif "WORK" in types and not current["work_phone"]:
+                current["work_phone"] = tel
+            elif not current["phone"]:
+                current["phone"] = tel
         elif name == "ORG":
             current["organization"] = rfc.unescape_text(rfc.split_components(value, ";")[0])
+        elif name == "TITLE" and not current["title"]:
+            current["title"] = rfc.unescape_text(value)
+        elif name == "URL" and not current["website"]:
+            current["website"] = rfc.unescape_text(value)
+        elif name == "ADR" and not (current["street"] or current["city"]):
+            # PObox;ext;street;locality;region;postal;country
+            comps = rfc.split_components(value, ";")
+            def _c(i: int) -> str:
+                return rfc.unescape_text(comps[i]) if len(comps) > i else ""
+            current["street"] = _c(2)
+            current["city"] = _c(3)
+            current["postal_code"] = _c(5)
+            current["country"] = _c(6)
         elif name == "NOTE":
             current["notes"] = rfc.unescape_text(value)
         elif name == "BDAY":

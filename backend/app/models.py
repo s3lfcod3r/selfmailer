@@ -93,13 +93,39 @@ class Contact(SQLModel, table=True):
     first_name: str = ""
     last_name: str = ""
     email: str = ""
-    phone: str = ""
+    phone: str = ""                       # Festnetz / privat
+    mobile: str = ""                      # Mobil
+    work_phone: str = ""                  # Geschaeftlich
     organization: str = ""
+    title: str = ""                       # Position / Jobtitel
+    website: str = ""
+    street: str = ""                      # Adresse: Strasse + Nr.
+    postal_code: str = ""                 # PLZ
+    city: str = ""                        # Ort
+    country: str = ""                     # Land
     notes: str = ""
     birthday: dt.date | None = None       # Geburtstag -> jaehrlicher Kalender-Eintrag
     # Herkunft: gesetzt, wenn der Kontakt aus einem externen CardDAV-Konto stammt.
     dav_account_id: int | None = Field(default=None, index=True, foreign_key="davaccount.id")
     external_uid: str = Field(default="", index=True)
+    created_at: dt.datetime = Field(default_factory=_now)
+    updated_at: dt.datetime = Field(default_factory=_now)
+
+
+class Task(SQLModel, table=True):
+    """Aufgabe / To-do eines Users (lokal, eigenstaendig nutzbar).
+
+    Optionales Faelligkeitsdatum (due); erledigte Aufgaben bleiben erhalten
+    (done=True), Reihenfolge ueber position (kleiner = oben).
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    title: str = ""
+    notes: str = ""
+    due: dt.date | None = None
+    done: bool = False
+    position: int = 0
     created_at: dt.datetime = Field(default_factory=_now)
     updated_at: dt.datetime = Field(default_factory=_now)
 
