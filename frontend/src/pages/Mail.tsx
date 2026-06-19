@@ -271,7 +271,7 @@ export function Mail({ search = "" }: { search?: string }) {
                   type="checkbox"
                   checked={selected.has(m.uid)}
                   onChange={() => toggleSelect(m.uid)}
-                  style={{ flex: "0 0 auto", marginTop: "0.3rem" }}
+                  style={{ flex: "0 0 auto", width: "auto", marginTop: "0.3rem" }}
                 />
                 <button
                   className="ghost"
