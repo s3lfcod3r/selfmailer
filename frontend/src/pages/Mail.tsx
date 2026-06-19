@@ -163,24 +163,24 @@ export function Mail() {
       ) : (
         <div className="mail-list">
           {messages.map((m) => (
-            <div className={`mail-row ${m.seen ? "" : "unseen"}`} key={m.uid}>
+            <div className={`mail-row ${m.seen ? "" : "unseen"}`} key={m.uid} style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
               <button
                 className="ghost"
-                style={{ padding: "0 0.3rem", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }}
+                style={{ padding: "0 0.2rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }}
                 onClick={() => toggleFlag(m)}
                 title={t("mail.flag")}
               >
                 {m.flagged ? "★" : "☆"}
               </button>
-              <div className="grow" style={{ cursor: "pointer", overflow: "hidden" }} onClick={() => openMsg(m.uid)}>
-                <div className="mail-subj">{m.subject || t("mail.noSubject")}</div>
-                <div className="mail-from">{m.from}</div>
+              <div className="grow" style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)}>
+                <div className="mail-subj" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || t("mail.noSubject")}</div>
+                <div className="mail-from" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.from}</div>
               </div>
-              <div className="muted" style={{ fontSize: "0.78rem", whiteSpace: "nowrap" }}>{m.date?.slice(0, 16)}</div>
-              <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => toggleSeen(m)} title={m.seen ? t("mail.markUnread") : t("mail.markRead")}>
+              <div className="muted" style={{ fontSize: "0.78rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{m.date?.slice(0, 16)}</div>
+              <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => toggleSeen(m)} title={m.seen ? t("mail.markUnread") : t("mail.markRead")}>
                 {m.seen ? "○" : "●"}
               </button>
-              <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => del(m)} title={t("mail.delete")}>🗑</button>
+              <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => del(m)} title={t("mail.delete")}>🗑</button>
             </div>
           ))}
           {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
