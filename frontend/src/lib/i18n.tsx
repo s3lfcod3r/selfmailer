@@ -106,6 +106,7 @@ const de: Dict = {
   // Compose
   "compose.needRecipient": "Mindestens einen Empfänger angeben.",
   "compose.new": "Neue Nachricht",
+  "compose.from": "Von",
   "compose.to": "An (Komma-getrennt)",
   "compose.cc": "Cc",
   "compose.subject": "Betreff",
@@ -326,6 +327,7 @@ const en: Dict = {
   // Compose
   "compose.needRecipient": "Enter at least one recipient.",
   "compose.new": "New message",
+  "compose.from": "From",
   "compose.to": "To (comma-separated)",
   "compose.cc": "Cc",
   "compose.subject": "Subject",

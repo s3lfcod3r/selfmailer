@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { api } from "../lib/api";
+import { useEffect, useState } from "react";
+import { api, type Account } from "../lib/api";
 import { useLang, type TFunc } from "../lib/i18n";
 
 export type Draft = {
@@ -66,8 +66,12 @@ export function Compose({
   const { t } = useLang();
   const [d, setD] = useState<Draft>(draft);
   const [files, setFiles] = useState<File[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [fromId, setFromId] = useState<number>(accountId);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+
+  useEffect(() => { api.get<Account[]>("/accounts").then(setAccounts).catch(() => {}); }, []);
 
   function set<K extends keyof Draft>(k: K, v: Draft[K]) { setD((p) => ({ ...p, [k]: v })); }
 
@@ -92,7 +96,7 @@ export function Compose({
           content_b64: await fileToB64(f),
         })),
       );
-      await api.post(`/mail/${accountId}/send`, {
+      await api.post(`/mail/${fromId}/send`, {
         to: split(d.to), cc: split(d.cc), subject: d.subject, body: d.body,
         in_reply_to: d.in_reply_to, attachments,
       });
@@ -109,6 +113,16 @@ export function Compose({
           <button className="ghost" onClick={onClose}>✕</button>
         </div>
         <div className="stack">
+          {accounts.length > 1 && (
+            <div className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
+              <span className="label" style={{ minWidth: 44 }}>{t("compose.from")}</span>
+              <select value={fromId} onChange={(e) => setFromId(Number(e.target.value))} style={{ flex: 1 }}>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.label ? `${a.label} — ${a.email}` : a.email}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <input placeholder={t("compose.to")} value={d.to} onChange={(e) => set("to", e.target.value)} />
           <input placeholder={t("compose.cc")} value={d.cc} onChange={(e) => set("cc", e.target.value)} />
           <input placeholder={t("compose.subject")} value={d.subject} onChange={(e) => set("subject", e.target.value)} />
