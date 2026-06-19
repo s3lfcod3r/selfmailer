@@ -101,10 +101,12 @@ def list_messages(
     account: MailAccount, password: str, folder: str = "INBOX", limit: int = 50
 ) -> list[dict]:
     out: list[dict] = []
-    # headers_only=False, damit Vorschau (snippet) und Anhang-Indikator verfügbar
-    # sind (Synology-artige Liste). TODO: partial fetch für große Postfächer.
+    # bulk=True bündelt den Abruf in EINEN IMAP-FETCH statt eines pro Nachricht.
+    # Auf entfernten Servern (z. B. web.de) ist die Round-Trip-Zeit der dominierende
+    # Kostenfaktor: ~50 Einzel-Fetches → 1 Sammel-Fetch. headers_only bleibt aus,
+    # damit Vorschau (snippet) und Anhang-Indikator erhalten bleiben.
     with _mailbox(account, password, folder=folder) as box:
-        for msg in box.fetch(AND(all=True), reverse=True, limit=limit, mark_seen=False):
+        for msg in box.fetch(AND(all=True), reverse=True, limit=limit, mark_seen=False, bulk=True):
             out.append(
                 {
                     "uid": msg.uid or "",
@@ -325,7 +327,9 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> int:
     affected = 0
     with _mailbox(account, password, folder="INBOX") as box:
         matches: list[tuple[str, object]] = []
-        for msg in box.fetch(AND(all=True), mark_seen=False, limit=200):
+        # Regeln prüfen nur Header (from/to/subject) → headers_only spart den
+        # Body-Download von bis zu 200 Mails; bulk=True bündelt die Round-Trips.
+        for msg in box.fetch(AND(all=True), mark_seen=False, limit=200, headers_only=True, bulk=True):
             for rule in rules:
                 if not getattr(rule, "enabled", True) or not rule.value:
                     continue

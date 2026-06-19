@@ -1,17 +1,21 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { api, auth, type User } from "./lib/api";
 import { useLang } from "./lib/i18n";
 import { Login } from "./pages/Login";
-import { Notes } from "./pages/Notes";
-import { Accounts } from "./pages/Accounts";
 import { Mail } from "./pages/Mail";
-import { Calendar } from "./pages/Calendar";
-import { Contacts } from "./pages/Contacts";
-import { Sync } from "./pages/Sync";
-import { Admin } from "./pages/Admin";
-import { Rules } from "./pages/Rules";
 import { Wordmark } from "./components/Wordmark";
-import { TotpSettings } from "./components/TotpSettings";
+
+// Sekundäre Views per Code-Splitting: sie (und ihre Deps, z. B. qrcode in
+// TotpSettings) liegen in eigenen Chunks und belasten das Initial-Bundle nicht.
+// Mail bleibt eager (Default-View, bleibt gemountet).
+const Notes = lazy(() => import("./pages/Notes").then((m) => ({ default: m.Notes })));
+const Accounts = lazy(() => import("./pages/Accounts").then((m) => ({ default: m.Accounts })));
+const Calendar = lazy(() => import("./pages/Calendar").then((m) => ({ default: m.Calendar })));
+const Contacts = lazy(() => import("./pages/Contacts").then((m) => ({ default: m.Contacts })));
+const Sync = lazy(() => import("./pages/Sync").then((m) => ({ default: m.Sync })));
+const Admin = lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
+const Rules = lazy(() => import("./pages/Rules").then((m) => ({ default: m.Rules })));
+const TotpSettings = lazy(() => import("./components/TotpSettings").then((m) => ({ default: m.TotpSettings })));
 
 type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin" | "rules";
 
@@ -216,16 +220,22 @@ export function App() {
         <div style={{ display: view === "mail" ? "contents" : "none" }}>
           <Mail search={search} filter={filter} pollMin={pollMin} />
         </div>
-        {view === "calendar" && <Calendar />}
-        {view === "contacts" && <Contacts />}
-        {view === "notes" && <Notes />}
-        {view === "sync" && <Sync />}
-        {view === "accounts" && <Accounts />}
-        {view === "rules" && <Rules />}
-        {view === "admin" && isAdmin && <Admin meId={user.id} />}
+        <Suspense fallback={<div className="muted">{t("common.loading")}</div>}>
+          {view === "calendar" && <Calendar />}
+          {view === "contacts" && <Contacts />}
+          {view === "notes" && <Notes />}
+          {view === "sync" && <Sync />}
+          {view === "accounts" && <Accounts />}
+          {view === "rules" && <Rules />}
+          {view === "admin" && isAdmin && <Admin meId={user.id} />}
+        </Suspense>
       </main>
 
-      {totpOpen && <TotpSettings onClose={() => setTotpOpen(false)} />}
+      {totpOpen && (
+        <Suspense fallback={null}>
+          <TotpSettings onClose={() => setTotpOpen(false)} />
+        </Suspense>
+      )}
 
       {pwOpen && (
         <div className="modal-backdrop" onClick={() => setPwOpen(false)}>
