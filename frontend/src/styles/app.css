@@ -416,3 +416,21 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 /* Kontakt-Karte: Name als anklickbarer Titel zum Bearbeiten. */
 .contact-open { background: transparent; border: none; padding: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
 .contact-open:hover { color: var(--self-teal-bright); }
+
+/* ── Scrollbar (Self-Markenfarben) ─────────────────────────────
+   Firefox + Standard via scrollbar-color, WebKit via Pseudo-Elemente.
+   color-scheme: dark (tokens.css) sorgt zusaetzlich fuer dunkle
+   native Controls dort, wo diese Regeln nicht greifen (z. B. iframes). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--self-teal) 80%, var(--self-line-strong)) var(--self-bg-2);
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--self-bg-2); }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--self-teal) 80%, var(--self-line-strong));
+  border-radius: 5px;
+  border: 2px solid var(--self-bg-2);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--self-teal); }
+::-webkit-scrollbar-corner { background: var(--self-bg-2); }
