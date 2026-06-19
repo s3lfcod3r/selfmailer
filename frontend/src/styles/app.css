@@ -126,6 +126,20 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   background: var(--self-bg-2); color: var(--self-text);
   border-color: var(--self-line-strong);
 }
+/* Thunderbird-Ansicht: Konto-Sektion + Ungelesen-Badges */
+.mail-acc { margin-bottom: 0.5rem; }
+.mail-acc-head {
+  display: flex; align-items: center; gap: 0.3rem; cursor: pointer;
+  padding: 0.3rem 0.4rem; border-radius: 6px;
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--self-text-3);
+}
+.mail-acc-head:hover { background: var(--self-bg-2); color: var(--self-text-2); }
+.mail-acc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.mail-badge {
+  flex: 0 0 auto; background: var(--self-teal); color: #04130f; font-size: 0.66rem; font-weight: 700;
+  border-radius: 999px; padding: 0 0.38rem; min-width: 1.05rem; text-align: center;
+  line-height: 1.25rem; height: 1.25rem;
+}
 /* --- Synology-artige App-Shell: Topbar + App-Switcher + Benutzer-Menü --- */
 .app-shell { display: flex; flex-direction: column; height: 100vh; }
 .topbar-main {

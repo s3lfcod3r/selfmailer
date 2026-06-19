@@ -34,6 +34,17 @@ def folders(
     return imap_mod.list_folders(acc, decrypt(acc.secret_enc))
 
 
+@router.get("/{account_id}/folders/counts")
+def folder_counts(
+    account_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """Ordner mit Ungelesen-/Gesamt-Zaehler (fuer die Thunderbird-Ansicht)."""
+    acc = _account(account_id, user, session)
+    return imap_mod.folder_counts(acc, decrypt(acc.secret_enc))
+
+
 @router.post("/{account_id}/folders")
 def create_folder(
     account_id: int,

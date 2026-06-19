@@ -56,6 +56,41 @@ def list_folders(account: MailAccount, password: str) -> list[str]:
     return names
 
 
+def folder_counts(account: MailAccount, password: str) -> list[dict]:
+    """Wie list_folders, aber mit Ungelesen-/Gesamt-Zaehlern je Ordner (IMAP STATUS).
+
+    Pro Ordner ein STATUS-Aufruf; bei sehr vielen Ordnern entsprechend langsamer.
+    Fehler bei einzelnen Ordnern werden geschluckt (Zaehler dann 0).
+    """
+    seen: dict[str, None] = {}
+    out: list[dict] = []
+    with _mailbox(account, password) as box:
+        attempts = [
+            lambda: box.folder.list("", "*"),
+            lambda: box.folder.list("INBOX", "*"),
+            lambda: box.folder.list("", "*", subscribed_only=True),
+        ]
+        for attempt in attempts:
+            try:
+                for f in attempt():
+                    if f.name:
+                        seen.setdefault(f.name, None)
+            except Exception:  # noqa: BLE001
+                continue
+        names = list(seen) or ["INBOX"]
+        names.sort(key=lambda n: (n.upper() != "INBOX", n.lower()))
+        for name in names:
+            unseen = total = 0
+            try:
+                st = box.folder.status(name, ["MESSAGES", "UNSEEN"])
+                total = int(st.get("MESSAGES", 0) or 0)
+                unseen = int(st.get("UNSEEN", 0) or 0)
+            except Exception:  # noqa: BLE001 - einzelner STATUS darf scheitern
+                pass
+            out.append({"name": name, "unseen": unseen, "total": total})
+    return out
+
+
 def _snippet(text: str, html: str) -> str:
     """Kurze 1-Zeilen-Vorschau aus Text- oder HTML-Body (Tags grob entfernt)."""
     src = text or re.sub(r"<[^>]+>", " ", html)

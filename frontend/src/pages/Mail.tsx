@@ -4,8 +4,8 @@ import { useLang } from "../lib/i18n";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
 
-// Einrückung pro Ordner-Ebene (px). 0 = Unterordner buendig mit Hauptordnern.
-const INDENT = 0;
+type FolderCount = { name: string; unseen: number; total: number };
+type Sel = { acc: number; folder: string };
 
 function fmtSize(bytes: number): string {
   if (!bytes) return "";
@@ -14,11 +14,10 @@ function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Prüft, ob das (date_str-)Datum einer Mail im Bereich [from, to] liegt (yyyy-mm-dd).
 function inDateRange(dateStr: string, from?: string, to?: string): boolean {
   if (!from && !to) return true;
   const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return true; // unparsbares Datum nicht herausfiltern
+  if (isNaN(d.getTime())) return true;
   if (from && d < new Date(from)) return false;
   if (to) { const end = new Date(to); end.setHours(23, 59, 59, 999); if (d > end) return false; }
   return true;
@@ -29,12 +28,17 @@ type MailFilter = {
   unread: boolean; starred: boolean; attachments: boolean;
 };
 
+function loadSet(key: string): Set<number> {
+  try { const v = JSON.parse(localStorage.getItem(key) || "[]"); return new Set(Array.isArray(v) ? v : []); }
+  catch { return new Set(); }
+}
+
 export function Mail({ search = "", filter }: { search?: string; filter?: MailFilter }) {
   const { t } = useLang();
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [activeId, setActiveId] = useState<number | null>(null);
-  const [folders, setFolders] = useState<string[]>([]);
-  const [folder, setFolder] = useState("INBOX");
+  const [foldersByAcc, setFoldersByAcc] = useState<Record<number, FolderCount[]>>({});
+  const [sel, setSel] = useState<Sel | null>(null);
+  const [collapsedAcc, setCollapsedAcc] = useState<Set<number>>(() => loadSet("selfmailer.collapsedAcc"));
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<MsgHeader[]>([]);
   const [open, setOpen] = useState<MsgDetail | null>(null);
@@ -42,22 +46,17 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [folderOrder, setFolderOrder] = useState<string[]>([]);
-  const [dragPath, setDragPath] = useState<string | null>(null);
-  const [ctxMenu, setCtxMenu] = useState<{ node: FolderNode; x: number; y: number } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ acc: number; node: FolderNode; x: number; y: number } | null>(null);
   const [listW, setListW] = useState<number>(() => {
     const v = Number(localStorage.getItem("selfmailer.listW"));
     return v >= 260 && v <= 760 ? v : 380;
   });
   const [foldersW, setFoldersW] = useState<number>(() => {
     const v = Number(localStorage.getItem("selfmailer.foldersW"));
-    return v >= 140 && v <= 380 ? v : 172;
+    return v >= 160 && v <= 420 ? v : 210;
   });
 
-  // Generischer Spalten-Resize: zieht eine Breite zwischen min/max und speichert sie.
-  function makeResize(
-    current: number, setW: (n: number) => void, key: string, min: number, max: number,
-  ) {
+  function makeResize(current: number, setW: (n: number) => void, key: string, min: number, max: number) {
     return (e: React.MouseEvent) => {
       e.preventDefault();
       const startX = e.clientX;
@@ -73,132 +72,133 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     };
   }
   const startResize = makeResize(listW, setListW, "selfmailer.listW", 260, 760);
-  const startResizeFolders = makeResize(foldersW, setFoldersW, "selfmailer.foldersW", 140, 380);
+  const startResizeFolders = makeResize(foldersW, setFoldersW, "selfmailer.foldersW", 160, 420);
 
-  const tree = useMemo(() => buildFolderTree(folders), [folders]);
+  const activeId = sel?.acc ?? null;
+  const folder = sel?.folder ?? "INBOX";
 
-  // Ordner gemäß gespeicherter Reihenfolge sortieren (gilt für jede Ebene; Geschwister).
-  function rankOf(p: string) {
-    const i = folderOrder.indexOf(p);
-    return i < 0 ? 1000 : i;
+  // --- Konten + Ordner (mit Zaehlern) laden ---
+  async function loadAccountFolders(a: Account) {
+    try { await api.post(`/mail/${a.id}/folders/defaults`); } catch { /* egal */ }
+    try {
+      const fc = await api.get<FolderCount[]>(`/mail/${a.id}/folders/counts`);
+      setFoldersByAcc((m) => ({ ...m, [a.id]: fc }));
+    } catch {
+      setFoldersByAcc((m) => ({ ...m, [a.id]: [{ name: "INBOX", unseen: 0, total: 0 }] }));
+    }
   }
-  function sortKids(kids: FolderNode[]): FolderNode[] {
-    return folderOrder.length ? [...kids].sort((a, b) => rankOf(a.path) - rankOf(b.path)) : kids;
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const sortedRoots = useMemo(() => sortKids(tree), [tree, folderOrder]);
-
-  function orderKey(id: number | null) { return `selfmailer.folderOrder.${id}`; }
-
-  function reorderFolders(dragged: string, target: string) {
-    if (dragged === target) return;
-    // Aktuelle Anzeige-Reihenfolge (alle Ebenen) flachklopfen, dann umsortieren.
-    const order: string[] = [];
-    const walk = (nodes: FolderNode[]) => {
-      for (const n of nodes) { order.push(n.path); walk(sortKids(n.children)); }
-    };
-    walk(sortedRoots);
-    const di = order.indexOf(dragged);
-    const ti = order.indexOf(target);
-    if (di < 0 || ti < 0) return;
-    order.splice(di, 1);
-    order.splice(ti, 0, dragged);
-    setFolderOrder(order);
-    if (activeId != null) localStorage.setItem(orderKey(activeId), JSON.stringify(order));
-  }
-
   useEffect(() => {
-    api.get<Account[]>("/accounts").then((a) => {
-      setAccounts(a);
-      if (a.length) setActiveId(a[0].id);
-    });
+    api.get<Account[]>("/accounts").then((list) => {
+      setAccounts(list);
+      if (list.length) setSel((s) => s ?? { acc: list[0].id, folder: "INBOX" });
+      list.forEach(loadAccountFolders);
+    }).catch((e) => setErr((e as Error).message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function refreshFolders() {
-    if (activeId == null) return;
-    api.get<string[]>(`/mail/${activeId}/folders`).then(setFolders).catch(() => setFolders([]));
-  }
-  // Ordnerliste laden, sobald ein Konto aktiv ist.
-  useEffect(() => {
-    if (activeId == null) return;
-    setFolder("INBOX");
-    try {
-      const saved = localStorage.getItem(orderKey(activeId));
-      setFolderOrder(saved ? (JSON.parse(saved) as string[]) : []);
-    } catch { setFolderOrder([]); }
-    // Fehlende Standard-Ordner (Gesendet/Entwürfe/…) einmalig anlegen, dann laden.
-    api.post(`/mail/${activeId}/folders/defaults`).catch(() => {}).finally(refreshFolders);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId]);
+  const treesByAcc = useMemo(() => {
+    const out: Record<number, FolderNode[]> = {};
+    for (const [id, fcs] of Object.entries(foldersByAcc)) out[Number(id)] = buildFolderTree(fcs.map((f) => f.name));
+    return out;
+  }, [foldersByAcc]);
 
-  async function newFolder() {
-    if (activeId == null) return;
-    const name = prompt(t("folder.newPrompt", { parent: folder }));
-    if (!name || !name.trim()) return;
-    try {
-      await api.post(`/mail/${activeId}/folders?name=${encodeURIComponent(name.trim())}&parent=${encodeURIComponent(folder)}`);
-      refreshFolders();
-    } catch (e) { setErr((e as Error).message); }
+  function unseenOf(accId: number, path: string): number {
+    return (foldersByAcc[accId] || []).find((f) => f.name === path)?.unseen ?? 0;
   }
-  async function newSubfolder(node: FolderNode) {
-    if (activeId == null) return;
+  function rollupUnseen(accId: number): number {
+    return (foldersByAcc[accId] || []).reduce((s, f) => s + (f.unseen || 0), 0);
+  }
+  // Ungelesen-Zaehler lokal anpassen (ohne erneuten IMAP-Abruf).
+  function bumpUnseen(accId: number, path: string, delta: number) {
+    setFoldersByAcc((m) => ({
+      ...m,
+      [accId]: (m[accId] || []).map((f) => f.name === path ? { ...f, unseen: Math.max(0, f.unseen + delta) } : f),
+    }));
+  }
+  function refreshCounts(accId: number) {
+    api.get<FolderCount[]>(`/mail/${accId}/folders/counts`)
+      .then((fc) => setFoldersByAcc((m) => ({ ...m, [accId]: fc }))).catch(() => {});
+  }
+
+  function toggleAccount(accId: number) {
+    setCollapsedAcc((s) => {
+      const n = new Set(s);
+      if (n.has(accId)) n.delete(accId); else n.add(accId);
+      localStorage.setItem("selfmailer.collapsedAcc", JSON.stringify([...n]));
+      return n;
+    });
+  }
+  function expKey(accId: number, path: string) { return `${accId}:${path}`; }
+  function toggleExpand(accId: number, path: string) {
+    setExpanded((s) => {
+      const n = new Set(s);
+      const k = expKey(accId, path);
+      if (n.has(k)) n.delete(k); else n.add(k);
+      return n;
+    });
+  }
+  // Posteingaenge initial aufgeklappt.
+  useEffect(() => {
+    setExpanded((prev) => {
+      const n = new Set(prev);
+      for (const [id, tree] of Object.entries(treesByAcc))
+        for (const node of tree) if (node.special === "inbox") n.add(expKey(Number(id), node.path));
+      return n;
+    });
+  }, [treesByAcc]);
+
+  // --- Ordner-Verwaltung (pro Konto) ---
+  async function newFolder(accId: number) {
+    const name = prompt(t("folder.newPrompt", { parent: t("folder.inbox") }));
+    if (!name || !name.trim()) return;
+    try { await api.post(`/mail/${accId}/folders?name=${encodeURIComponent(name.trim())}&parent=INBOX`); loadAccountFolders(accountById(accId)); }
+    catch (e) { setErr((e as Error).message); }
+  }
+  async function newSubfolder(accId: number, node: FolderNode) {
     const name = prompt(t("folder.newPrompt", { parent: node.special ? t(`folder.${node.special}`) : node.label }));
     if (!name || !name.trim()) return;
     try {
-      await api.post(`/mail/${activeId}/folders?name=${encodeURIComponent(name.trim())}&parent=${encodeURIComponent(node.path)}`);
-      setExpanded((s) => { const n = new Set(s); n.add(node.path); return n; });
-      refreshFolders();
+      await api.post(`/mail/${accId}/folders?name=${encodeURIComponent(name.trim())}&parent=${encodeURIComponent(node.path)}`);
+      setExpanded((s) => new Set(s).add(expKey(accId, node.path)));
+      loadAccountFolders(accountById(accId));
     } catch (e) { setErr((e as Error).message); }
   }
-  async function renameFolder(node: FolderNode) {
-    if (activeId == null) return;
+  async function renameFolder(accId: number, node: FolderNode) {
     const newName = prompt(t("folder.renamePrompt"), node.label);
     if (!newName || !newName.trim() || newName.trim() === node.label) return;
-    try {
-      await api.post(`/mail/${activeId}/folders/rename?name=${encodeURIComponent(node.path)}&new_name=${encodeURIComponent(newName.trim())}`);
-      refreshFolders();
-    } catch (e) { setErr((e as Error).message); }
+    try { await api.post(`/mail/${accId}/folders/rename?name=${encodeURIComponent(node.path)}&new_name=${encodeURIComponent(newName.trim())}`); loadAccountFolders(accountById(accId)); }
+    catch (e) { setErr((e as Error).message); }
   }
-  async function delFolder(path: string) {
-    if (activeId == null) return;
+  async function delFolder(accId: number, path: string) {
     if (!confirm(t("folder.deleteConfirm", { name: path }))) return;
     try {
-      await api.del(`/mail/${activeId}/folders?name=${encodeURIComponent(path)}`);
-      if (folder === path) setFolder("INBOX");
-      refreshFolders();
+      await api.del(`/mail/${accId}/folders?name=${encodeURIComponent(path)}`);
+      if (activeId === accId && folder === path) setSel({ acc: accId, folder: "INBOX" });
+      loadAccountFolders(accountById(accId));
     } catch (e) { setErr((e as Error).message); }
   }
+  function accountById(id: number): Account { return accounts.find((a) => a.id === id)!; }
 
-  // Posteingang standardmäßig aufgeklappt.
-  useEffect(() => {
-    setExpanded(new Set(tree.filter((n) => n.special === "inbox").map((n) => n.path)));
-  }, [tree]);
-
+  // --- Nachrichten ---
   function reload() {
-    if (activeId == null) return;
+    if (!sel) return;
     setLoading(true); setErr(""); setOpen(null); setSelected(new Set());
-    api.get<MsgHeader[]>(`/mail/${activeId}/messages?folder=${encodeURIComponent(folder)}&limit=50`)
+    api.get<MsgHeader[]>(`/mail/${sel.acc}/messages?folder=${encodeURIComponent(sel.folder)}&limit=50`)
       .then(setMessages)
       .catch((e) => setErr((e as Error).message))
       .finally(() => setLoading(false));
   }
-  useEffect(reload, [activeId, folder]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(reload, [sel?.acc, sel?.folder]);
 
   function patchHeader(uid: string, patch: Partial<MsgHeader>) {
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
   }
-  // Abrufen = Filterregeln anwenden (Modus A), dann Liste neu laden.
   async function refreshWithRules() {
     if (activeId == null) return;
-    try { await api.post(`/mail/${activeId}/rules/apply`); } catch { /* Regelfehler ignorieren */ }
+    try { await api.post(`/mail/${activeId}/rules/apply`); } catch { /* egal */ }
     reload();
-  }
-  function toggleExpand(path: string) {
-    setExpanded((s) => {
-      const n = new Set(s);
-      if (n.has(path)) n.delete(path); else n.add(path);
-      return n;
-    });
+    refreshCounts(activeId);
   }
 
   async function openMsg(uid: string) {
@@ -206,23 +206,16 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     setErr("");
     try {
       const msg = await api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`);
-      // Im Entwürfe-Ordner: Nachricht zum Weiterschreiben ins Compose-Fenster laden.
       const lastPart = folder.split(/[/.]/).pop() || folder;
       if (specialKind(lastPart) === "drafts") {
-        setDraft({
-          to: msg.to.join(", "),
-          cc: "",
-          bcc: "",
-          subject: msg.subject,
-          body: msg.text || msg.html.replace(/<[^>]+>/g, ""),
-          in_reply_to: "",
-        });
+        setDraft({ to: msg.to.join(", "), cc: "", bcc: "", subject: msg.subject, body: msg.text || msg.html.replace(/<[^>]+>/g, ""), in_reply_to: "" });
         return;
       }
       setOpen(msg);
       if (!msg.seen) {
         api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=true`).catch(() => {});
         patchHeader(uid, { seen: true });
+        bumpUnseen(activeId, folder, -1);
       }
     } catch (e) { setErr((e as Error).message); }
   }
@@ -230,8 +223,9 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     if (activeId == null) return;
     const next = !m.seen;
     patchHeader(m.uid, { seen: next });
+    bumpUnseen(activeId, folder, next ? -1 : 1);
     try { await api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(folder)}&seen=${next}`); }
-    catch (e) { patchHeader(m.uid, { seen: m.seen }); setErr((e as Error).message); }
+    catch (e) { patchHeader(m.uid, { seen: m.seen }); bumpUnseen(activeId, folder, next ? 1 : -1); setErr((e as Error).message); }
   }
   async function toggleFlag(m: MsgHeader) {
     if (activeId == null) return;
@@ -243,6 +237,7 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
   async function markUnread(uid: string) {
     if (activeId == null) return;
     patchHeader(uid, { seen: false });
+    bumpUnseen(activeId, folder, 1);
     setOpen(null);
     try { await api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=false`); }
     catch (e) { setErr((e as Error).message); }
@@ -254,6 +249,7 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
       await api.post(`/mail/${activeId}/messages/${uid}/move?folder=${encodeURIComponent(folder)}&dest=${encodeURIComponent(dest)}`);
       setMessages((ms) => ms.filter((x) => x.uid !== uid));
       if (open?.uid === uid) setOpen(null);
+      refreshCounts(activeId);
     } catch (e) { setErr((e as Error).message); }
   }
   async function del(m: MsgHeader) {
@@ -263,16 +259,13 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     try {
       await api.del(`/mail/${activeId}/messages/${m.uid}?folder=${encodeURIComponent(folder)}`);
       setMessages((ms) => ms.filter((x) => x.uid !== m.uid));
+      if (!m.seen) bumpUnseen(activeId, folder, -1);
       if (open?.uid === m.uid) setOpen(null);
     } catch (e) { setErr((e as Error).message); }
   }
 
   function toggleSelect(uid: string) {
-    setSelected((s) => {
-      const n = new Set(s);
-      if (n.has(uid)) n.delete(uid); else n.add(uid);
-      return n;
-    });
+    setSelected((s) => { const n = new Set(s); if (n.has(uid)) n.delete(uid); else n.add(uid); return n; });
   }
   async function delSelected() {
     if (activeId == null || selected.size === 0) return;
@@ -284,61 +277,50 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     setMessages((ms) => ms.filter((m) => !selected.has(m.uid)));
     if (open && selected.has(open.uid)) setOpen(null);
     setSelected(new Set());
+    refreshCounts(activeId);
   }
   async function markSelectedSeen(seen: boolean) {
     if (activeId == null || selected.size === 0) return;
     for (const uid of [...selected]) {
       try { await api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=${seen}`); }
-      catch { /* einzelne Fehler ignorieren */ }
+      catch { /* egal */ }
     }
     setMessages((ms) => ms.map((m) => (selected.has(m.uid) ? { ...m, seen } : m)));
     setSelected(new Set());
+    refreshCounts(activeId);
   }
 
-  function renderNode(node: FolderNode, depth: number): ReactNode {
+  function renderNode(accId: number, node: FolderNode, depth: number): ReactNode {
     const hasKids = node.children.length > 0;
-    const isOpen = expanded.has(node.path);
+    const isOpen = expanded.has(expKey(accId, node.path));
     const label = node.special ? t(`folder.${node.special}`) : node.label;
     const icon = node.special ? SPECIAL_ICON[node.special] : "📁";
+    const unseen = unseenOf(accId, node.path);
+    const active = activeId === accId && node.path === folder;
     return (
       <div key={node.path}>
-        <div
-          style={{ display: "flex", alignItems: "center", opacity: dragPath === node.path ? 0.4 : 1 }}
-          draggable
-          onDragStart={() => setDragPath(node.path)}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); if (dragPath) reorderFolders(dragPath, node.path); setDragPath(null); }}
-          onDragEnd={() => setDragPath(null)}
-        >
+        <div style={{ display: "flex", alignItems: "center" }}>
           {hasKids ? (
-            <button className="mail-folder-toggle" style={{ marginLeft: depth * INDENT }} onClick={() => toggleExpand(node.path)}>
-              {isOpen ? "▼" : "▶"}
-            </button>
+            <button className="mail-folder-toggle" onClick={() => toggleExpand(accId, node.path)}>{isOpen ? "▼" : "▶"}</button>
           ) : (
-            <span style={{ flex: "0 0 14px", width: 14, marginLeft: depth * INDENT }} />
+            <span style={{ flex: "0 0 14px", width: 14 }} />
           )}
           <button
-            className={`mail-folder ${node.path === folder ? "active" : ""}`}
+            className={`mail-folder ${active ? "active" : ""}`}
             style={{ flex: 1, minWidth: 0 }}
-            onClick={() => setFolder(node.path)}
-            onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ node, x: e.clientX, y: e.clientY }); }}
+            onClick={() => setSel({ acc: accId, folder: node.path })}
+            onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ acc: accId, node, x: e.clientX, y: e.clientY }); }}
             title={node.path}
           >
             <span>{icon}</span>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{label}</span>
+            {unseen > 0 && <span className="mail-badge">{unseen}</span>}
           </button>
           {!node.special && (
-            <button
-              className="mail-folder-toggle"
-              style={{ flex: "0 0 auto", width: "auto", padding: "0 0.3rem" }}
-              onClick={() => delFolder(node.path)}
-              title={t("common.delete")}
-            >
-              🗑
-            </button>
+            <button className="mail-folder-toggle" style={{ flex: "0 0 auto", width: "auto", padding: "0 0.3rem" }} onClick={() => delFolder(accId, node.path)} title={t("common.delete")}>🗑</button>
           )}
         </div>
-        {hasKids && isOpen && sortKids(node.children).map((c) => renderNode(c, depth + 1))}
+        {hasKids && isOpen && node.children.map((c) => renderNode(accId, c, depth + 1))}
       </div>
     );
   }
@@ -347,31 +329,41 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     return <p className="muted">{t("mail.noAccount")}</p>;
   }
 
+  const folderNames = (foldersByAcc[activeId ?? -1] || []).map((f) => f.name);
+
   return (
     <div>
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
 
       <div className="mail-layout">
-        {/* Mailbox-Ordnerbaum */}
+        {/* Konten + Ordner (Thunderbird-Stil) */}
         <aside className="mail-folders" style={{ flex: `0 0 ${foldersW}px` }}>
           <div className="row" style={{ marginBottom: "0.55rem", gap: "0.4rem" }}>
-            <button className="primary" style={{ flex: 1 }} onClick={() => setDraft(emptyDraft())}>{t("mail.newMail")}</button>
+            <button className="primary" style={{ flex: 1 }} onClick={() => activeId != null && setDraft(emptyDraft())}>{t("mail.newMail")}</button>
             <button className="ghost" onClick={refreshWithRules} title="↻">↻</button>
           </div>
-          <div className="mail-mailbox-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span>{t("mail.mailbox")}</span>
-            <button className="mail-folder-toggle" style={{ width: "auto", fontSize: "0.9rem", padding: "0 0.2rem" }} onClick={newFolder} title={t("folder.new")}>＋</button>
-          </div>
-          {accounts.length > 1 && (
-            <select
-              value={activeId ?? ""}
-              onChange={(e) => setActiveId(Number(e.target.value))}
-              style={{ marginBottom: "0.5rem", fontSize: "0.82rem" }}
-            >
-              {accounts.map((a) => <option key={a.id} value={a.id}>{a.label || a.email}</option>)}
-            </select>
-          )}
-          {sortedRoots.map((n) => renderNode(n, 0))}
+
+          {accounts.map((a) => {
+            const collapsed = collapsedAcc.has(a.id);
+            const tree = treesByAcc[a.id] || [];
+            const roll = rollupUnseen(a.id);
+            return (
+              <div className="mail-acc" key={a.id}>
+                <div className="mail-acc-head" onClick={() => toggleAccount(a.id)}>
+                  <button className="mail-folder-toggle">{collapsed ? "▶" : "▼"}</button>
+                  <span className="mail-acc-name" title={a.email}>{a.label || a.email}</span>
+                  {collapsed && roll > 0 && <span className="mail-badge">{roll}</span>}
+                  <button
+                    className="mail-folder-toggle"
+                    style={{ width: "auto", padding: "0 0.25rem" }}
+                    onClick={(e) => { e.stopPropagation(); newFolder(a.id); }}
+                    title={t("folder.new")}
+                  >＋</button>
+                </div>
+                {!collapsed && (tree.length ? tree.map((n) => renderNode(a.id, n, 0)) : <div className="muted" style={{ fontSize: "0.78rem", padding: "0.2rem 0.6rem" }}>…</div>)}
+              </div>
+            );
+          })}
         </aside>
 
         <div className="resize-handle" onMouseDown={startResizeFolders} title={t("mail.resizeHint")} />
@@ -398,23 +390,10 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
               .filter((m) => !filter?.attachments || m.has_attachments)
               .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo))
               .map((m) => (
-              <div
-                className={`mail-row ${m.seen ? "" : "unseen"}`}
-                key={m.uid}
-                style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: open?.uid === m.uid ? "var(--self-teal)" : undefined }}
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(m.uid)}
-                  onChange={() => toggleSelect(m.uid)}
-                  style={{ flex: "0 0 auto", width: "auto", marginTop: "0.3rem" }}
-                />
-                <button
-                  className="ghost"
-                  style={{ padding: "0 0.1rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }}
-                  onClick={() => toggleFlag(m)}
-                  title={t("mail.flag")}
-                >
+              <div className={`mail-row ${m.seen ? "" : "unseen"}`} key={m.uid}
+                style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: open?.uid === m.uid ? "var(--self-teal)" : undefined }}>
+                <input type="checkbox" checked={selected.has(m.uid)} onChange={() => toggleSelect(m.uid)} style={{ flex: "0 0 auto", width: "auto", marginTop: "0.3rem" }} />
+                <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={() => toggleFlag(m)} title={t("mail.flag")}>
                   {m.flagged ? "★" : "☆"}
                 </button>
                 <div className="grow" style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)}>
@@ -426,13 +405,9 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || t("mail.noSubject")}</span>
                     {m.has_attachments && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
                   </div>
-                  {m.snippet && (
-                    <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.snippet}</div>
-                  )}
+                  {m.snippet && <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.snippet}</div>}
                 </div>
-                <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => toggleSeen(m)} title={m.seen ? t("mail.markUnread") : t("mail.markRead")}>
-                  {m.seen ? "○" : "●"}
-                </button>
+                <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => toggleSeen(m)} title={m.seen ? t("mail.markUnread") : t("mail.markRead")}>{m.seen ? "○" : "●"}</button>
                 <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => del(m)} title={t("mail.delete")}>🗑</button>
               </div>
             ))}
@@ -452,15 +427,10 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
                 {(messages.find((m) => m.uid === open.uid)?.flagged ?? open.flagged) ? "★" : "☆"}
               </button>
               <button className="ghost" onClick={() => markUnread(open.uid)}>{t("mail.markUnread")}</button>
-              {folders.length > 1 && (
-                <select
-                  value=""
-                  title={t("mail.moveTo")}
-                  onChange={(e) => { moveMsg(open.uid, e.target.value); e.currentTarget.value = ""; }}
-                  style={{ fontSize: "0.82rem", maxWidth: 160 }}
-                >
+              {folderNames.length > 1 && (
+                <select value="" title={t("mail.moveTo")} onChange={(e) => { moveMsg(open.uid, e.target.value); e.currentTarget.value = ""; }} style={{ fontSize: "0.82rem", maxWidth: 160 }}>
                   <option value="">📁 {t("mail.moveTo")}</option>
-                  {folders.filter((f) => f !== folder).map((f) => <option key={f} value={f}>{f}</option>)}
+                  {folderNames.filter((f) => f !== folder).map((f) => <option key={f} value={f}>{f}</option>)}
                 </select>
               )}
               <button className="ghost" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
@@ -471,16 +441,9 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
             <div className="mail-from">{open.from} · {open.date}</div>
             <hr style={{ borderColor: "var(--self-line)", margin: "0.9rem 0" }} />
             {open.text ? (
-              // Text-Version bevorzugen → bleibt im dunklen Theme. iframe (weiß) nur
-              // für reine HTML-Mails ohne Text-Teil.
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>
             ) : open.html ? (
-              <iframe
-                title="mail-body"
-                sandbox=""
-                srcDoc={open.html}
-                style={{ width: "100%", height: "62vh", border: "none", background: "#fff", borderRadius: "6px" }}
-              />
+              <iframe title="mail-body" sandbox="" srcDoc={open.html} style={{ width: "100%", height: "62vh", border: "none", background: "#fff", borderRadius: "6px" }} />
             ) : (
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{t("mail.emptyBody")}</div>
             )}
@@ -489,12 +452,8 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
                 <div className="label" style={{ marginBottom: "0.5rem" }}>📎 {t("mail.attachments")}</div>
                 <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
                   {open.attachments.map((att) => (
-                    <button
-                      key={att.index}
-                      className="ghost"
-                      style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
-                      onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(folder)}`).catch((e) => setErr((e as Error).message))}
-                    >
+                    <button key={att.index} className="ghost" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
+                      onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(folder)}`).catch((e) => setErr((e as Error).message))}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220, whiteSpace: "nowrap" }}>⬇ {att.filename}</span>
                       <span className="muted" style={{ fontSize: "0.72rem" }}>{fmtSize(att.size)}</span>
                     </button>
@@ -510,25 +469,17 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
 
       {ctxMenu && (
         <>
-          <div
-            className="menu-backdrop"
-            onClick={() => setCtxMenu(null)}
-            onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
-          />
+          <div className="menu-backdrop" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
           <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
-            <button onClick={() => { newSubfolder(ctxMenu.node); setCtxMenu(null); }}>📁 {t("folder.newSub")}</button>
-            {!ctxMenu.node.special && (
-              <button onClick={() => { renameFolder(ctxMenu.node); setCtxMenu(null); }}>✏ {t("folder.rename")}</button>
-            )}
-            {!ctxMenu.node.special && (
-              <button onClick={() => { delFolder(ctxMenu.node.path); setCtxMenu(null); }}>🗑 {t("common.delete")}</button>
-            )}
+            <button onClick={() => { newSubfolder(ctxMenu.acc, ctxMenu.node); setCtxMenu(null); }}>📁 {t("folder.newSub")}</button>
+            {!ctxMenu.node.special && <button onClick={() => { renameFolder(ctxMenu.acc, ctxMenu.node); setCtxMenu(null); }}>✏ {t("folder.rename")}</button>}
+            {!ctxMenu.node.special && <button onClick={() => { delFolder(ctxMenu.acc, ctxMenu.node.path); setCtxMenu(null); }}>🗑 {t("common.delete")}</button>}
           </div>
         </>
       )}
 
       {draft && activeId != null && (
-        <Compose accountId={activeId} draft={draft} onClose={() => setDraft(null)} />
+        <Compose accountId={activeId} draft={draft} onClose={() => { setDraft(null); }} />
       )}
     </div>
   );
