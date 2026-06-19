@@ -153,16 +153,33 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 .filter-menu {
   position: absolute; left: 50%; transform: translateX(-50%); top: 44px; z-index: 50;
   background: var(--self-bg-2); border: 1px solid var(--self-line-strong);
-  border-radius: 10px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
-  padding: 0.5rem; display: flex; flex-direction: column; gap: 0.1rem; min-width: 200px;
+  border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  padding: 0.85rem; display: flex; flex-direction: column; gap: 0.7rem; width: 330px;
 }
-.filter-menu button {
-  display: flex; align-items: center; gap: 0.55rem; text-align: left;
-  background: none; border: none; color: var(--self-text-2);
-  padding: 0.45rem 0.6rem; border-radius: 7px; cursor: pointer; font: inherit; font-size: 0.86rem;
+.filter-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 0.55rem; border-bottom: 1px solid var(--self-line);
 }
-.filter-menu button:hover { background: var(--self-bg-3); color: var(--self-text); }
-.filter-menu button.on { color: var(--self-text); }
+.filter-head > span {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--self-text-3);
+}
+.filter-reset {
+  background: none; border: none; cursor: pointer; font: inherit; font-size: 0.78rem;
+  color: var(--self-text-3); padding: 0.15rem 0.3rem; border-radius: 6px;
+}
+.filter-reset:hover { color: var(--self-teal-bright); background: var(--self-bg-3); }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.filter-chips button {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  background: var(--self-bg-3); border: 1px solid var(--self-line); color: var(--self-text-2);
+  padding: 0.35rem 0.7rem; border-radius: 999px; cursor: pointer; font: inherit; font-size: 0.82rem;
+  transition: all var(--self-dur-fast) var(--self-ease);
+}
+.filter-chips button:hover { color: var(--self-text); border-color: var(--self-line-strong); }
+.filter-chips button.on {
+  background: color-mix(in srgb, var(--self-teal) 18%, transparent);
+  border-color: var(--self-teal); color: var(--self-teal-bright);
+}
 .topbar-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 0.6rem; }
 .icon-btn {
   background: none; border: 1px solid var(--self-line); border-radius: 8px;

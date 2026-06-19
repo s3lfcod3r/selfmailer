@@ -119,8 +119,14 @@ export function App() {
       {menu && <div className="menu-backdrop" onClick={() => setMenu(null)} />}
 
       {menu === "filter" && (
-        <div className="filter-menu" style={{ width: 340 }}>
-          <div className="stack" style={{ gap: "0.5rem", padding: "0.2rem 0.2rem 0.4rem" }}>
+        <div className="filter-menu">
+          <div className="filter-head">
+            <span>{t("filter.title")}</span>
+            <button className="filter-reset" onClick={() => setFilter({ from: "", subject: "", dateFrom: "", dateTo: "", unread: false, starred: false, attachments: false })}>
+              ↺ {t("filter.reset")}
+            </button>
+          </div>
+          <div className="stack" style={{ gap: "0.6rem" }}>
             <div className="stack">
               <label className="label">{t("filter.from")}</label>
               <input value={filter.from} onChange={(e) => setFilter((f) => ({ ...f, from: e.target.value }))} />
@@ -139,20 +145,18 @@ export function App() {
                 <input type="date" value={filter.dateTo} onChange={(e) => setFilter((f) => ({ ...f, dateTo: e.target.value }))} />
               </div>
             </div>
+            <div className="filter-chips">
+              <button className={filter.starred ? "on" : ""} onClick={() => setFilter((f) => ({ ...f, starred: !f.starred }))}>
+                ★ {t("filter.starred")}
+              </button>
+              <button className={filter.unread ? "on" : ""} onClick={() => setFilter((f) => ({ ...f, unread: !f.unread }))}>
+                ● {t("filter.unread")}
+              </button>
+              <button className={filter.attachments ? "on" : ""} onClick={() => setFilter((f) => ({ ...f, attachments: !f.attachments }))}>
+                📎 {t("filter.attachments")}
+              </button>
+            </div>
           </div>
-          <button className={filter.starred ? "on" : ""} onClick={() => setFilter((f) => ({ ...f, starred: !f.starred }))}>
-            <span>{filter.starred ? "★" : "☆"}</span> {t("filter.starred")}
-          </button>
-          <button className={filter.unread ? "on" : ""} onClick={() => setFilter((f) => ({ ...f, unread: !f.unread }))}>
-            <span>{filter.unread ? "●" : "○"}</span> {t("filter.unread")}
-          </button>
-          <button className={filter.attachments ? "on" : ""} onClick={() => setFilter((f) => ({ ...f, attachments: !f.attachments }))}>
-            <span>📎</span> {t("filter.attachments")}
-          </button>
-          <hr />
-          <button onClick={() => setFilter({ from: "", subject: "", dateFrom: "", dateTo: "", unread: false, starred: false, attachments: false })}>
-            <span>↺</span> {t("filter.reset")}
-          </button>
         </div>
       )}
 
