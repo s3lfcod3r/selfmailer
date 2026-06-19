@@ -64,6 +64,17 @@ export function buildFolderTree(names: string[]): FolderNode[] {
     }
   }
 
+  // Sonderordner, die technisch als INBOX-Unterordner liegen (web.de: INBOX.Sent …),
+  // in der Anzeige als eigenständige Top-Level-Ordner behandeln (wie gängige Clients).
+  const inbox = roots.find((r) => r.special === "inbox");
+  if (inbox) {
+    const promoted = inbox.children.filter((c) => c.special && c.special !== "inbox");
+    if (promoted.length) {
+      inbox.children = inbox.children.filter((c) => !promoted.includes(c));
+      roots.push(...promoted);
+    }
+  }
+
   roots.sort((a, b) => {
     const oa = a.special ? SPECIAL_ORDER[a.special] : 100;
     const ob = b.special ? SPECIAL_ORDER[b.special] : 100;

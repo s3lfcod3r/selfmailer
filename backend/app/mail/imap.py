@@ -198,6 +198,16 @@ def delete_folder(account: MailAccount, password: str, name: str) -> None:
         box.folder.delete(name)
 
 
+def rename_folder(account: MailAccount, password: str, old: str, new_name: str) -> str:
+    """Benennt einen Ordner um (gleicher Eltern-Pfad, nur Anzeigename neu)."""
+    with _mailbox(account, password) as box:
+        delim = _delimiter(box)
+        parent = old.rsplit(delim, 1)[0] if delim in old else ""
+        new_path = f"{parent}{delim}{new_name}" if parent else new_name
+        box.folder.rename(old, new_path)
+        return new_path
+
+
 # Standard-Unterordner unter INBOX (ASCII-Namen; Anzeige wird im Frontend lokalisiert).
 DEFAULT_SUBFOLDERS = ["Sent", "Drafts", "Trash", "Spam", "Archive"]
 

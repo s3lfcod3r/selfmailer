@@ -218,6 +218,11 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   flex: 1.7 1 0; min-width: 0; max-height: 76vh; overflow-y: auto;
   border-left: 1px solid var(--self-line); padding-left: 0.8rem;
 }
+.resize-handle {
+  flex: 0 0 7px; align-self: stretch; cursor: col-resize;
+  border-left: 1px solid var(--self-line); border-right: 1px solid transparent;
+}
+.resize-handle:hover { border-left-color: var(--self-teal); }
 .mail-placeholder {
   flex: 1.7 1 0; display: flex; align-items: center; justify-content: center;
   color: var(--self-text-3); border-left: 1px solid var(--self-line); min-height: 40vh;

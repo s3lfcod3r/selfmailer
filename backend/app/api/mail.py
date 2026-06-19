@@ -64,6 +64,22 @@ def ensure_default_folders(
     return {"ok": True}
 
 
+@router.post("/{account_id}/folders/rename")
+def rename_folder(
+    account_id: int,
+    name: str,
+    new_name: str,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    acc = _account(account_id, user, session)
+    try:
+        new_path = imap_mod.rename_folder(acc, decrypt(acc.secret_enc), name, new_name)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Umbenennen fehlgeschlagen: {exc}")
+    return {"ok": True, "folder": new_path}
+
+
 @router.delete("/{account_id}/folders")
 def delete_folder(
     account_id: int,

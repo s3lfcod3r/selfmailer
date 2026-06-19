@@ -41,6 +41,26 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [folderOrder, setFolderOrder] = useState<string[]>([]);
   const [dragPath, setDragPath] = useState<string | null>(null);
+  const [listW, setListW] = useState<number>(() => {
+    const v = Number(localStorage.getItem("selfmailer.listW"));
+    return v >= 260 && v <= 760 ? v : 380;
+  });
+
+  // Trennlinie zwischen Liste und Lesebereich ziehen.
+  function startResize(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = listW;
+    let last = startW;
+    function move(ev: MouseEvent) { last = Math.max(260, Math.min(760, startW + ev.clientX - startX)); setListW(last); }
+    function up() {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      localStorage.setItem("selfmailer.listW", String(last));
+    }
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  }
 
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
 
@@ -98,6 +118,15 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     if (!name || !name.trim()) return;
     try {
       await api.post(`/mail/${activeId}/folders?name=${encodeURIComponent(name.trim())}&parent=${encodeURIComponent(folder)}`);
+      refreshFolders();
+    } catch (e) { setErr((e as Error).message); }
+  }
+  async function renameFolder(node: FolderNode) {
+    if (activeId == null) return;
+    const newName = prompt(t("folder.renamePrompt"), node.label);
+    if (!newName || !newName.trim() || newName.trim() === node.label) return;
+    try {
+      await api.post(`/mail/${activeId}/folders/rename?name=${encodeURIComponent(node.path)}&new_name=${encodeURIComponent(newName.trim())}`);
       refreshFolders();
     } catch (e) { setErr((e as Error).message); }
   }
@@ -250,7 +279,8 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
             className={`mail-folder ${node.path === folder ? "active" : ""}`}
             style={{ flex: 1, minWidth: 0 }}
             onClick={() => setFolder(node.path)}
-            title={node.path}
+            onContextMenu={!node.special ? (e) => { e.preventDefault(); renameFolder(node); } : undefined}
+            title={node.special ? node.path : `${node.path} — ${t("folder.renameHint")}`}
           >
             <span>{icon}</span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
@@ -305,7 +335,7 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
         </aside>
 
         {/* Listen-Spalte */}
-        <div className="mail-listcol">
+        <div className="mail-listcol" style={open ? { flex: `0 0 ${listW}px` } : undefined}>
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
           {selected.size > 0 && (
             <div className="row" style={{ marginBottom: "0.5rem", padding: "0.4rem 0.6rem", background: "var(--self-bg-2)", borderRadius: "6px" }}>
@@ -367,6 +397,8 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
             {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
           </div>
         </div>
+
+        {open && <div className="resize-handle" onMouseDown={startResize} title={t("mail.resizeHint")} />}
 
         {/* Lese-Spalte */}
         {open ? (

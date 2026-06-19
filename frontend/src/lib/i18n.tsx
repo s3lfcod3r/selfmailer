@@ -151,6 +151,9 @@ const de: Dict = {
   "folder.new": "Ordner anlegen",
   "folder.newPrompt": "Neuer Ordner in „{parent}“ (Name):",
   "folder.deleteConfirm": "Ordner „{name}“ löschen?",
+  "folder.renamePrompt": "Neuer Ordnername:",
+  "folder.renameHint": "Rechtsklick zum Umbenennen",
+  "mail.resizeHint": "Breite ziehen",
 
   // Calendar
   "cal.needFields": "Titel, Beginn und Ende sind nötig.",
@@ -366,6 +369,9 @@ const en: Dict = {
   "folder.new": "Create folder",
   "folder.newPrompt": "New folder in “{parent}” (name):",
   "folder.deleteConfirm": "Delete folder “{name}”?",
+  "folder.renamePrompt": "New folder name:",
+  "folder.renameHint": "Right-click to rename",
+  "mail.resizeHint": "Drag to resize",
 
   // Calendar
   "cal.needFields": "Title, start and end are required.",
