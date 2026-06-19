@@ -63,7 +63,16 @@ def health() -> dict:
     return {"status": "ok", "app": settings.app_name, "version": "0.1.0"}
 
 
-# Optionales Static-Frontend (Produktion): ../frontend/dist
-_dist = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
-if os.path.isdir(_dist):
+# Optionales Static-Frontend (Produktion). Der Pfad unterscheidet sich je nach
+# Umgebung: lokal liegt main.py unter backend/app/ (zwei Ebenen bis zum Repo-
+# Root), im Container kopiert das Dockerfile nur den backend-Inhalt nach /app,
+# sodass main.py unter /app/app/ liegt (nur eine Ebene bis /app). Beide
+# Kandidaten pruefen und den ersten existierenden mounten.
+_here = os.path.dirname(__file__)
+_dist_candidates = [
+    os.path.join(_here, "..", "..", "frontend", "dist"),  # lokal: repo-root/frontend/dist
+    os.path.join(_here, "..", "frontend", "dist"),        # container: /app/frontend/dist
+]
+_dist = next((d for d in _dist_candidates if os.path.isdir(d)), None)
+if _dist:
     app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
