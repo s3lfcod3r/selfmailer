@@ -83,11 +83,27 @@ class MessageHeader(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class AttachmentMeta(BaseModel):
+    """Metadaten eines empfangenen Anhangs (ohne Bytes; Download separat)."""
+    index: int
+    filename: str
+    content_type: str = ""
+    size: int = 0
+
+
 class MessageDetail(MessageHeader):
     to: list[str] = []
     message_id: str = ""
     text: str = ""
     html: str = ""
+    attachments: list[AttachmentMeta] = []
+
+
+class AttachmentIn(BaseModel):
+    """Anhang im Sende-Request: Inhalt als base64 (ggf. mit data:-Praefix)."""
+    filename: str
+    content_type: str = "application/octet-stream"
+    content_b64: str
 
 
 class SendRequest(BaseModel):
@@ -97,6 +113,7 @@ class SendRequest(BaseModel):
     cc: list[EmailStr] = []
     bcc: list[EmailStr] = []
     in_reply_to: str = ""
+    attachments: list[AttachmentIn] = []
 
 
 # ---- Notizen -------------------------------------------------------------

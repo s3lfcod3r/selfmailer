@@ -56,6 +56,15 @@ def list_messages(
 def get_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> dict | None:
     with _mailbox(account, password, folder=folder) as box:
         for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
+            attachments = [
+                {
+                    "index": i,
+                    "filename": att.filename or f"anhang-{i + 1}",
+                    "content_type": att.content_type or "",
+                    "size": att.size or len(att.payload or b""),
+                }
+                for i, att in enumerate(msg.attachments)
+            ]
             return {
                 "uid": msg.uid or "",
                 "subject": msg.subject,
@@ -67,7 +76,25 @@ def get_message(account: MailAccount, password: str, uid: str, folder: str = "IN
                 "flagged": FLAGGED in msg.flags,
                 "text": msg.text or "",
                 "html": msg.html or "",
+                "attachments": attachments,
             }
+    return None
+
+
+def get_attachment(
+    account: MailAccount, password: str, uid: str, index: int, folder: str = "INBOX"
+) -> tuple[str, str, bytes] | None:
+    """Liefert (filename, content_type, bytes) des Anhangs mit gegebenem Index."""
+    with _mailbox(account, password, folder=folder) as box:
+        for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
+            atts = list(msg.attachments)
+            if 0 <= index < len(atts):
+                att = atts[index]
+                return (
+                    att.filename or f"anhang-{index + 1}",
+                    att.content_type or "application/octet-stream",
+                    att.payload or b"",
+                )
     return None
 
 

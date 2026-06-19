@@ -80,6 +80,8 @@ const de: Dict = {
   "compose.body": "Nachricht…",
   "compose.sending": "Sende…",
   "compose.send": "Senden",
+  "compose.attach": "Datei anhängen",
+  "compose.tooLarge": "Anhänge zu groß (max. 20 MB gesamt).",
   "compose.replyIntro": "Am {date} schrieb {from}:",
   "compose.forwardHeader": "---------- Weitergeleitete Nachricht ----------",
   "compose.fwdFrom": "Von:",
@@ -103,6 +105,7 @@ const de: Dict = {
   "mail.markUnread": "Ungelesen",
   "mail.flag": "Markieren",
   "mail.confirmDelete": "Nachricht löschen bzw. in den Papierkorb verschieben?",
+  "mail.attachments": "Anhänge",
 
   // Calendar
   "cal.needFields": "Titel, Beginn und Ende sind nötig.",
@@ -247,6 +250,8 @@ const en: Dict = {
   "compose.body": "Message…",
   "compose.sending": "Sending…",
   "compose.send": "Send",
+  "compose.attach": "Attach file",
+  "compose.tooLarge": "Attachments too large (max. 20 MB total).",
   "compose.replyIntro": "On {date} {from} wrote:",
   "compose.forwardHeader": "---------- Forwarded message ----------",
   "compose.fwdFrom": "From:",
@@ -270,6 +275,7 @@ const en: Dict = {
   "mail.markUnread": "Unread",
   "mail.flag": "Star",
   "mail.confirmDelete": "Delete message / move to trash?",
+  "mail.attachments": "Attachments",
 
   // Calendar
   "cal.needFields": "Title, start and end are required.",

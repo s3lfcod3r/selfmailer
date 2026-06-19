@@ -1,7 +1,9 @@
 """Mail lesen/senden ueber ein hinterlegtes Konto des Users."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel import Session
 
 from ..core.crypto import decrypt
@@ -57,6 +59,24 @@ def message(
     if msg is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nachricht nicht gefunden")
     return msg
+
+
+@router.get("/{account_id}/messages/{uid}/attachments/{index}")
+def attachment(
+    account_id: int,
+    uid: str,
+    index: int,
+    folder: str = "INBOX",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> Response:
+    acc = _account(account_id, user, session)
+    result = imap_mod.get_attachment(acc, decrypt(acc.secret_enc), uid, index, folder=folder)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Anhang nicht gefunden")
+    filename, content_type, data = result
+    disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
+    return Response(content=data, media_type=content_type, headers={"Content-Disposition": disposition})
 
 
 @router.post("/{account_id}/messages/{uid}/flags")
@@ -128,6 +148,7 @@ async def send(
             cc=[str(x) for x in data.cc],
             bcc=[str(x) for x in data.bcc],
             in_reply_to=data.in_reply_to,
+            attachments=[a.model_dump() for a in data.attachments],
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Versand fehlgeschlagen: {exc}")

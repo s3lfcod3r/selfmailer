@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
-import { api, type Account, type MsgHeader, type MsgDetail } from "../lib/api";
+import { api, download, type Account, type MsgHeader, type MsgDetail } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
+
+function fmtSize(bytes: number): string {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export function Mail() {
   const { t } = useLang();
@@ -134,6 +141,24 @@ export function Mail() {
           <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
             {open.text || open.html.replace(/<[^>]+>/g, "") || t("mail.emptyBody")}
           </div>
+          {open.attachments?.length > 0 && (
+            <div style={{ marginTop: "1.2rem", borderTop: "1px solid var(--self-line)", paddingTop: "0.8rem" }}>
+              <div className="label" style={{ marginBottom: "0.5rem" }}>📎 {t("mail.attachments")}</div>
+              <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
+                {open.attachments.map((att) => (
+                  <button
+                    key={att.index}
+                    className="ghost"
+                    style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
+                    onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(folder)}`).catch((e) => setErr((e as Error).message))}
+                  >
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220, whiteSpace: "nowrap" }}>⬇ {att.filename}</span>
+                    <span className="muted" style={{ fontSize: "0.72rem" }}>{fmtSize(att.size)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="mail-list">

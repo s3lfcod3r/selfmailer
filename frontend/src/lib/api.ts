@@ -37,6 +37,27 @@ export const api = {
   del: (p: string) => req<void>("DELETE", p),
 };
 
+// Binaer-Download mit Auth-Header (ein <a href> kann keinen Bearer setzen).
+export async function download(path: string): Promise<void> {
+  const token = auth.get();
+  const res = await fetch(`/api/v1${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const cd = res.headers.get("content-disposition") || "";
+  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
+  const name = m ? decodeURIComponent(m[1]) : "download";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ---- Typen ----
 export type User = { id: number; username: string; display_name: string; role: string; is_active: boolean };
 export type Note = {
@@ -50,7 +71,10 @@ export type Account = {
 export type MsgHeader = {
   uid: string; subject: string; from: string; date: string; seen: boolean; flagged: boolean;
 };
-export type MsgDetail = MsgHeader & { to: string[]; message_id: string; text: string; html: string };
+export type Attachment = { index: number; filename: string; content_type: string; size: number };
+export type MsgDetail = MsgHeader & {
+  to: string[]; message_id: string; text: string; html: string; attachments: Attachment[];
+};
 
 export type CalEvent = {
   id: number; title: string; description: string; location: string;
