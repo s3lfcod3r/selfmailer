@@ -7,14 +7,6 @@ import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../co
 // Einrückung pro Ordner-Ebene (px). 0 = Unterordner buendig mit Hauptordnern.
 const INDENT = 0;
 
-// Signatur in einen Entwurf einsetzen: oben, mit Standard-Trenner "-- ".
-function applySig(d: Draft, sig: string): Draft {
-  if (!sig) return d;
-  const block = "-- \n" + sig;
-  const rest = d.body.replace(/^\n+/, "");
-  return { ...d, body: "\n\n" + block + (rest ? "\n\n" + rest : "\n") };
-}
-
 function fmtSize(bytes: number): string {
   if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
@@ -355,8 +347,6 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     return <p className="muted">{t("mail.noAccount")}</p>;
   }
 
-  const activeSig = accounts.find((a) => a.id === activeId)?.signature ?? "";
-
   return (
     <div>
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
@@ -365,7 +355,7 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
         {/* Mailbox-Ordnerbaum */}
         <aside className="mail-folders" style={{ flex: `0 0 ${foldersW}px` }}>
           <div className="row" style={{ marginBottom: "0.55rem", gap: "0.4rem" }}>
-            <button className="primary" style={{ flex: 1 }} onClick={() => setDraft(applySig(emptyDraft(), activeSig))}>{t("mail.newMail")}</button>
+            <button className="primary" style={{ flex: 1 }} onClick={() => setDraft(emptyDraft())}>{t("mail.newMail")}</button>
             <button className="ghost" onClick={refreshWithRules} title="↻">↻</button>
           </div>
           <div className="mail-mailbox-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -456,8 +446,8 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
         {open ? (
           <div className="mail-readcol">
             <div className="row" style={{ marginBottom: "0.6rem", flexWrap: "wrap" }}>
-              <button onClick={() => setDraft(applySig(replyDraft(open, t), activeSig))}>{t("mail.reply")}</button>
-              <button onClick={() => setDraft(applySig(forwardDraft(open, t), activeSig))}>{t("mail.forward")}</button>
+              <button onClick={() => setDraft(replyDraft(open, t))}>{t("mail.reply")}</button>
+              <button onClick={() => setDraft(forwardDraft(open, t))}>{t("mail.forward")}</button>
               <button className="ghost" onClick={() => toggleFlag(open)} title={t("mail.flag")}>
                 {(messages.find((m) => m.uid === open.uid)?.flagged ?? open.flagged) ? "★" : "☆"}
               </button>

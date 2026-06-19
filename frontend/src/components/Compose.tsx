@@ -50,6 +50,17 @@ function split(v: string): string[] {
   return v.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
 }
 
+// Signatur als Plaintext-/HTML-Block (Standard-Trenner "-- ").
+function sigText(sig: string): string {
+  return sig ? "\n\n-- \n" + sig : "";
+}
+function sigHtml(sig: string): string {
+  if (!sig) return "";
+  const esc = sig
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+  return "<br><br>-- <br>" + esc;
+}
+
 const MAX_ATTACH_BYTES = 20 * 1024 * 1024; // 20 MB gesamt
 
 function fileToB64(file: File): Promise<string> {
@@ -126,8 +137,9 @@ export function Compose({
           content_b64: await fileToB64(f),
         })),
       );
-      const html = editorRef.current?.innerHTML ?? "";
-      const body = editorRef.current?.innerText ?? d.body;
+      const sig = accounts.find((a) => a.id === fromId)?.signature ?? "";
+      const html = (editorRef.current?.innerHTML ?? "") + sigHtml(sig);
+      const body = (editorRef.current?.innerText ?? d.body) + sigText(sig);
       await api.post(`/mail/${fromId}/send`, {
         to: split(d.to), cc: split(d.cc), bcc: split(d.bcc),
         subject: d.subject, body, html,
@@ -142,6 +154,7 @@ export function Compose({
   // ✕ schließt und speichert ungesendete Eingaben als Entwurf (nicht verwerfen).
   async function closeAsDraft() {
     if (busy) return;
+    const sig = accounts.find((a) => a.id === fromId)?.signature ?? "";
     const html = editorRef.current?.innerHTML ?? "";
     const body = editorRef.current?.innerText ?? "";
     const hasContent = !!(d.to || d.cc || d.bcc || d.subject || body.trim());
@@ -149,7 +162,7 @@ export function Compose({
       try {
         await api.post(`/mail/${fromId}/draft`, {
           to: split(d.to), cc: split(d.cc), bcc: split(d.bcc),
-          subject: d.subject, body, html,
+          subject: d.subject, body: body + sigText(sig), html: html + sigHtml(sig),
         });
       } catch { /* Entwurf-Fehler ignorieren, trotzdem schließen */ }
     }
@@ -198,6 +211,15 @@ export function Compose({
             suppressContentEditableWarning
             data-placeholder={t("compose.body")}
           />
+          {(() => {
+            const sig = accounts.find((a) => a.id === fromId)?.signature;
+            return sig ? (
+              <div className="compose-sig">
+                <span className="label">{t("accounts.signature")}</span>
+                <pre>{"-- \n" + sig}</pre>
+              </div>
+            ) : null;
+          })()}
 
           {files.length > 0 && (
             <div className="row" style={{ flexWrap: "wrap", gap: "0.4rem" }}>

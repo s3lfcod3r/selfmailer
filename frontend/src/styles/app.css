@@ -267,6 +267,9 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   background: var(--self-bg-3); color: var(--self-text); outline: none;
 }
 .compose-editor:empty::before { content: attr(data-placeholder); color: var(--self-text-3); }
+.compose-sig { border-top: 1px dashed var(--self-line); margin-top: 0.4rem; padding-top: 0.4rem; }
+.compose-sig .label { display: block; margin-bottom: 0.2rem; }
+.compose-sig pre { margin: 0; white-space: pre-wrap; color: var(--self-text-3); font: inherit; font-size: 0.85rem; }
 .compose-more {
   position: absolute; bottom: 110%; left: 70px; z-index: 50;
   background: var(--self-bg-2); border: 1px solid var(--self-line-strong);
