@@ -110,7 +110,7 @@ def apply_rules_endpoint(
     if not rules:
         return {"ok": True, "affected": 0}
     try:
-        affected = imap_mod.apply_rules(acc, decrypt(acc.secret_enc), rules)
+        result = imap_mod.apply_rules(acc, decrypt(acc.secret_enc), rules)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Regeln anwenden fehlgeschlagen: {exc}")
-    return {"ok": True, "affected": affected}
+    return {"ok": True, **result}

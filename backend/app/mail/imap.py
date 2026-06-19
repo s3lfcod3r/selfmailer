@@ -319,12 +319,15 @@ def _special_kind(last_part: str) -> str | None:
     return None
 
 
-def apply_rules(account: MailAccount, password: str, rules: list) -> int:
+def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
     """Wendet Filterregeln auf den Posteingang an (Modus A). Erste passende Regel je
     Mail gewinnt. rules: Objekte mit .field/.value/.target_folder/.mark_read/.star/
-    .enabled. Liefert die Anzahl betroffener Mails.
+    .enabled. Liefert {affected, matched, errors} — affected = erfolgreich
+    bearbeitete Mails, matched = passende Mails, errors = erste Fehlermeldungen
+    (z. B. wenn der Zielordner nicht beschreibbar ist).
     """
     affected = 0
+    errors: list[str] = []
     with _mailbox(account, password, folder="INBOX") as box:
         matches: list[tuple[str, object]] = []
         # Regeln prüfen nur Header (from/to/subject) → headers_only spart den
@@ -362,9 +365,10 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> int:
                 if rule.target_folder:
                     box.move(uid, rule.target_folder)
                 affected += 1
-            except Exception:  # noqa: BLE001 - einzelne Aktion darf scheitern
-                continue
-    return affected
+            except Exception as exc:  # noqa: BLE001 - einzelne Aktion darf scheitern
+                if len(errors) < 3:
+                    errors.append(f"{getattr(rule, 'target_folder', '')}: {type(exc).__name__}: {exc}")
+    return {"affected": affected, "matched": len(matches), "errors": errors}
 
 
 def ensure_default_folders(account: MailAccount, password: str) -> None:
