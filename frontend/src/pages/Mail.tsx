@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, download, type Account, type MsgHeader, type MsgDetail } from "../lib/api";
-import { useLang } from "../lib/i18n";
+import { useLang, type TFunc } from "../lib/i18n";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
 
 function fmtSize(bytes: number): string {
@@ -8,6 +8,13 @@ function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Zeigt INBOX lokalisiert, sonst den letzten Pfadteil (mit vollem Namen im Tooltip).
+function folderLabel(name: string, t: TFunc): string {
+  if (name.toUpperCase() === "INBOX") return t("mail.inbox");
+  const parts = name.split(/[\/.]/).filter(Boolean);
+  return parts[parts.length - 1] || name;
 }
 
 export function Mail() {
@@ -60,7 +67,6 @@ export function Mail() {
       const msg = await api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`);
       setOpen(msg);
       if (!msg.seen) {
-        // Beim Oeffnen als gelesen markieren (best effort).
         api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=true`).catch(() => {});
         patchHeader(uid, { seen: true });
       }
@@ -109,83 +115,105 @@ export function Mail() {
         <select value={activeId ?? ""} onChange={(e) => setActiveId(Number(e.target.value))} style={{ maxWidth: 260 }}>
           {accounts.map((a) => <option key={a.id} value={a.id}>{a.label || a.email}</option>)}
         </select>
-        {folders.length > 0 && (
-          <select value={folder} onChange={(e) => setFolder(e.target.value)} style={{ maxWidth: 200 }} aria-label={t("mail.folderLabel")}>
-            {folders.map((f) => <option key={f} value={f}>{f}</option>)}
-          </select>
-        )}
         <button className="primary" onClick={() => setDraft(emptyDraft())}>{t("mail.newMail")}</button>
         <span className="grow" />
         <button className="ghost" onClick={reload}>↻</button>
       </div>
 
-      {err && <div className="err">{err}</div>}
-      {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
+      {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
 
-      {open ? (
-        <div className="card" style={{ padding: "1.2rem" }}>
-          <div className="row" style={{ marginBottom: "0.6rem" }}>
-            <button className="ghost" onClick={() => setOpen(null)}>{t("mail.back")}</button>
-            <span className="grow" />
-            <button onClick={() => setDraft(replyDraft(open, t))}>{t("mail.reply")}</button>
-            <button onClick={() => setDraft(forwardDraft(open, t))}>{t("mail.forward")}</button>
-            <button className="ghost" onClick={() => toggleFlag(open)} title={t("mail.flag")}>
-              {(messages.find((m) => m.uid === open.uid)?.flagged ?? open.flagged) ? "★" : "☆"}
+      <div className="mail-layout">
+        {/* Ordner-Spalte */}
+        <aside className="mail-folders">
+          {folders.map((f) => (
+            <button
+              key={f}
+              className={`mail-folder ${f === folder ? "active" : ""}`}
+              onClick={() => setFolder(f)}
+              title={f}
+            >
+              <span>{f.toUpperCase() === "INBOX" ? "📥" : "📁"}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{folderLabel(f, t)}</span>
             </button>
-            <button className="ghost" onClick={() => markUnread(open.uid)}>{t("mail.markUnread")}</button>
-            <button className="ghost" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
-          </div>
-          <h2 style={{ marginBottom: "0.2rem" }}>{open.subject || t("mail.noSubject")}</h2>
-          <div className="mail-from">{open.from} · {open.date}</div>
-          <hr style={{ borderColor: "var(--self-line)", margin: "1rem 0" }} />
-          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
-            {open.text || open.html.replace(/<[^>]+>/g, "") || t("mail.emptyBody")}
-          </div>
-          {open.attachments?.length > 0 && (
-            <div style={{ marginTop: "1.2rem", borderTop: "1px solid var(--self-line)", paddingTop: "0.8rem" }}>
-              <div className="label" style={{ marginBottom: "0.5rem" }}>📎 {t("mail.attachments")}</div>
-              <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
-                {open.attachments.map((att) => (
-                  <button
-                    key={att.index}
-                    className="ghost"
-                    style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
-                    onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(folder)}`).catch((e) => setErr((e as Error).message))}
-                  >
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220, whiteSpace: "nowrap" }}>⬇ {att.filename}</span>
-                    <span className="muted" style={{ fontSize: "0.72rem" }}>{fmtSize(att.size)}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="mail-list">
-          {messages.map((m) => (
-            <div className={`mail-row ${m.seen ? "" : "unseen"}`} key={m.uid} style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-              <button
-                className="ghost"
-                style={{ padding: "0 0.2rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }}
-                onClick={() => toggleFlag(m)}
-                title={t("mail.flag")}
-              >
-                {m.flagged ? "★" : "☆"}
-              </button>
-              <div className="grow" style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)}>
-                <div className="mail-subj" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || t("mail.noSubject")}</div>
-                <div className="mail-from" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.from}</div>
-              </div>
-              <div className="muted" style={{ fontSize: "0.78rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{m.date?.slice(0, 16)}</div>
-              <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => toggleSeen(m)} title={m.seen ? t("mail.markUnread") : t("mail.markRead")}>
-                {m.seen ? "○" : "●"}
-              </button>
-              <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => del(m)} title={t("mail.delete")}>🗑</button>
-            </div>
           ))}
-          {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
+        </aside>
+
+        {/* Listen-Spalte */}
+        <div className="mail-listcol">
+          {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
+          <div className="mail-list">
+            {messages.map((m) => (
+              <div
+                className={`mail-row ${m.seen ? "" : "unseen"} ${open?.uid === m.uid ? "active" : ""}`}
+                key={m.uid}
+                style={{ display: "flex", alignItems: "center", gap: "0.5rem", borderColor: open?.uid === m.uid ? "var(--self-teal)" : undefined }}
+              >
+                <button
+                  className="ghost"
+                  style={{ padding: "0 0.2rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }}
+                  onClick={() => toggleFlag(m)}
+                  title={t("mail.flag")}
+                >
+                  {m.flagged ? "★" : "☆"}
+                </button>
+                <div className="grow" style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)}>
+                  <div className="mail-subj" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || t("mail.noSubject")}</div>
+                  <div className="mail-from" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.from}</div>
+                </div>
+                <div className="muted" style={{ fontSize: "0.74rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{m.date?.slice(0, 16)}</div>
+                <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => toggleSeen(m)} title={m.seen ? t("mail.markUnread") : t("mail.markRead")}>
+                  {m.seen ? "○" : "●"}
+                </button>
+                <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => del(m)} title={t("mail.delete")}>🗑</button>
+              </div>
+            ))}
+            {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
+          </div>
         </div>
-      )}
+
+        {/* Lese-Spalte */}
+        {open ? (
+          <div className="mail-readcol">
+            <div className="row" style={{ marginBottom: "0.6rem", flexWrap: "wrap" }}>
+              <button onClick={() => setDraft(replyDraft(open, t))}>{t("mail.reply")}</button>
+              <button onClick={() => setDraft(forwardDraft(open, t))}>{t("mail.forward")}</button>
+              <button className="ghost" onClick={() => toggleFlag(open)} title={t("mail.flag")}>
+                {(messages.find((m) => m.uid === open.uid)?.flagged ?? open.flagged) ? "★" : "☆"}
+              </button>
+              <button className="ghost" onClick={() => markUnread(open.uid)}>{t("mail.markUnread")}</button>
+              <button className="ghost" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
+              <span className="grow" />
+              <button className="ghost" onClick={() => setOpen(null)} title={t("mail.back")}>✕</button>
+            </div>
+            <h2 style={{ marginBottom: "0.2rem", fontSize: "1.2rem" }}>{open.subject || t("mail.noSubject")}</h2>
+            <div className="mail-from">{open.from} · {open.date}</div>
+            <hr style={{ borderColor: "var(--self-line)", margin: "0.9rem 0" }} />
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
+              {open.text || open.html.replace(/<[^>]+>/g, "") || t("mail.emptyBody")}
+            </div>
+            {open.attachments?.length > 0 && (
+              <div style={{ marginTop: "1.2rem", borderTop: "1px solid var(--self-line)", paddingTop: "0.8rem" }}>
+                <div className="label" style={{ marginBottom: "0.5rem" }}>📎 {t("mail.attachments")}</div>
+                <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
+                  {open.attachments.map((att) => (
+                    <button
+                      key={att.index}
+                      className="ghost"
+                      style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
+                      onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(folder)}`).catch((e) => setErr((e as Error).message))}
+                    >
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220, whiteSpace: "nowrap" }}>⬇ {att.filename}</span>
+                      <span className="muted" style={{ fontSize: "0.72rem" }}>{fmtSize(att.size)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="mail-placeholder">{t("mail.selectHint")}</div>
+        )}
+      </div>
 
       {draft && activeId != null && (
         <Compose accountId={activeId} draft={draft} onClose={() => setDraft(null)} />

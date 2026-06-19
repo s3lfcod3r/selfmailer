@@ -106,6 +106,7 @@ const de: Dict = {
   "mail.flag": "Markieren",
   "mail.confirmDelete": "Nachricht löschen bzw. in den Papierkorb verschieben?",
   "mail.attachments": "Anhänge",
+  "mail.selectHint": "Nachricht auswählen",
 
   // Calendar
   "cal.needFields": "Titel, Beginn und Ende sind nötig.",
@@ -276,6 +277,7 @@ const en: Dict = {
   "mail.flag": "Star",
   "mail.confirmDelete": "Delete message / move to trash?",
   "mail.attachments": "Attachments",
+  "mail.selectHint": "Select a message",
 
   // Calendar
   "cal.needFields": "Title, start and end are required.",
