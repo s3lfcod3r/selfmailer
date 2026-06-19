@@ -113,10 +113,10 @@ export function Compose({
           <button className="ghost" onClick={onClose}>✕</button>
         </div>
         <div className="stack">
-          {accounts.length > 1 && (
+          {accounts.length > 0 && (
             <div className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
               <span className="label" style={{ minWidth: 44 }}>{t("compose.from")}</span>
-              <select value={fromId} onChange={(e) => setFromId(Number(e.target.value))} style={{ flex: 1 }}>
+              <select value={fromId} onChange={(e) => setFromId(Number(e.target.value))} style={{ flex: 1 }} disabled={accounts.length === 1}>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>{a.label ? `${a.label} — ${a.email}` : a.email}</option>
                 ))}
