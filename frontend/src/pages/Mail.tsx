@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, download, type Account, type MsgHeader, type MsgDetail } from "../lib/api";
-import { useLang, type TFunc } from "../lib/i18n";
+import { useLang } from "../lib/i18n";
+import { buildFolderTree, SPECIAL_ICON, type FolderNode } from "../lib/folders";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
 
 function fmtSize(bytes: number): string {
@@ -10,24 +11,20 @@ function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Zeigt INBOX lokalisiert, sonst den letzten Pfadteil (mit vollem Namen im Tooltip).
-function folderLabel(name: string, t: TFunc): string {
-  if (name.toUpperCase() === "INBOX") return t("mail.inbox");
-  const parts = name.split(/[\/.]/).filter(Boolean);
-  return parts[parts.length - 1] || name;
-}
-
 export function Mail() {
   const { t } = useLang();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [folders, setFolders] = useState<string[]>([]);
   const [folder, setFolder] = useState("INBOX");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<MsgHeader[]>([]);
   const [open, setOpen] = useState<MsgDetail | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+
+  const tree = useMemo(() => buildFolderTree(folders), [folders]);
 
   useEffect(() => {
     api.get<Account[]>("/accounts").then((a) => {
@@ -45,6 +42,11 @@ export function Mail() {
       .catch(() => setFolders([]));
   }, [activeId]);
 
+  // Posteingang standardmäßig aufgeklappt.
+  useEffect(() => {
+    setExpanded(new Set(tree.filter((n) => n.special === "inbox").map((n) => n.path)));
+  }, [tree]);
+
   function reload() {
     if (activeId == null) return;
     setLoading(true); setErr(""); setOpen(null);
@@ -55,9 +57,15 @@ export function Mail() {
   }
   useEffect(reload, [activeId, folder]);
 
-  // Lokalen Header nach einer Aktion aktualisieren (immutabel).
   function patchHeader(uid: string, patch: Partial<MsgHeader>) {
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
+  }
+  function toggleExpand(path: string) {
+    setExpanded((s) => {
+      const n = new Set(s);
+      if (n.has(path)) n.delete(path); else n.add(path);
+      return n;
+    });
   }
 
   async function openMsg(uid: string) {
@@ -72,7 +80,6 @@ export function Mail() {
       }
     } catch (e) { setErr((e as Error).message); }
   }
-
   async function toggleSeen(m: MsgHeader) {
     if (activeId == null) return;
     const next = !m.seen;
@@ -105,6 +112,36 @@ export function Mail() {
     } catch (e) { setErr((e as Error).message); }
   }
 
+  function renderNode(node: FolderNode, depth: number): ReactNode {
+    const hasKids = node.children.length > 0;
+    const isOpen = expanded.has(node.path);
+    const label = node.special ? t(`folder.${node.special}`) : node.label;
+    const icon = node.special ? SPECIAL_ICON[node.special] : "📁";
+    return (
+      <div key={node.path}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          {hasKids ? (
+            <button className="mail-folder-toggle" style={{ marginLeft: depth * 12 }} onClick={() => toggleExpand(node.path)}>
+              {isOpen ? "▼" : "▶"}
+            </button>
+          ) : (
+            <span style={{ flex: "0 0 14px", width: 14, marginLeft: depth * 12 }} />
+          )}
+          <button
+            className={`mail-folder ${node.path === folder ? "active" : ""}`}
+            style={{ flex: 1, minWidth: 0 }}
+            onClick={() => setFolder(node.path)}
+            title={node.path}
+          >
+            <span>{icon}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+          </button>
+        </div>
+        {hasKids && isOpen && node.children.map((c) => renderNode(c, depth + 1))}
+      </div>
+    );
+  }
+
   if (accounts.length === 0) {
     return <p className="muted">{t("mail.noAccount")}</p>;
   }
@@ -112,9 +149,6 @@ export function Mail() {
   return (
     <div>
       <div className="row" style={{ marginBottom: "1rem" }}>
-        <select value={activeId ?? ""} onChange={(e) => setActiveId(Number(e.target.value))} style={{ maxWidth: 260 }}>
-          {accounts.map((a) => <option key={a.id} value={a.id}>{a.label || a.email}</option>)}
-        </select>
         <button className="primary" onClick={() => setDraft(emptyDraft())}>{t("mail.newMail")}</button>
         <span className="grow" />
         <button className="ghost" onClick={reload}>↻</button>
@@ -123,19 +157,19 @@ export function Mail() {
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
 
       <div className="mail-layout">
-        {/* Ordner-Spalte */}
+        {/* Mailbox-Ordnerbaum */}
         <aside className="mail-folders">
-          {folders.map((f) => (
-            <button
-              key={f}
-              className={`mail-folder ${f === folder ? "active" : ""}`}
-              onClick={() => setFolder(f)}
-              title={f}
+          <div className="mail-mailbox-head">{t("mail.mailbox")}</div>
+          {accounts.length > 1 && (
+            <select
+              value={activeId ?? ""}
+              onChange={(e) => setActiveId(Number(e.target.value))}
+              style={{ marginBottom: "0.5rem", fontSize: "0.82rem" }}
             >
-              <span>{f.toUpperCase() === "INBOX" ? "📥" : "📁"}</span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{folderLabel(f, t)}</span>
-            </button>
-          ))}
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.label || a.email}</option>)}
+            </select>
+          )}
+          {tree.map((n) => renderNode(n, 0))}
         </aside>
 
         {/* Listen-Spalte */}
@@ -144,7 +178,7 @@ export function Mail() {
           <div className="mail-list">
             {messages.map((m) => (
               <div
-                className={`mail-row ${m.seen ? "" : "unseen"} ${open?.uid === m.uid ? "active" : ""}`}
+                className={`mail-row ${m.seen ? "" : "unseen"}`}
                 key={m.uid}
                 style={{ display: "flex", alignItems: "center", gap: "0.5rem", borderColor: open?.uid === m.uid ? "var(--self-teal)" : undefined }}
               >

@@ -107,6 +107,13 @@ const de: Dict = {
   "mail.confirmDelete": "Nachricht löschen bzw. in den Papierkorb verschieben?",
   "mail.attachments": "Anhänge",
   "mail.selectHint": "Nachricht auswählen",
+  "mail.mailbox": "Mailbox",
+  "folder.inbox": "Posteingang",
+  "folder.drafts": "Entwürfe",
+  "folder.sent": "Gesendet",
+  "folder.spam": "Spam",
+  "folder.trash": "Papierkorb",
+  "folder.archive": "Archiv",
 
   // Calendar
   "cal.needFields": "Titel, Beginn und Ende sind nötig.",
@@ -278,6 +285,13 @@ const en: Dict = {
   "mail.confirmDelete": "Delete message / move to trash?",
   "mail.attachments": "Attachments",
   "mail.selectHint": "Select a message",
+  "mail.mailbox": "Mailbox",
+  "folder.inbox": "Inbox",
+  "folder.drafts": "Drafts",
+  "folder.sent": "Sent",
+  "folder.spam": "Spam",
+  "folder.trash": "Trash",
+  "folder.archive": "Archive",
 
   // Calendar
   "cal.needFields": "Title, start and end are required.",

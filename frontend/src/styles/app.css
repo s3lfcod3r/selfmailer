@@ -126,6 +126,14 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   background: var(--self-bg-2); color: var(--self-text);
   border-color: var(--self-line-strong);
 }
+.mail-mailbox-head {
+  font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--self-text-3); padding: 0.1rem 0.6rem 0.5rem;
+}
+.mail-folder-toggle {
+  background: none; border: none; cursor: pointer; padding: 0;
+  color: var(--self-text-3); flex: 0 0 14px; width: 14px; font-size: 0.62rem; line-height: 1;
+}
 .mail-listcol { flex: 1 1 0; min-width: 0; max-height: 76vh; overflow-y: auto; }
 .mail-readcol {
   flex: 1.7 1 0; min-width: 0; max-height: 76vh; overflow-y: auto;
