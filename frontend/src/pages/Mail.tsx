@@ -123,6 +123,15 @@ export function Mail({ search = "" }: { search?: string }) {
     try { await api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=false`); }
     catch (e) { setErr((e as Error).message); }
   }
+  async function moveMsg(uid: string, dest: string) {
+    if (activeId == null || !dest) return;
+    setErr("");
+    try {
+      await api.post(`/mail/${activeId}/messages/${uid}/move?folder=${encodeURIComponent(folder)}&dest=${encodeURIComponent(dest)}`);
+      setMessages((ms) => ms.filter((x) => x.uid !== uid));
+      if (open?.uid === uid) setOpen(null);
+    } catch (e) { setErr((e as Error).message); }
+  }
   async function del(m: MsgHeader) {
     if (activeId == null) return;
     if (!confirm(t("mail.confirmDelete"))) return;
@@ -253,6 +262,17 @@ export function Mail({ search = "" }: { search?: string }) {
                 {(messages.find((m) => m.uid === open.uid)?.flagged ?? open.flagged) ? "★" : "☆"}
               </button>
               <button className="ghost" onClick={() => markUnread(open.uid)}>{t("mail.markUnread")}</button>
+              {folders.length > 1 && (
+                <select
+                  value=""
+                  title={t("mail.moveTo")}
+                  onChange={(e) => { moveMsg(open.uid, e.target.value); e.currentTarget.value = ""; }}
+                  style={{ fontSize: "0.82rem", maxWidth: 160 }}
+                >
+                  <option value="">📁 {t("mail.moveTo")}</option>
+                  {folders.filter((f) => f !== folder).map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+              )}
               <button className="ghost" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
               <span className="grow" />
               <button className="ghost" onClick={() => setOpen(null)} title={t("mail.back")}>✕</button>
@@ -260,9 +280,18 @@ export function Mail({ search = "" }: { search?: string }) {
             <h2 style={{ marginBottom: "0.2rem", fontSize: "1.2rem" }}>{open.subject || t("mail.noSubject")}</h2>
             <div className="mail-from">{open.from} · {open.date}</div>
             <hr style={{ borderColor: "var(--self-line)", margin: "0.9rem 0" }} />
-            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
-              {open.text || open.html.replace(/<[^>]+>/g, "") || t("mail.emptyBody")}
-            </div>
+            {open.html ? (
+              <iframe
+                title="mail-body"
+                sandbox=""
+                srcDoc={open.html}
+                style={{ width: "100%", height: "62vh", border: "none", background: "#fff", borderRadius: "6px" }}
+              />
+            ) : (
+              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
+                {open.text || t("mail.emptyBody")}
+              </div>
+            )}
             {open.attachments?.length > 0 && (
               <div style={{ marginTop: "1.2rem", borderTop: "1px solid var(--self-line)", paddingTop: "0.8rem" }}>
                 <div className="label" style={{ marginBottom: "0.5rem" }}>📎 {t("mail.attachments")}</div>
