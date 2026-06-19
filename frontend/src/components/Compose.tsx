@@ -50,15 +50,30 @@ function split(v: string): string[] {
   return v.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
 }
 
-// Signatur als Plaintext-/HTML-Block (Standard-Trenner "-- ").
-function sigText(sig: string): string {
-  return sig ? "\n\n-- \n" + sig : "";
+// Signatur kann HTML (neuer Rich-Editor) ODER alter Plaintext sein.
+function isHtmlSig(sig: string): boolean {
+  return /<[a-z][\s\S]*>/i.test(sig);
 }
+// Plaintext-Fassung der Signatur (fuer den text/plain-Teil der Mail).
+function sigText(sig: string): string {
+  if (!sig) return "";
+  const plain = isHtmlSig(sig)
+    ? sig
+        .replace(/<br\s*\/?>(?!\n)/gi, "\n")
+        .replace(/<\/(p|div|li|h[1-6])>/gi, "\n")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+        .trim()
+    : sig;
+  return "\n\n-- \n" + plain;
+}
+// HTML-Fassung (fuer den text/html-Teil). Plaintext wird escaped + nl2br.
 function sigHtml(sig: string): string {
   if (!sig) return "";
-  const esc = sig
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
-  return "<br><br>-- <br>" + esc;
+  const inner = isHtmlSig(sig)
+    ? sig
+    : sig.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+  return "<br><br>-- <br>" + inner;
 }
 
 const MAX_ATTACH_BYTES = 20 * 1024 * 1024; // 20 MB gesamt
@@ -216,7 +231,7 @@ export function Compose({
             return sig ? (
               <div className="compose-sig">
                 <span className="label">{t("accounts.signature")}</span>
-                <pre>{"-- \n" + sig}</pre>
+                <div dangerouslySetInnerHTML={{ __html: "-- <br>" + sigHtml(sig).replace(/^<br><br>-- <br>/, "") }} />
               </div>
             ) : null;
           })()}

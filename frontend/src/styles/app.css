@@ -492,3 +492,78 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   padding: 0.4rem 0.2rem;
   user-select: all;
 }
+
+/* ── Konten-Seite (aufgeraeumt) ─────────────────────────────────── */
+.acc-page { max-width: 760px; }
+.acc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+}
+@media (max-width: 560px) { .acc-grid { grid-template-columns: 1fr; } }
+.acc-fieldset {
+  border: 1px solid var(--self-line);
+  border-radius: var(--self-radius-sm);
+  padding: 0.7rem 0.8rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.acc-fieldset legend {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--self-text-3);
+  padding: 0 0.4rem;
+}
+.acc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.86rem;
+  color: var(--self-text-2);
+}
+.acc-check input { width: auto; }
+.acc-card { padding: 0.85rem 1rem; transition: border-color var(--self-dur-fast) var(--self-ease); }
+.acc-card:hover { border-color: var(--self-line-strong); }
+.acc-card-head { align-items: center; gap: 0.4rem; }
+.acc-card-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Rich-Editor (Signatur) ─────────────────────────────────────── */
+.rich-editor {
+  border: 1px solid var(--self-line-strong);
+  border-radius: var(--self-radius-sm);
+  overflow: hidden;
+}
+.rich-editor .compose-toolbar { margin: 0; border-bottom: 1px solid var(--self-line); }
+.rich-editor .compose-editor { border: none; border-radius: 0; }
+
+/* ── Benutzer-Menue (gruppiert) ─────────────────────────────────── */
+.user-menu-header {
+  padding: 0.2rem 0.6rem 0.6rem;
+  border-bottom: 1px solid var(--self-line);
+  margin-bottom: 0.3rem;
+}
+.user-menu-name { font-weight: 700; font-size: 0.95rem; }
+.user-menu-mail {
+  font-size: 0.78rem; color: var(--self-text-3);
+  display: flex; align-items: center; gap: 0.4rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.user-menu-role {
+  font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em;
+  background: color-mix(in srgb, var(--self-teal) 20%, transparent);
+  color: var(--self-teal-bright);
+  border-radius: 999px; padding: 0.05rem 0.4rem; flex: 0 0 auto;
+}
+.user-menu-section {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--self-text-3);
+  padding: 0.5rem 0.6rem 0.15rem;
+}
+.user-menu-logout { color: var(--self-red); }
+
+/* ── Konten per Drag&Drop sortieren ─────────────────────────────── */
+.mail-acc-head[draggable="true"] { cursor: grab; }
+.mail-acc.dragging { opacity: 0.5; }
+.mail-acc.dragging .mail-acc-head { cursor: grabbing; }

@@ -173,12 +173,21 @@ export function App() {
 
       {menu === "user" && (
         <div className="user-menu">
+          <div className="user-menu-header">
+            <div className="user-menu-name">{user.display_name || user.username}</div>
+            <div className="user-menu-mail">{user.username}{isAdmin && <span className="user-menu-role">{t("shell.adminBadge")}</span>}</div>
+          </div>
+
+          <div className="user-menu-section">{t("menu.manage")}</div>
           {settings.map((s) => (
             <button key={s.key} onClick={() => go(s.key)}><span>{s.icon}</span> {t(s.labelKey)}</button>
           ))}
+
+          <div className="user-menu-section">{t("menu.security")}</div>
           <button onClick={openPw}><span>🔑</span> {t("user.changePassword")}</button>
           <button onClick={() => { setMenu(null); setTotpOpen(true); }}><span>🛡</span> {t("totp.menu")}</button>
-          <hr />
+
+          <div className="user-menu-section">{t("menu.appearance")}</div>
           <button onClick={() => { setLang(lang === "de" ? "en" : "de"); setMenu(null); }}>
             <span>🌐</span> {t("shell.langSwitch")}
           </button>
@@ -195,8 +204,9 @@ export function App() {
               <option value={30}>30 min</option>
             </select>
           </div>
+
           <hr />
-          <button onClick={logout}><span>⎋</span> {t("shell.logout")}</button>
+          <button className="user-menu-logout" onClick={logout}><span>⎋</span> {t("shell.logout")}</button>
         </div>
       )}
 

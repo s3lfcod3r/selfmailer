@@ -48,6 +48,12 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dragUids, setDragUids] = useState<string[]>([]);
   const [dropPath, setDropPath] = useState<string | null>(null);
+  // Reihenfolge der Konten (per Drag&Drop, lokal gespeichert).
+  const [accOrder, setAccOrder] = useState<number[]>(() => {
+    try { const v = JSON.parse(localStorage.getItem("selfmailer.accOrder") || "[]"); return Array.isArray(v) ? v : []; }
+    catch { return []; }
+  });
+  const [dragAcc, setDragAcc] = useState<number | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ acc: number; node: FolderNode; x: number; y: number } | null>(null);
   const [listW, setListW] = useState<number>(() => {
     const v = Number(localStorage.getItem("selfmailer.listW"));
@@ -103,6 +109,23 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
     for (const [id, fcs] of Object.entries(foldersByAcc)) out[Number(id)] = buildFolderTree(fcs.map((f) => f.name));
     return out;
   }, [foldersByAcc]);
+
+  // Konten in gespeicherter Reihenfolge; unbekannte (neue) ans Ende.
+  const orderedAccounts = useMemo(() => {
+    const pos = new Map(accOrder.map((id, i) => [id, i]));
+    return [...accounts].sort((a, b) => (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9));
+  }, [accounts, accOrder]);
+
+  function reorderAccounts(dragId: number, dropId: number) {
+    if (dragId === dropId) return;
+    const ids = orderedAccounts.map((a) => a.id);
+    const from = ids.indexOf(dragId);
+    const to = ids.indexOf(dropId);
+    if (from < 0 || to < 0) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    setAccOrder(ids);
+    localStorage.setItem("selfmailer.accOrder", JSON.stringify(ids));
+  }
 
   function unseenOf(accId: number, path: string): number {
     return (foldersByAcc[accId] || []).find((f) => f.name === path)?.unseen ?? 0;
@@ -387,13 +410,22 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
             <button className="primary" style={{ flex: 1 }} onClick={() => activeId != null && setDraft(emptyDraft())}>{t("mail.newMail")}</button>
           </div>
 
-          {accounts.map((a) => {
+          {orderedAccounts.map((a) => {
             const collapsed = collapsedAcc.has(a.id);
             const tree = treesByAcc[a.id] || [];
             const roll = rollupUnseen(a.id);
             return (
-              <div className="mail-acc" key={a.id}>
-                <div className="mail-acc-head" onClick={() => toggleAccount(a.id)}>
+              <div className={`mail-acc ${dragAcc === a.id ? "dragging" : ""}`} key={a.id}>
+                <div
+                  className="mail-acc-head"
+                  draggable
+                  onClick={() => toggleAccount(a.id)}
+                  onDragStart={() => setDragAcc(a.id)}
+                  onDragEnd={() => setDragAcc(null)}
+                  onDragOver={(e) => { if (dragAcc != null && dragAcc !== a.id) e.preventDefault(); }}
+                  onDrop={(e) => { e.preventDefault(); if (dragAcc != null) reorderAccounts(dragAcc, a.id); setDragAcc(null); }}
+                  title={t("mail.accDragHint")}
+                >
                   <button className="mail-folder-toggle">{collapsed ? "▶" : "▼"}</button>
                   <span className="mail-acc-name" title={a.email}>{a.label || a.email}</span>
                   {collapsed && roll > 0 && <span className="mail-badge">{roll}</span>}

@@ -65,9 +65,13 @@ def update_account(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> MailAccount:
-    """Aendert Anzeigename/Signatur des eigenen Kontos (keine Zugangsdaten)."""
+    """Aendert Felder des eigenen Kontos. Passwort wird verschluesselt abgelegt."""
     acc = _owned(account_id, user, session)
-    for field, value in data.model_dump(exclude_unset=True).items():
+    fields = data.model_dump(exclude_unset=True)
+    password = fields.pop("password", None)
+    if password:  # leeres Passwort = Zugangsdaten nicht aendern
+        acc.secret_enc = encrypt(password)
+    for field, value in fields.items():
         setattr(acc, field, value)
     session.add(acc)
     session.commit()

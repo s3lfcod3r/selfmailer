@@ -112,14 +112,32 @@ class AccountOut(BaseModel):
     protocol: Protocol
     imap_host: str
     imap_port: int
+    imap_ssl: bool = True
     smtp_host: str
     smtp_port: int
+    smtp_starttls: bool = True
+    auth_user: str = ""
     signature: str = ""
 
 
 class AccountUpdate(BaseModel):
+    """Aenderbare Felder eines Kontos. Alles optional (Patch-Semantik).
+
+    password: nur setzen, wenn die Zugangsdaten geaendert werden sollen –
+    wird dann verschluesselt in secret_enc abgelegt (kein direktes Feld).
+    """
     label: str | None = None
+    email: EmailStr | None = None
+    protocol: Protocol | None = None
+    imap_host: str | None = None
+    imap_port: int | None = None
+    imap_ssl: bool | None = None
+    smtp_host: str | None = None
+    smtp_port: int | None = None
+    smtp_starttls: bool | None = None
+    auth_user: str | None = None
     signature: str | None = None
+    password: str | None = None
 
 
 # ---- Mail ----------------------------------------------------------------
