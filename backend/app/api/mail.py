@@ -191,6 +191,29 @@ def delete_message(
     return {"ok": True, "result": result}
 
 
+@router.post("/{account_id}/draft")
+def save_draft(
+    account_id: int,
+    data: SendRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    acc = _account(account_id, user, session)
+    try:
+        ok = imap_mod.save_draft(
+            acc,
+            decrypt(acc.secret_enc),
+            to=", ".join(str(x) for x in data.to),
+            cc=", ".join(str(x) for x in data.cc),
+            subject=data.subject,
+            body=data.body,
+            html=data.html,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Entwurf speichern fehlgeschlagen: {exc}")
+    return {"ok": ok}
+
+
 @router.post("/{account_id}/send", status_code=status.HTTP_202_ACCEPTED)
 async def send(
     account_id: int,

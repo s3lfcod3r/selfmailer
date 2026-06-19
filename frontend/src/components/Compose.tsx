@@ -138,12 +138,30 @@ export function Compose({
     finally { setBusy(false); }
   }
 
+  // ✕ schließt und speichert ungesendete Eingaben als Entwurf (nicht verwerfen).
+  async function closeAsDraft() {
+    if (busy) return;
+    const html = editorRef.current?.innerHTML ?? "";
+    const body = editorRef.current?.innerText ?? "";
+    const hasContent = !!(d.to || d.cc || d.bcc || d.subject || body.trim());
+    if (hasContent) {
+      try {
+        await api.post(`/mail/${fromId}/draft`, {
+          to: split(d.to), cc: split(d.cc), bcc: split(d.bcc),
+          subject: d.subject, body, html,
+        });
+      } catch { /* Entwurf-Fehler ignorieren, trotzdem schließen */ }
+    }
+    onClose();
+  }
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    // Klick auf den Hintergrund schließt NICHT (kein versehentliches Verwerfen).
+    <div className="modal-backdrop">
       <div className="modal card" onClick={(e) => e.stopPropagation()}>
         <div className="topbar">
           <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{t("compose.new")}</h2>
-          <button className="ghost" onClick={onClose}>✕</button>
+          <button className="ghost" onClick={closeAsDraft} title={t("compose.closeDraft")}>✕</button>
         </div>
         <div className="stack">
           {accounts.length > 0 && (

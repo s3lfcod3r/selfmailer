@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from contextlib import contextmanager
 from collections.abc import Iterator
+from email.message import EmailMessage
 
 from imap_tools import MailBox, AND
 
@@ -196,6 +197,50 @@ def create_folder(account: MailAccount, password: str, name: str, parent: str = 
 def delete_folder(account: MailAccount, password: str, name: str) -> None:
     with _mailbox(account, password) as box:
         box.folder.delete(name)
+
+
+def _draft_folder(box: MailBox) -> str:
+    """Findet den Entwürfe-Ordner (SPECIAL-USE \\Drafts oder Namensheuristik)."""
+    names: list[str] = []
+    for f in box.folder.list():
+        flags = " ".join(getattr(f, "flags", ()) or ()).lower()
+        if "\\drafts" in flags:
+            return f.name
+        names.append(f.name)
+    for name in names:
+        low = name.lower()
+        if any(k in low for k in ("drafts", "entwurf", "entwürfe", "entwuerfe")):
+            return name
+    return ""
+
+
+def save_draft(
+    account: MailAccount,
+    password: str,
+    *,
+    to: str = "",
+    cc: str = "",
+    subject: str = "",
+    body: str = "",
+    html: str = "",
+) -> bool:
+    """Legt eine ungesendete Nachricht als Entwurf im Entwürfe-Ordner ab (IMAP APPEND)."""
+    msg = EmailMessage()
+    msg["From"] = account.email
+    if to:
+        msg["To"] = to
+    if cc:
+        msg["Cc"] = cc
+    msg["Subject"] = subject
+    msg.set_content(body or "")
+    if html:
+        msg.add_alternative(html, subtype="html")
+    with _mailbox(account, password) as box:
+        folder = _draft_folder(box)
+        if not folder:
+            return False
+        box.append(msg.as_bytes(), folder, flag_set=["\\Draft"])
+        return True
 
 
 def rename_folder(account: MailAccount, password: str, old: str, new_name: str) -> str:

@@ -276,5 +276,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   display: grid; place-items: center; padding: 1.5rem;
   backdrop-filter: blur(3px);
 }
-.modal { width: min(680px, 100%); padding: 1.2rem 1.3rem; }
+.modal {
+  width: min(780px, 96vw); min-width: 420px; max-width: 96vw;
+  max-height: 90vh; overflow: auto; resize: both; padding: 1.2rem 1.3rem;
+}
 .modal textarea { resize: vertical; }
