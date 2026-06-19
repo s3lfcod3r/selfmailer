@@ -46,6 +46,8 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dragUids, setDragUids] = useState<string[]>([]);
+  const [dropPath, setDropPath] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ acc: number; node: FolderNode; x: number; y: number } | null>(null);
   const [listW, setListW] = useState<number>(() => {
     const v = Number(localStorage.getItem("selfmailer.listW"));
@@ -300,6 +302,19 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
     setSelected(new Set());
     refreshCounts(activeId);
   }
+  // Mehrere Nachrichten verschieben (Auswahl-Leiste ODER Drag&Drop).
+  async function moveUids(dest: string, uids: string[]) {
+    if (activeId == null || !dest || uids.length === 0) return;
+    setErr("");
+    for (const uid of uids) {
+      try { await api.post(`/mail/${activeId}/messages/${uid}/move?folder=${encodeURIComponent(folder)}&dest=${encodeURIComponent(dest)}`); }
+      catch (e) { setErr((e as Error).message); }
+    }
+    setMessages((ms) => ms.filter((m) => !uids.includes(m.uid)));
+    if (open && uids.includes(open.uid)) setOpen(null);
+    setSelected(new Set());
+    refreshCounts(activeId);
+  }
 
   function renderNode(accId: number, node: FolderNode, depth: number): ReactNode {
     const hasKids = node.children.length > 0;
@@ -317,10 +332,13 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
             <span style={{ flex: "0 0 14px", width: 14 }} />
           )}
           <button
-            className={`mail-folder ${active ? "active" : ""}`}
+            className={`mail-folder ${active ? "active" : ""} ${dropPath === node.path ? "drop" : ""}`}
             style={{ flex: 1, minWidth: 0 }}
             onClick={() => setSel({ acc: accId, folder: node.path })}
             onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ acc: accId, node, x: e.clientX, y: e.clientY }); }}
+            onDragOver={(e) => { if (accId === activeId && dragUids.length) { e.preventDefault(); setDropPath(node.path); } }}
+            onDragLeave={() => setDropPath((p) => (p === node.path ? null : p))}
+            onDrop={(e) => { e.preventDefault(); if (accId === activeId && dragUids.length && node.path !== folder) moveUids(node.path, dragUids); setDropPath(null); setDragUids([]); }}
             title={node.path}
           >
             <span>{icon}</span>
@@ -342,8 +360,24 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
 
   const folderNames = (foldersByAcc[activeId ?? -1] || []).map((f) => f.name);
 
+  const visible = messages
+    .filter((m) => !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
+    .filter((m) => !filter?.from || m.from.toLowerCase().includes(filter.from.toLowerCase()))
+    .filter((m) => !filter?.subject || m.subject.toLowerCase().includes(filter.subject.toLowerCase()))
+    .filter((m) => !filter?.unread || !m.seen)
+    .filter((m) => !filter?.starred || m.flagged)
+    .filter((m) => !filter?.attachments || m.has_attachments)
+    .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo));
+  const allSelected = visible.length > 0 && visible.every((m) => selected.has(m.uid));
+  function toggleSelectAll() {
+    setSelected(allSelected ? new Set() : new Set(visible.map((m) => m.uid)));
+  }
+  function startDrag(uid: string) {
+    setDragUids(selected.has(uid) && selected.size > 0 ? [...selected] : [uid]);
+  }
+
   return (
-    <div>
+    <div className="mail-page">
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
 
       <div className="mail-layout">
@@ -388,25 +422,30 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
         <div className="mail-listcol" style={{ flex: `0 0 ${listW}px` }}>
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
           {selected.size > 0 && (
-            <div className="row" style={{ marginBottom: "0.5rem", padding: "0.4rem 0.6rem", background: "var(--self-bg-2)", borderRadius: "6px" }}>
+            <div className="row" style={{ marginBottom: "0.5rem", padding: "0.4rem 0.6rem", background: "var(--self-bg-2)", borderRadius: "6px", flexWrap: "wrap" }}>
               <span className="label">{t("mail.selected", { n: selected.size })}</span>
               <span className="grow" />
               <button className="ghost" onClick={() => markSelectedSeen(true)}>{t("mail.markRead")}</button>
               <button className="ghost" onClick={() => markSelectedSeen(false)}>{t("mail.markUnread")}</button>
+              {folderNames.length > 1 && (
+                <select value="" title={t("mail.moveTo")} onChange={(e) => { moveUids(e.target.value, [...selected]); e.currentTarget.value = ""; }} style={{ fontSize: "0.82rem", maxWidth: 150 }}>
+                  <option value="">📁 {t("mail.moveTo")}</option>
+                  {folderNames.filter((f) => f !== folder).map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+              )}
               <button className="ghost" onClick={delSelected}>🗑 {t("mail.delete")}</button>
             </div>
           )}
+          {visible.length > 0 && (
+            <label className="row" style={{ padding: "0.1rem 0.6rem 0.4rem", gap: "0.5rem", cursor: "pointer" }}>
+              <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ width: "auto" }} />
+              <span className="muted" style={{ fontSize: "0.78rem" }}>{t("mail.selectAll")}</span>
+            </label>
+          )}
           <div className="mail-list">
-            {messages
-              .filter((m) => !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
-              .filter((m) => !filter?.from || m.from.toLowerCase().includes(filter.from.toLowerCase()))
-              .filter((m) => !filter?.subject || m.subject.toLowerCase().includes(filter.subject.toLowerCase()))
-              .filter((m) => !filter?.unread || !m.seen)
-              .filter((m) => !filter?.starred || m.flagged)
-              .filter((m) => !filter?.attachments || m.has_attachments)
-              .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo))
-              .map((m) => (
+            {visible.map((m) => (
               <div className={`mail-row ${m.seen ? "" : "unseen"}`} key={m.uid}
+                draggable onDragStart={() => startDrag(m.uid)} onDragEnd={() => setDragUids([])}
                 style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: open?.uid === m.uid ? "var(--self-teal)" : undefined }}>
                 <input type="checkbox" checked={selected.has(m.uid)} onChange={() => toggleSelect(m.uid)} style={{ flex: "0 0 auto", width: "auto", marginTop: "0.3rem" }} />
                 <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={() => toggleFlag(m)} title={t("mail.flag")}>

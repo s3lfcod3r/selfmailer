@@ -109,10 +109,12 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 .mail-from { color: var(--self-text-2); font-size: 0.82rem; }
 
 /* 3-Spalten-Webmail: Ordner | Liste | Lesebereich */
-.mail-layout { display: flex; gap: 0.8rem; align-items: stretch; }
+/* Mail fuellt die volle verfuegbare Hoehe (kein toter Raum mehr unten). */
+.mail-page { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.mail-layout { display: flex; gap: 0.8rem; align-items: stretch; flex: 1 1 auto; min-height: 0; }
 .mail-folders {
   flex: 0 0 172px; display: flex; flex-direction: column; gap: 0.1rem;
-  max-height: 76vh; overflow-y: auto; padding-right: 0.2rem;
+  min-height: 0; overflow-y: auto; padding-right: 0.2rem;
 }
 .mail-folder {
   display: flex; align-items: center; gap: 0.45rem;
@@ -250,11 +252,12 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   background: none; border: none; cursor: pointer; padding: 0;
   color: var(--self-text-3); flex: 0 0 14px; width: 14px; font-size: 0.62rem; line-height: 1;
 }
-.mail-listcol { flex: 1 1 0; min-width: 0; max-height: 76vh; overflow-y: auto; }
+.mail-listcol { flex: 1 1 0; min-width: 0; min-height: 0; overflow-y: auto; }
 .mail-readcol {
-  flex: 1.7 1 0; min-width: 0; max-height: 76vh; overflow-y: auto;
+  flex: 1.7 1 0; min-width: 0; min-height: 0; overflow-y: auto;
   border-left: 1px solid var(--self-line); padding-left: 0.8rem;
 }
+.mail-folder.drop { background: color-mix(in srgb, var(--self-teal) 22%, transparent); }
 .resize-handle {
   flex: 0 0 7px; align-self: stretch; cursor: col-resize;
   border-left: 1px solid var(--self-line); border-right: 1px solid transparent;
