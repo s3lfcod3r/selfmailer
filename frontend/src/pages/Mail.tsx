@@ -11,7 +11,7 @@ function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function Mail() {
+export function Mail({ search = "" }: { search?: string }) {
   const { t } = useLang();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -176,7 +176,10 @@ export function Mail() {
         <div className="mail-listcol">
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
           <div className="mail-list">
-            {messages.map((m) => (
+            {(search
+              ? messages.filter((m) => `${m.subject} ${m.from}`.toLowerCase().includes(search.toLowerCase()))
+              : messages
+            ).map((m) => (
               <div
                 className={`mail-row ${m.seen ? "" : "unseen"}`}
                 key={m.uid}

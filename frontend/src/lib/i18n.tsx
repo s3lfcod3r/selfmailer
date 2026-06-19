@@ -39,6 +39,8 @@ const de: Dict = {
   "shell.adminBadge": "Admin",
   "shell.logout": "Abmelden",
   "shell.langSwitch": "English",
+  "apps.title": "Apps",
+  "search.placeholder": "Suchen…",
 
   // Login
   "login.titleSetup": "Erstes Konto anlegen",
@@ -217,6 +219,8 @@ const en: Dict = {
   "shell.adminBadge": "Admin",
   "shell.logout": "Sign out",
   "shell.langSwitch": "Deutsch",
+  "apps.title": "Apps",
+  "search.placeholder": "Search…",
 
   // Login
   "login.titleSetup": "Create first account",

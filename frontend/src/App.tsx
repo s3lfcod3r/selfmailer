@@ -13,23 +13,31 @@ import { Wordmark } from "./components/Wordmark";
 
 type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin";
 
-type NavItem = { key: View; labelKey: string; icon: string; adminOnly?: boolean };
+type AppItem = { key: View; labelKey: string; icon: string; adminOnly?: boolean };
 
-const NAV: NavItem[] = [
+// App-Switcher (4-Kachel-Menü) — die „Apps".
+const APPS: AppItem[] = [
   { key: "mail", labelKey: "nav.mail", icon: "✉" },
   { key: "calendar", labelKey: "nav.calendar", icon: "📅" },
   { key: "contacts", labelKey: "nav.contacts", icon: "👤" },
   { key: "notes", labelKey: "nav.notes", icon: "🗒" },
   { key: "sync", labelKey: "nav.sync", icon: "🔄" },
+];
+// Einstellungen im Benutzer-Menü.
+const SETTINGS: AppItem[] = [
   { key: "accounts", labelKey: "nav.accounts", icon: "⚙" },
   { key: "admin", labelKey: "nav.admin", icon: "👥", adminOnly: true },
 ];
+
+const ALL = [...APPS, ...SETTINGS];
 
 export function App() {
   const { t, lang, setLang } = useLang();
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>("mail");
+  const [search, setSearch] = useState("");
+  const [menu, setMenu] = useState<"apps" | "user" | null>(null);
   const [theme, setTheme] = useState<string>(() => localStorage.getItem("selfmailer.theme") || "dark");
 
   useEffect(() => {
@@ -50,59 +58,76 @@ export function App() {
   if (!user) return <Login onAuthed={() => { setReady(false); loadMe(); }} />;
 
   const isAdmin = user.role === "admin";
-  const nav = NAV.filter((n) => !n.adminOnly || isAdmin);
+  const apps = APPS;
+  const settings = SETTINGS.filter((s) => !s.adminOnly || isAdmin);
+  const current = ALL.find((a) => a.key === view);
 
+  function go(v: View) { setView(v); setMenu(null); }
   function logout() { auth.clear(); setUser(null); }
 
   return (
-    <div className="shell">
-      <aside className="side">
-        <div style={{ padding: "0.2rem 0.4rem 1rem" }}><Wordmark /></div>
-        {nav.map((n) => (
-          <div
-            key={n.key}
-            className={`nav-item ${view === n.key ? "active" : ""}`}
-            onClick={() => setView(n.key)}
-          >
-            <span>{n.icon}</span> {t(n.labelKey)}
-          </div>
-        ))}
-        <span className="grow" />
-        <div
-          className="nav-item"
-          onClick={() => setLang(lang === "de" ? "en" : "de")}
-        >
-          <span>🌐</span>
-          {t("shell.langSwitch")}
-        </div>
-        <div
-          className="nav-item"
-          onClick={() => setTheme((tm) => (tm === "dark" ? "light" : "dark"))}
-        >
-          <span>{theme === "dark" ? "☀" : "🌙"}</span>
-          {theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}
-        </div>
-        <div className="nav-item" style={{ cursor: "default" }}>
-          <span>👤</span>
-          <span
-            className="grow"
-            style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-          >
-            {user.display_name || user.username}
-          </span>
-          {isAdmin && <span className="label">{t("shell.adminBadge")}</span>}
-        </div>
-        <div className="nav-item" onClick={logout}><span>⎋</span> {t("shell.logout")}</div>
-      </aside>
+    <div className="app-shell">
+      <header className="topbar-main">
+        <div className="topbar-brand"><Wordmark /></div>
 
-      <main className="main">
-        <div className="topbar">
-          <h1 style={{ margin: 0, fontSize: "1.4rem" }}>
-            {t(nav.find((n) => n.key === view)?.labelKey ?? "")}
-          </h1>
+        <div className="topbar-search">
+          <span aria-hidden>🔍</span>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t("search.placeholder")}
+          />
+          {search && <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => setSearch("")}>✕</button>}
         </div>
 
-        {view === "mail" && <Mail />}
+        <div className="topbar-actions">
+          <button className="icon-btn" title={t("apps.title")} onClick={() => setMenu(menu === "apps" ? null : "apps")}>▦</button>
+          <button className="user-chip" onClick={() => setMenu(menu === "user" ? null : "user")}>
+            <span>👤</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>
+              {user.display_name || user.username}
+            </span>
+            {isAdmin && <span className="label">{t("shell.adminBadge")}</span>}
+            <span aria-hidden>▾</span>
+          </button>
+        </div>
+      </header>
+
+      {menu && <div className="menu-backdrop" onClick={() => setMenu(null)} />}
+
+      {menu === "apps" && (
+        <div className="app-switcher">
+          {apps.map((a) => (
+            <button key={a.key} className={`app-tile ${view === a.key ? "active" : ""}`} onClick={() => go(a.key)}>
+              <span className="app-ico">{a.icon}</span>
+              <span>{t(a.labelKey)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {menu === "user" && (
+        <div className="user-menu">
+          {settings.map((s) => (
+            <button key={s.key} onClick={() => go(s.key)}><span>{s.icon}</span> {t(s.labelKey)}</button>
+          ))}
+          <hr />
+          <button onClick={() => { setLang(lang === "de" ? "en" : "de"); setMenu(null); }}>
+            <span>🌐</span> {t("shell.langSwitch")}
+          </button>
+          <button onClick={() => setTheme((tm) => (tm === "dark" ? "light" : "dark"))}>
+            <span>{theme === "dark" ? "☀" : "🌙"}</span> {theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}
+          </button>
+          <hr />
+          <button onClick={logout}><span>⎋</span> {t("shell.logout")}</button>
+        </div>
+      )}
+
+      <main className="app-main">
+        {view !== "mail" && (
+          <div className="view-title">{t(current?.labelKey ?? "")}</div>
+        )}
+        {view === "mail" && <Mail search={search} />}
         {view === "calendar" && <Calendar />}
         {view === "contacts" && <Contacts />}
         {view === "notes" && <Notes />}

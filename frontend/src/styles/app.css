@@ -126,6 +126,66 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   background: var(--self-bg-2); color: var(--self-text);
   border-color: var(--self-line-strong);
 }
+/* --- Synology-artige App-Shell: Topbar + App-Switcher + Benutzer-Menü --- */
+.app-shell { display: flex; flex-direction: column; height: 100vh; }
+.topbar-main {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0.55rem 1.1rem; border-bottom: 1px solid var(--self-line);
+  background: var(--self-bg-1); position: relative; z-index: 30;
+}
+.topbar-brand { flex: 0 0 auto; }
+.topbar-search {
+  flex: 1 1 auto; max-width: 640px; margin: 0 auto;
+  display: flex; align-items: center; gap: 0.5rem;
+  background: var(--self-bg-2); border: 1px solid var(--self-line);
+  border-radius: 9px; padding: 0.4rem 0.8rem; color: var(--self-text-3);
+}
+.topbar-search input {
+  flex: 1; min-width: 0; background: none; border: none; outline: none;
+  color: var(--self-text); font: inherit;
+}
+.topbar-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 0.6rem; }
+.icon-btn {
+  background: none; border: 1px solid var(--self-line); border-radius: 8px;
+  color: var(--self-text-2); cursor: pointer; padding: 0.35rem 0.62rem; font-size: 1rem;
+}
+.icon-btn:hover { color: var(--self-text); border-color: var(--self-line-strong); }
+.user-chip {
+  display: flex; align-items: center; gap: 0.45rem;
+  background: none; border: 1px solid var(--self-line); border-radius: 8px;
+  color: var(--self-text); cursor: pointer; padding: 0.32rem 0.7rem; font: inherit;
+}
+.user-chip:hover { border-color: var(--self-line-strong); }
+.menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+.app-switcher, .user-menu {
+  position: absolute; right: 1.1rem; top: 52px; z-index: 50;
+  background: var(--self-bg-2); border: 1px solid var(--self-line-strong);
+  border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45); padding: 0.6rem;
+}
+.app-switcher { display: grid; grid-template-columns: repeat(3, 94px); gap: 0.3rem; }
+.app-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
+  padding: 0.85rem 0.4rem; border-radius: 9px; border: 1px solid transparent;
+  background: none; color: var(--self-text-2); cursor: pointer; font: inherit; font-size: 0.8rem;
+}
+.app-tile:hover { background: var(--self-bg-3); color: var(--self-text); }
+.app-tile.active { border-color: var(--self-teal); color: var(--self-text); }
+.app-ico { font-size: 1.5rem; }
+.user-menu { display: flex; flex-direction: column; min-width: 210px; gap: 0.1rem; }
+.user-menu button {
+  display: flex; align-items: center; gap: 0.55rem; text-align: left;
+  background: none; border: none; color: var(--self-text-2);
+  padding: 0.5rem 0.7rem; border-radius: 7px; cursor: pointer; font: inherit;
+}
+.user-menu button:hover { background: var(--self-bg-3); color: var(--self-text); }
+.user-menu hr { border: none; border-top: 1px solid var(--self-line); margin: 0.3rem 0; }
+.app-main { flex: 1 1 auto; overflow: auto; padding: 1.2rem 1.4rem; }
+.view-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 1rem; }
+@media (max-width: 720px) {
+  .topbar-search { max-width: none; }
+  .user-chip span:nth-child(2) { display: none; }
+}
+
 .mail-mailbox-head {
   font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--self-text-3); padding: 0.1rem 0.6rem 0.5rem;
