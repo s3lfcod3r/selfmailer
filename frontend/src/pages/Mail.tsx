@@ -183,9 +183,12 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
 
   // --- Ordner-Verwaltung (pro Konto) ---
   async function newFolder(accId: number) {
-    const name = prompt(t("folder.newPrompt", { parent: t("folder.inbox") }));
+    // Konto-＋ legt einen Ordner auf der OBERSTEN Ebene an (neben Posteingang),
+    // nicht mehr zwingend unter INBOX. Unterordner gehen weiter per Rechtsklick
+    // auf einen Ordner → „Unterordner erstellen".
+    const name = prompt(t("folder.newTopPrompt"));
     if (!name || !name.trim()) return;
-    try { await api.post(`/mail/${accId}/folders?name=${encodeURIComponent(name.trim())}&parent=INBOX`); loadAccountFolders(accountById(accId)); }
+    try { await api.post(`/mail/${accId}/folders?name=${encodeURIComponent(name.trim())}`); loadAccountFolders(accountById(accId)); }
     catch (e) { setErr((e as Error).message); }
   }
   async function newSubfolder(accId: number, node: FolderNode) {
@@ -449,7 +452,7 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
                     className="mail-folder-toggle"
                     style={{ width: "auto", padding: "0 0.25rem" }}
                     onClick={(e) => { e.stopPropagation(); newFolder(a.id); }}
-                    title={t("folder.new")}
+                    title={t("folder.newTop")}
                   >＋</button>
                 </div>
                 {!collapsed && (tree.length ? tree.map((n) => renderNode(a.id, n, 0)) : <div className="muted" style={{ fontSize: "0.78rem", padding: "0.2rem 0.6rem" }}>…</div>)}
