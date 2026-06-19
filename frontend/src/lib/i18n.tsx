@@ -121,6 +121,9 @@ const de: Dict = {
   "folder.spam": "Spam",
   "folder.trash": "Papierkorb",
   "folder.archive": "Archiv",
+  "folder.new": "Ordner anlegen",
+  "folder.newPrompt": "Neuer Ordner in „{parent}“ (Name):",
+  "folder.deleteConfirm": "Ordner „{name}“ löschen?",
 
   // Calendar
   "cal.needFields": "Titel, Beginn und Ende sind nötig.",
@@ -306,6 +309,9 @@ const en: Dict = {
   "folder.spam": "Spam",
   "folder.trash": "Trash",
   "folder.archive": "Archive",
+  "folder.new": "Create folder",
+  "folder.newPrompt": "New folder in “{parent}” (name):",
+  "folder.deleteConfirm": "Delete folder “{name}”?",
 
   // Calendar
   "cal.needFields": "Title, start and end are required.",

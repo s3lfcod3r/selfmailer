@@ -164,3 +164,24 @@ def delete_message(account: MailAccount, password: str, uid: str, folder: str = 
 def move_message(account: MailAccount, password: str, uid: str, dest: str, folder: str = "INBOX") -> None:
     with _mailbox(account, password, folder=folder) as box:
         box.move(uid, dest)
+
+
+def _delimiter(box: MailBox) -> str:
+    """Server-Hierarchie-Trennzeichen (z. B. "/" oder ".") aus der Ordnerliste."""
+    for f in box.folder.list():
+        if getattr(f, "delim", None):
+            return f.delim
+    return "."
+
+
+def create_folder(account: MailAccount, password: str, name: str, parent: str = "") -> str:
+    """Legt einen (Unter-)Ordner an. parent leer = Top-Level. Liefert den vollen Namen."""
+    with _mailbox(account, password) as box:
+        full = f"{parent}{_delimiter(box)}{name}" if parent else name
+        box.folder.create(full)
+        return full
+
+
+def delete_folder(account: MailAccount, password: str, name: str) -> None:
+    with _mailbox(account, password) as box:
+        box.folder.delete(name)

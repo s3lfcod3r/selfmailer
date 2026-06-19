@@ -34,6 +34,37 @@ def folders(
     return imap_mod.list_folders(acc, decrypt(acc.secret_enc))
 
 
+@router.post("/{account_id}/folders")
+def create_folder(
+    account_id: int,
+    name: str,
+    parent: str = "",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    acc = _account(account_id, user, session)
+    try:
+        full = imap_mod.create_folder(acc, decrypt(acc.secret_enc), name, parent=parent)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Ordner anlegen fehlgeschlagen: {exc}")
+    return {"ok": True, "folder": full}
+
+
+@router.delete("/{account_id}/folders")
+def delete_folder(
+    account_id: int,
+    name: str,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    acc = _account(account_id, user, session)
+    try:
+        imap_mod.delete_folder(acc, decrypt(acc.secret_enc), name)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Ordner löschen fehlgeschlagen: {exc}")
+    return {"ok": True}
+
+
 @router.get("/{account_id}/messages", response_model=list[MessageHeader])
 def messages(
     account_id: int,

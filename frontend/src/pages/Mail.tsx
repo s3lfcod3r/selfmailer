@@ -33,14 +33,36 @@ export function Mail({ search = "" }: { search?: string }) {
     });
   }, []);
 
+  function refreshFolders() {
+    if (activeId == null) return;
+    api.get<string[]>(`/mail/${activeId}/folders`).then(setFolders).catch(() => setFolders([]));
+  }
   // Ordnerliste laden, sobald ein Konto aktiv ist.
   useEffect(() => {
     if (activeId == null) return;
     setFolder("INBOX");
-    api.get<string[]>(`/mail/${activeId}/folders`)
-      .then(setFolders)
-      .catch(() => setFolders([]));
+    refreshFolders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
+
+  async function newFolder() {
+    if (activeId == null) return;
+    const name = prompt(t("folder.newPrompt", { parent: folder }));
+    if (!name || !name.trim()) return;
+    try {
+      await api.post(`/mail/${activeId}/folders?name=${encodeURIComponent(name.trim())}&parent=${encodeURIComponent(folder)}`);
+      refreshFolders();
+    } catch (e) { setErr((e as Error).message); }
+  }
+  async function delFolder(path: string) {
+    if (activeId == null) return;
+    if (!confirm(t("folder.deleteConfirm", { name: path }))) return;
+    try {
+      await api.del(`/mail/${activeId}/folders?name=${encodeURIComponent(path)}`);
+      if (folder === path) setFolder("INBOX");
+      refreshFolders();
+    } catch (e) { setErr((e as Error).message); }
+  }
 
   // Posteingang standardmäßig aufgeklappt.
   useEffect(() => {
@@ -136,6 +158,16 @@ export function Mail({ search = "" }: { search?: string }) {
             <span>{icon}</span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
           </button>
+          {!node.special && (
+            <button
+              className="mail-folder-toggle"
+              style={{ flex: "0 0 auto", width: "auto", padding: "0 0.3rem" }}
+              onClick={() => delFolder(node.path)}
+              title={t("common.delete")}
+            >
+              🗑
+            </button>
+          )}
         </div>
         {hasKids && isOpen && node.children.map((c) => renderNode(c, depth + 1))}
       </div>
@@ -159,7 +191,10 @@ export function Mail({ search = "" }: { search?: string }) {
       <div className="mail-layout">
         {/* Mailbox-Ordnerbaum */}
         <aside className="mail-folders">
-          <div className="mail-mailbox-head">{t("mail.mailbox")}</div>
+          <div className="mail-mailbox-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span>{t("mail.mailbox")}</span>
+            <button className="mail-folder-toggle" style={{ width: "auto", fontSize: "0.9rem", padding: "0 0.2rem" }} onClick={newFolder} title={t("folder.new")}>＋</button>
+          </div>
           {accounts.length > 1 && (
             <select
               value={activeId ?? ""}
