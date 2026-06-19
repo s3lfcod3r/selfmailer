@@ -129,6 +129,12 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
   function patchHeader(uid: string, patch: Partial<MsgHeader>) {
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
   }
+  // Abrufen = Filterregeln anwenden (Modus A), dann Liste neu laden.
+  async function refreshWithRules() {
+    if (activeId == null) return;
+    try { await api.post(`/mail/${activeId}/rules/apply`); } catch { /* Regelfehler ignorieren */ }
+    reload();
+  }
   function toggleExpand(path: string) {
     setExpanded((s) => {
       const n = new Set(s);
@@ -274,7 +280,7 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
       <div className="row" style={{ marginBottom: "1rem" }}>
         <button className="primary" onClick={() => setDraft(emptyDraft())}>{t("mail.newMail")}</button>
         <span className="grow" />
-        <button className="ghost" onClick={reload}>↻</button>
+        <button className="ghost" onClick={refreshWithRules}>↻</button>
       </div>
 
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}

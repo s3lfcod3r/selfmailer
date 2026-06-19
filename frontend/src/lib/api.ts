@@ -92,6 +92,10 @@ export type DavAccount = {
   username: string; last_sync: string | null; last_status: string;
 };
 export type FeedToken = { token: string; calendar_url: string; contacts_url: string };
+export type Rule = {
+  id: number; field: string; value: string; target_folder: string;
+  mark_read: boolean; star: boolean; enabled: boolean; position: number;
+};
 export type SyncResult = {
   ok: boolean; imported: number; updated: number; removed: number; error: string;
 };

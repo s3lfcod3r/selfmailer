@@ -123,6 +123,26 @@ class SendRequest(BaseModel):
     attachments: list[AttachmentIn] = []
 
 
+# ---- Filterregeln --------------------------------------------------------
+class RuleCreate(BaseModel):
+    field: str = "from"            # from | to | subject
+    value: str
+    target_folder: str = ""
+    mark_read: bool = False
+    star: bool = False
+
+
+class RuleOut(BaseModel):
+    id: int
+    field: str
+    value: str
+    target_folder: str
+    mark_read: bool
+    star: bool
+    enabled: bool
+    position: int
+
+
 # ---- Notizen -------------------------------------------------------------
 class NoteCreate(BaseModel):
     title: str = ""

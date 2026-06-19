@@ -9,9 +9,10 @@ import { Calendar } from "./pages/Calendar";
 import { Contacts } from "./pages/Contacts";
 import { Sync } from "./pages/Sync";
 import { Admin } from "./pages/Admin";
+import { Rules } from "./pages/Rules";
 import { Wordmark } from "./components/Wordmark";
 
-type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin";
+type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin" | "rules";
 
 type AppItem = { key: View; labelKey: string; icon: string; adminOnly?: boolean };
 
@@ -25,6 +26,7 @@ const APPS: AppItem[] = [
 ];
 // Einstellungen im Benutzer-Menü.
 const SETTINGS: AppItem[] = [
+  { key: "rules", labelKey: "nav.rules", icon: "🔀" },
   { key: "accounts", labelKey: "nav.accounts", icon: "⚙" },
   { key: "admin", labelKey: "nav.admin", icon: "👥", adminOnly: true },
 ];
@@ -193,6 +195,7 @@ export function App() {
         {view === "notes" && <Notes />}
         {view === "sync" && <Sync />}
         {view === "accounts" && <Accounts />}
+        {view === "rules" && <Rules />}
         {view === "admin" && isAdmin && <Admin meId={user.id} />}
       </main>
 

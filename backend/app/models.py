@@ -122,6 +122,25 @@ class DavAccount(SQLModel, table=True):
     created_at: dt.datetime = Field(default_factory=_now)
 
 
+class MailRule(SQLModel, table=True):
+    """Filterregel eines Mailkontos: Bedingung (Feld enthält Wert) -> Aktionen.
+
+    Wird beim Abrufen auf den Posteingang angewandt (Modus A). field ist eines von
+    "from" | "to" | "subject"; bei Treffer werden die gesetzten Aktionen ausgeführt.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    account_id: int = Field(index=True, foreign_key="mailaccount.id")
+    field: str = "from"                 # from | to | subject
+    value: str = ""                     # Suchwert (Teilstring, case-insensitiv)
+    target_folder: str = ""             # Zielordner für "Verschieben" (leer = nicht verschieben)
+    mark_read: bool = False
+    star: bool = False
+    enabled: bool = True
+    position: int = 0                   # Reihenfolge (kleiner = früher geprüft)
+    created_at: dt.datetime = Field(default_factory=_now)
+
+
 class FeedToken(SQLModel, table=True):
     """Geheimer Token fuer abonnierbare Export-Feeds (ICS/vCard).
 

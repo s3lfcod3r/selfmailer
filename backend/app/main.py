@@ -25,6 +25,7 @@ from .api import (
     feeds,
     mail,
     notes,
+    rules,
 )
 
 settings = get_settings()
@@ -51,6 +52,7 @@ app.include_router(admin.router)
 app.include_router(admin_accounts.router)
 app.include_router(accounts.router)
 app.include_router(mail.router)
+app.include_router(rules.router)
 app.include_router(notes.router)
 app.include_router(calendar.router)
 app.include_router(contacts.router)
