@@ -331,8 +331,10 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
     with _mailbox(account, password, folder="INBOX") as box:
         matches: list[tuple[str, object]] = []
         # Regeln prüfen nur Header (from/to/subject) → headers_only spart den
-        # Body-Download von bis zu 200 Mails; bulk=True bündelt die Round-Trips.
-        for msg in box.fetch(AND(all=True), mark_seen=False, limit=200, headers_only=True, bulk=True):
+        # Body-Download; bulk=True bündelt die Round-Trips. reverse=True ist
+        # ENTSCHEIDEND: ohne es holt imap-tools die AELTESTEN Mails — bei grossen
+        # Postfaechern werden so die neuen (zu sortierenden) Mails nie gesehen.
+        for msg in box.fetch(AND(all=True), reverse=True, mark_seen=False, limit=500, headers_only=True, bulk=True):
             for rule in rules:
                 if not getattr(rule, "enabled", True) or not rule.value:
                     continue
