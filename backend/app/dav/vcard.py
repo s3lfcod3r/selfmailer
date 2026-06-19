@@ -1,0 +1,97 @@
+"""vCard (RFC 6350, Version 3.0) bauen und parsen — beschraenkt auf die Felder
+des SelfMailer-Adressbuchs (Name, E-Mail, Telefon, Organisation, Notiz).
+
+build_vcards() erzeugt den Export-Feed; parse_vcards() liest fremde Adressbuecher
+beim CardDAV-Pull. Gemeinsames dict-Schema, damit api/contacts.py es direkt in
+Contact ueberfuehren kann.
+"""
+from __future__ import annotations
+
+from typing import Any, Iterable
+
+from . import rfc
+
+
+def _contact_uid(ct: Any) -> str:
+    ext = getattr(ct, "external_uid", "") or ""
+    if ext:
+        return ext
+    return f"selfmailer-contact-{getattr(ct, 'id', 'x')}@selfmailer"
+
+
+def _full_name(first: str, last: str, org: str) -> str:
+    name = " ".join(p for p in (first, last) if p).strip()
+    return name or org or "Unbenannt"
+
+
+def build_vcards(contacts: Iterable[Any]) -> str:
+    """Serialisiert Contact-aehnliche Objekte zu aneinandergereihten VCARDs."""
+    lines: list[str] = []
+    for ct in contacts:
+        first = getattr(ct, "first_name", "") or ""
+        last = getattr(ct, "last_name", "") or ""
+        org = getattr(ct, "organization", "") or ""
+        lines.append("BEGIN:VCARD")
+        lines.append("VERSION:3.0")
+        lines.append(f"UID:{_contact_uid(ct)}")
+        # N: Family;Given;Additional;Prefix;Suffix
+        lines.append(f"N:{rfc.escape_text(last)};{rfc.escape_text(first)};;;")
+        lines.append(f"FN:{rfc.escape_text(_full_name(first, last, org))}")
+        if getattr(ct, "email", ""):
+            lines.append(f"EMAIL;TYPE=INTERNET:{rfc.escape_text(ct.email)}")
+        if getattr(ct, "phone", ""):
+            lines.append(f"TEL:{rfc.escape_text(ct.phone)}")
+        if org:
+            lines.append(f"ORG:{rfc.escape_text(org)}")
+        if getattr(ct, "notes", ""):
+            lines.append(f"NOTE:{rfc.escape_text(ct.notes)}")
+        lines.append("END:VCARD")
+    return rfc.CRLF.join(rfc.fold_line(ln) for ln in lines) + (rfc.CRLF if lines else "")
+
+
+def parse_vcards(text: str) -> list[dict[str, Any]]:
+    """Liest VCARDs aus vCard-Text in dicts.
+
+    Schluessel: uid, first_name, last_name, email, phone, organization, notes.
+    """
+    cards: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for line in rfc.unfold(text):
+        upper = line.upper()
+        if upper == "BEGIN:VCARD":
+            current = {
+                "uid": "",
+                "first_name": "",
+                "last_name": "",
+                "email": "",
+                "phone": "",
+                "organization": "",
+                "notes": "",
+            }
+            continue
+        if upper == "END:VCARD":
+            if current is not None:
+                cards.append(current)
+            current = None
+            continue
+        if current is None:
+            continue
+        name, _params, value = rfc.split_property(line)
+        if name == "UID":
+            current["uid"] = value.strip()
+        elif name == "N":
+            # Family;Given;Additional;Prefix;Suffix (an un-escapten ; trennen)
+            comps = rfc.split_components(value, ";")
+            current["last_name"] = rfc.unescape_text(comps[0]) if len(comps) > 0 else ""
+            current["first_name"] = rfc.unescape_text(comps[1]) if len(comps) > 1 else ""
+        elif name == "FN" and not (current["first_name"] or current["last_name"]):
+            current["first_name"] = rfc.unescape_text(value)
+        elif name == "EMAIL" and not current["email"]:
+            current["email"] = rfc.unescape_text(value)
+        elif name == "TEL" and not current["phone"]:
+            current["phone"] = rfc.unescape_text(value)
+        elif name == "ORG":
+            current["organization"] = rfc.unescape_text(rfc.split_components(value, ";")[0])
+        elif name == "NOTE":
+            current["notes"] = rfc.unescape_text(value)
+    return cards

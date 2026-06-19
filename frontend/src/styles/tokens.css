@@ -1,0 +1,103 @@
+/* ============================================================
+   SELF DESIGN SYSTEM — Design Tokens (Single Source of Truth)
+   Framework-agnostisch. In jedes Self-Projekt kopieren oder
+   per @import einbinden. Quelle: Selfstream + SelfCoder.
+   ============================================================ */
+
+:root {
+  /* --- Surfaces (dark = default) ------------------------- */
+  --self-bg-0: #080c11;   /* tiefste Ebene — Seite/Page (SelfCoder) */
+  --self-bg-1: #0d1117;   /* Sektionen (Selfstream)                */
+  --self-bg-2: #161b22;   /* Cards / Panels                        */
+  --self-bg-3: #1c2333;   /* Inputs / Hover / erhöhte Flächen      */
+
+  /* --- Linien / Borders ---------------------------------- */
+  --self-line: rgba(157, 189, 208, 0.10);
+  --self-line-strong: rgba(157, 189, 208, 0.22);
+
+  /* --- Marke: Teal (Signatur) ---------------------------- */
+  --self-teal: #33a78c;        /* PRIMÄR — aus dem Self-Logo abgeleitet */
+  --self-teal-bright: #43d3ad; /* Hover / Highlights                    */
+  --self-teal-deep: #1f7763;   /* Tiefen / Verläufe                     */
+  --self-cyan: #00e5c8;        /* "Live"/Signal-Akzent (Selfstream)     */
+
+  /* --- Akzente ------------------------------------------- */
+  --self-ice: #9dbdd0;
+  --self-ice-bright: #bcd9e9;
+  --self-ice-deep: #6f95ad;
+  --self-blue: #1db8d4;        /* Info / Links                          */
+
+  /* --- Status -------------------------------------------- */
+  --self-green: #3fb950;
+  --self-red: #f85149;
+  --self-yellow: #d29922;
+
+  /* --- Text ---------------------------------------------- */
+  --self-text: #eef4f7;        /* Haupttext / Überschriften             */
+  --self-text-2: #8a9caa;      /* Sekundär / Beschreibungen             */
+  --self-text-3: #556673;      /* Schwach / Platzhalter / Labels        */
+
+  /* --- Typografie ---------------------------------------- */
+  --self-font-sans: "Exo 2", system-ui, -apple-system, sans-serif;
+  --self-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+  --self-font-wordmark: "Orbitron", var(--self-font-sans); /* Logo-Schriftzug "SelfXxx" (Weight 800) — trifft das Original */
+
+  /* --- Radius / Elevation -------------------------------- */
+  --self-radius: 10px;
+  --self-radius-sm: 6px;
+  --self-glow-teal: 0 0 60px -12px rgba(51, 167, 140, 0.45);
+
+  /* --- Motion -------------------------------------------- */
+  --self-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --self-dur-fast: 150ms;
+  --self-dur: 300ms;
+
+  color-scheme: dark;
+}
+
+/* ============================================================
+   LIGHT THEME — auf <html data-theme="light"> aktivieren.
+   Übernommen aus dem Selfstream-Dashboard.
+   ============================================================ */
+html[data-theme="light"] {
+  --self-bg-0: #eef1f6;
+  --self-bg-1: #ffffff;
+  --self-bg-2: #ffffff;
+  --self-bg-3: #f1f4f8;
+
+  --self-line: #d6dde6;
+  --self-line-strong: #c2cbd6;
+
+  --self-teal: #0a9d8c;
+  --self-teal-bright: #0a9d8c;
+  --self-cyan: #0a9d8c;
+  --self-blue: #1184c9;
+
+  --self-green: #1f9d3f;
+  --self-red: #d83a30;
+  --self-yellow: #a8780f;
+
+  --self-text: #1a2230;
+  --self-text-2: #5b6776;
+  --self-text-3: #9aa5b1;
+
+  color-scheme: light;
+}
+
+/* ============================================================
+   Wiederkehrende Self-Utilities (optional)
+   ============================================================ */
+.self-text-gradient {
+  background: linear-gradient(120deg, var(--self-ice-bright), var(--self-teal-bright));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.self-glow {
+  box-shadow: var(--self-glow-teal);
+}
+
+.self-hairline {
+  box-shadow: inset 0 0 0 1px var(--self-line);
+}
