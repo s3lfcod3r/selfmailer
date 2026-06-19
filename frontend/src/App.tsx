@@ -28,6 +28,12 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>("mail");
+  const [theme, setTheme] = useState<string>(() => localStorage.getItem("selfmailer.theme") || "dark");
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("selfmailer.theme", theme);
+  }, [theme]);
 
   function loadMe() {
     if (!auth.get()) { setUser(null); setReady(true); return; }
@@ -60,6 +66,23 @@ export function App() {
           </div>
         ))}
         <span className="grow" />
+        <div
+          className="nav-item"
+          onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+        >
+          <span>{theme === "dark" ? "☀" : "🌙"}</span>
+          {theme === "dark" ? "Helles Design" : "Dunkles Design"}
+        </div>
+        <div className="nav-item" style={{ cursor: "default" }}>
+          <span>👤</span>
+          <span
+            className="grow"
+            style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          >
+            {user.display_name || user.username}
+          </span>
+          {isAdmin && <span className="label">Admin</span>}
+        </div>
         <div className="nav-item" onClick={logout}><span>⎋</span> Abmelden</div>
       </aside>
 
@@ -68,10 +91,6 @@ export function App() {
           <h1 style={{ margin: 0, fontSize: "1.4rem" }}>
             {nav.find((n) => n.key === view)?.label}
           </h1>
-          <div className="row">
-            <span className="muted">{user.display_name || user.username}</span>
-            {isAdmin && <span className="label">Admin</span>}
-          </div>
         </div>
 
         {view === "mail" && <Mail />}
