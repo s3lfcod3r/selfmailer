@@ -57,12 +57,16 @@ async def send_message(
     recipients = list(to) + list(cc or []) + list(bcc or [])
     login = account.auth_user or account.email
 
+    # Port 465 = SMTPS (implizit TLS ab Verbindungsaufbau); 587/25 = STARTTLS.
+    # use_tls und start_tls schliessen sich gegenseitig aus.
+    use_implicit_tls = account.smtp_port == 465
     await aiosmtplib.send(
         msg,
         hostname=account.smtp_host,
         port=account.smtp_port,
         username=login,
         password=password,
-        start_tls=account.smtp_starttls,
+        use_tls=use_implicit_tls,
+        start_tls=account.smtp_starttls and not use_implicit_tls,
         recipients=recipients,
     )
