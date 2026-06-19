@@ -65,6 +65,13 @@ def _ensure_columns() -> None:
             for name, ddl_type in columns:
                 if name not in present:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}"))
+                # Text-Spalten duerfen nicht NULL sein: Bestandszeilen, die ueber
+                # ADD COLUMN (ohne DEFAULT) NULL bekamen, wuerden sonst die
+                # Response-Schemas (str) brechen. Idempotenter Backfill.
+                if ddl_type == "VARCHAR":
+                    conn.execute(
+                        text(f"UPDATE {table} SET {name} = '' WHERE {name} IS NULL")
+                    )
 
 
 def init_db() -> None:
