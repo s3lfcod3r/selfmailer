@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, auth } from "../lib/api";
+import { api, auth, type LoginResponse } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { Wordmark } from "../components/Wordmark";
 
@@ -14,6 +14,9 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
   const [adminToken, setAdminToken] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // 2FA-Zwischenschritt: gesetzt, sobald das Passwort stimmt und 2FA aktiv ist.
+  const [mfaToken, setMfaToken] = useState("");
+  const [code, setCode] = useState("");
 
   useEffect(() => {
     api.get<{ needs_setup: boolean }>("/auth/status")
@@ -26,11 +29,19 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
     setErr("");
     setBusy(true);
     try {
-      const res = needsSetup
-        ? await api.post<Token>("/auth/setup", {
-            username, password, display_name: displayName, admin_token: adminToken,
-          })
-        : await api.post<Token>("/auth/login", { username, password });
+      if (needsSetup) {
+        const res = await api.post<Token>("/auth/setup", {
+          username, password, display_name: displayName, admin_token: adminToken,
+        });
+        auth.set(res.access_token);
+        onAuthed();
+        return;
+      }
+      const res = await api.post<LoginResponse>("/auth/login", { username, password });
+      if (res.needs_totp) {
+        setMfaToken(res.mfa_token);   // zweiter Schritt: Code abfragen
+        return;
+      }
       auth.set(res.access_token);
       onAuthed();
     } catch (e) {
@@ -40,8 +51,56 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
     }
   }
 
+  async function submitCode(e: React.FormEvent) {
+    e.preventDefault();
+    setErr("");
+    setBusy(true);
+    try {
+      const res = await api.post<Token>("/auth/login/totp", { mfa_token: mfaToken, code });
+      auth.set(res.access_token);
+      onAuthed();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function cancelMfa() {
+    setMfaToken(""); setCode(""); setErr(""); setPassword("");
+  }
+
   if (needsSetup === null) return <div className="auth-wrap"><span className="muted">{t("common.loading")}</span></div>;
 
+  // ── Zweiter Schritt: 2FA-Code ──────────────────────────────────────────
+  if (mfaToken) {
+    return (
+      <div className="auth-wrap">
+        <form className="auth-card card stack" onSubmit={submitCode}>
+          <Wordmark size={1.8} />
+          <h1>{t("totp.loginTitle")}</h1>
+          <p className="muted" style={{ margin: 0, fontSize: "0.88rem" }}>{t("totp.loginSub")}</p>
+          <div className="stack">
+            <label className="label">{t("totp.codeLabel")}</label>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              autoFocus
+              required
+            />
+          </div>
+          {err && <div className="err">{err}</div>}
+          <button className="primary" disabled={busy}>{busy ? "…" : t("totp.verify")}</button>
+          <button type="button" className="ghost" onClick={cancelMfa}>{t("common.cancel")}</button>
+        </form>
+      </div>
+    );
+  }
+
+  // ── Erster Schritt: Login / Setup ──────────────────────────────────────
   return (
     <div className="auth-wrap">
       <form className="auth-card card stack" onSubmit={submit}>

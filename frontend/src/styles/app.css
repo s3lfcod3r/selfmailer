@@ -434,3 +434,61 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--self-teal); }
 ::-webkit-scrollbar-corner { background: var(--self-bg-2); }
+
+/* ── 2FA / TOTP ────────────────────────────────────────────────── */
+.danger {
+  background: color-mix(in srgb, var(--self-red) 18%, transparent);
+  color: var(--self-red);
+  border: 1px solid color-mix(in srgb, var(--self-red) 45%, transparent);
+  border-radius: var(--self-radius-sm);
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+  font: inherit;
+}
+.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--self-red) 28%, transparent); }
+.danger:disabled { opacity: 0.5; cursor: default; }
+
+.totp-badge {
+  align-self: flex-start;
+  font-size: 0.82rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: var(--self-bg-3);
+  color: var(--self-text-2);
+  border: 1px solid var(--self-line-strong);
+}
+.totp-badge.on {
+  background: color-mix(in srgb, var(--self-teal) 18%, transparent);
+  color: var(--self-teal-bright);
+  border-color: color-mix(in srgb, var(--self-teal) 45%, transparent);
+}
+
+.totp-secret {
+  display: block;
+  font-family: var(--self-font-mono);
+  font-size: 1rem;
+  letter-spacing: 0.12em;
+  word-break: break-all;
+  background: var(--self-bg-3);
+  border: 1px solid var(--self-line-strong);
+  border-radius: var(--self-radius-sm);
+  padding: 0.55rem 0.7rem;
+  user-select: all;
+}
+
+.totp-backup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+.totp-backup-grid code {
+  font-family: var(--self-font-mono);
+  font-size: 0.95rem;
+  text-align: center;
+  letter-spacing: 0.08em;
+  background: var(--self-bg-3);
+  border: 1px solid var(--self-line-strong);
+  border-radius: var(--self-radius-sm);
+  padding: 0.4rem 0.2rem;
+  user-select: all;
+}

@@ -34,6 +34,46 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class LoginResponse(BaseModel):
+    """Login-Antwort: entweder fertiges Token ODER 2FA-Anforderung.
+
+    Bei aktiver 2FA bleibt access_token leer, needs_totp=True und mfa_token traegt
+    den kurzlebigen Zwischen-Token fuer POST /auth/login/totp.
+    """
+    access_token: str = ""
+    token_type: str = "bearer"
+    needs_totp: bool = False
+    mfa_token: str = ""
+
+
+class TotpLoginRequest(BaseModel):
+    mfa_token: str
+    code: str  # 6-stelliger TOTP-Code ODER Backup-Code (XXXX-XXXX)
+
+
+class TotpStatusOut(BaseModel):
+    enabled: bool
+    backup_codes_remaining: int = 0
+
+
+class TotpSetupOut(BaseModel):
+    """Antwort auf Einrichtungsstart: Secret (manuell) + otpauth-URI (QR)."""
+    secret: str
+    otpauth_uri: str
+
+
+class TotpEnableRequest(BaseModel):
+    code: str  # zur Bestaetigung, dass die App korrekt eingerichtet ist
+
+
+class TotpEnableOut(BaseModel):
+    backup_codes: list[str]  # nur EINMAL sichtbar – Nutzer muss sie sichern
+
+
+class TotpDisableRequest(BaseModel):
+    password: str  # zur Sicherheit erneute Passworteingabe
+
+
 class UserOut(BaseModel):
     id: int
     username: str

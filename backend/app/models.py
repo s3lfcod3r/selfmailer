@@ -37,6 +37,25 @@ class User(SQLModel, table=True):
     password_hash: str
     role: Role = Field(default=Role.user)
     is_active: bool = True
+    # 2FA (TOTP). secret ist Fernet-VERSCHLUESSELT, solange totp_enabled.
+    # totp_last_step verhindert Replay (jeder Zeitschritt nur einmal nutzbar).
+    totp_secret: str = ""
+    totp_enabled: bool = False
+    totp_last_step: int = 0
+    created_at: dt.datetime = Field(default_factory=_now)
+
+
+class BackupCode(SQLModel, table=True):
+    """Einmal-Wiederherstellungscode fuer 2FA (Argon2-gehasht, nie Klartext).
+
+    Wird beim Aktivieren von 2FA erzeugt; ein Code ist nach Nutzung verbraucht
+    (used=True). Neugenerieren loescht die alten Codes des Users.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    code_hash: str
+    used: bool = False
     created_at: dt.datetime = Field(default_factory=_now)
 
 

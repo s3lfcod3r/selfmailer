@@ -21,6 +21,9 @@ def get_current_user(
     payload = decode_token(creds.credentials)
     if not payload:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token ungueltig")
+    # Der 2FA-Zwischen-Token (stage=mfa) gewaehrt KEINEN Vollzugriff.
+    if payload.get("stage") == "mfa":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA nicht abgeschlossen")
     user = session.exec(select(User).where(User.username == payload.get("sub"))).first()
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Konto inaktiv/unbekannt")

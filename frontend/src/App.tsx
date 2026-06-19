@@ -11,6 +11,7 @@ import { Sync } from "./pages/Sync";
 import { Admin } from "./pages/Admin";
 import { Rules } from "./pages/Rules";
 import { Wordmark } from "./components/Wordmark";
+import { TotpSettings } from "./components/TotpSettings";
 
 type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin" | "rules";
 
@@ -40,6 +41,7 @@ export function App() {
   const [menu, setMenu] = useState<"apps" | "user" | "filter" | null>(null);
   const [filter, setFilter] = useState({ from: "", subject: "", dateFrom: "", dateTo: "", unread: false, starred: false, attachments: false });
   const [pwOpen, setPwOpen] = useState(false);
+  const [totpOpen, setTotpOpen] = useState(false);
   const [pwCur, setPwCur] = useState("");
   const [pwNew, setPwNew] = useState("");
   const [pwMsg, setPwMsg] = useState("");
@@ -175,6 +177,7 @@ export function App() {
             <button key={s.key} onClick={() => go(s.key)}><span>{s.icon}</span> {t(s.labelKey)}</button>
           ))}
           <button onClick={openPw}><span>🔑</span> {t("user.changePassword")}</button>
+          <button onClick={() => { setMenu(null); setTotpOpen(true); }}><span>🛡</span> {t("totp.menu")}</button>
           <hr />
           <button onClick={() => { setLang(lang === "de" ? "en" : "de"); setMenu(null); }}>
             <span>🌐</span> {t("shell.langSwitch")}
@@ -207,6 +210,8 @@ export function App() {
         {view === "rules" && <Rules />}
         {view === "admin" && isAdmin && <Admin meId={user.id} />}
       </main>
+
+      {totpOpen && <TotpSettings onClose={() => setTotpOpen(false)} />}
 
       {pwOpen && (
         <div className="modal-backdrop" onClick={() => setPwOpen(false)}>

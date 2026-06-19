@@ -26,6 +26,11 @@ engine = create_engine(
 # Additive Spalten, die ggf. in einer aelteren DB fehlen (SQLite kennt kein
 # automatisches Hinzufuegen ueber create_all). Tabelle -> [(Spalte, DDL-Typ)].
 _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "user": [
+        ("totp_secret", "VARCHAR"),
+        ("totp_enabled", "INTEGER DEFAULT 0"),
+        ("totp_last_step", "INTEGER DEFAULT 0"),
+    ],
     "mailaccount": [("signature", "VARCHAR")],
     "calendarevent": [("dav_account_id", "INTEGER"), ("external_uid", "VARCHAR")],
     "contact": [
