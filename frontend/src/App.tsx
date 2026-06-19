@@ -1,21 +1,43 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
 import { api, auth, type User } from "./lib/api";
 import { useLang } from "./lib/i18n";
 import { Login } from "./pages/Login";
 import { Mail } from "./pages/Mail";
 import { Wordmark } from "./components/Wordmark";
 
+// Lazy-Import mit Selbstheilung: schlaegt das Laden eines Chunks fehl — typisch
+// direkt NACH einem Deploy, wenn die alten Chunk-Hashes nicht mehr existieren und
+// ein noch offener Tab sie anfordert — wird die Seite EINMAL hart neu geladen, um
+// frisches index.html + die neuen Chunks zu holen. Der Zeit-Guard verhindert eine
+// Reload-Schleife, falls ein Chunk wirklich kaputt ist.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function lazyWithReload<T extends ComponentType<any>>(
+  factory: () => Promise<{ default: T }>,
+) {
+  return lazy(() =>
+    factory().catch((err: unknown) => {
+      const last = Number(sessionStorage.getItem("selfmailer.chunkReload") || 0);
+      if (Date.now() - last > 10000) {
+        sessionStorage.setItem("selfmailer.chunkReload", String(Date.now()));
+        window.location.reload();
+        return new Promise<{ default: T }>(() => {}); // haengt bis zum Reload
+      }
+      throw err;
+    }),
+  );
+}
+
 // Sekundäre Views per Code-Splitting: sie (und ihre Deps, z. B. qrcode in
 // TotpSettings) liegen in eigenen Chunks und belasten das Initial-Bundle nicht.
 // Mail bleibt eager (Default-View, bleibt gemountet).
-const Notes = lazy(() => import("./pages/Notes").then((m) => ({ default: m.Notes })));
-const Accounts = lazy(() => import("./pages/Accounts").then((m) => ({ default: m.Accounts })));
-const Calendar = lazy(() => import("./pages/Calendar").then((m) => ({ default: m.Calendar })));
-const Contacts = lazy(() => import("./pages/Contacts").then((m) => ({ default: m.Contacts })));
-const Sync = lazy(() => import("./pages/Sync").then((m) => ({ default: m.Sync })));
-const Admin = lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
-const Rules = lazy(() => import("./pages/Rules").then((m) => ({ default: m.Rules })));
-const TotpSettings = lazy(() => import("./components/TotpSettings").then((m) => ({ default: m.TotpSettings })));
+const Notes = lazyWithReload(() => import("./pages/Notes").then((m) => ({ default: m.Notes })));
+const Accounts = lazyWithReload(() => import("./pages/Accounts").then((m) => ({ default: m.Accounts })));
+const Calendar = lazyWithReload(() => import("./pages/Calendar").then((m) => ({ default: m.Calendar })));
+const Contacts = lazyWithReload(() => import("./pages/Contacts").then((m) => ({ default: m.Contacts })));
+const Sync = lazyWithReload(() => import("./pages/Sync").then((m) => ({ default: m.Sync })));
+const Admin = lazyWithReload(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
+const Rules = lazyWithReload(() => import("./pages/Rules").then((m) => ({ default: m.Rules })));
+const TotpSettings = lazyWithReload(() => import("./components/TotpSettings").then((m) => ({ default: m.TotpSettings })));
 
 type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin" | "rules";
 
