@@ -208,6 +208,7 @@ class ContactCreate(BaseModel):
     phone: str = ""
     organization: str = ""
     notes: str = ""
+    birthday: dt.date | None = None
 
 
 class ContactUpdate(BaseModel):
@@ -217,6 +218,7 @@ class ContactUpdate(BaseModel):
     phone: str | None = None
     organization: str | None = None
     notes: str | None = None
+    birthday: dt.date | None = None
 
 
 class ContactOut(BaseModel):
@@ -227,6 +229,7 @@ class ContactOut(BaseModel):
     phone: str
     organization: str
     notes: str
+    birthday: dt.date | None = None
 
 
 # ---- DAV-Konten (externe CalDAV/CardDAV-Quellen) ------------------------

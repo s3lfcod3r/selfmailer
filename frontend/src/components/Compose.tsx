@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Account } from "../lib/api";
 import { useLang, type TFunc } from "../lib/i18n";
+import { RecipientField } from "./RecipientField";
 
 export type Draft = {
   to: string; cc: string; bcc: string; subject: string; body: string; in_reply_to: string;
@@ -176,12 +177,12 @@ export function Compose({
           )}
 
           <div className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
-            <input style={{ flex: 1 }} placeholder={t("compose.to")} value={d.to} onChange={(e) => set("to", e.target.value)} />
+            <RecipientField value={d.to} onChange={(v) => set("to", v)} placeholder={t("compose.to")} style={{ flex: 1 }} />
             {!showCc && <button className="ghost" style={{ padding: "0 0.4rem" }} onClick={() => setShowCc(true)}>Cc</button>}
             {!showBcc && <button className="ghost" style={{ padding: "0 0.4rem" }} onClick={() => setShowBcc(true)}>Bcc</button>}
           </div>
-          {showCc && <input placeholder={t("compose.cc")} value={d.cc} onChange={(e) => set("cc", e.target.value)} />}
-          {showBcc && <input placeholder={t("compose.bcc")} value={d.bcc} onChange={(e) => set("bcc", e.target.value)} />}
+          {showCc && <RecipientField value={d.cc} onChange={(v) => set("cc", v)} placeholder={t("compose.cc")} />}
+          {showBcc && <RecipientField value={d.bcc} onChange={(v) => set("bcc", v)} placeholder={t("compose.bcc")} />}
           <input placeholder={t("compose.subject")} value={d.subject} onChange={(e) => set("subject", e.target.value)} />
 
           <div className="compose-toolbar">

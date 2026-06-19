@@ -7,9 +7,27 @@ Contact ueberfuehren kann.
 """
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any, Iterable
 
 from . import rfc
+
+
+def _parse_bday(value: str) -> dt.date | None:
+    """Liest ein BDAY-Feld (``YYYY-MM-DD`` oder ``YYYYMMDD``) als Datum.
+
+    Zeit-/Zonenanteile nach einem ``T`` werden ignoriert; unlesbares -> None.
+    """
+    raw = value.strip().split("T", 1)[0]
+    if not raw:
+        return None
+    digits = raw.replace("-", "")
+    if len(digits) >= 8 and digits[:8].isdigit():
+        try:
+            return dt.date(int(digits[:4]), int(digits[4:6]), int(digits[6:8]))
+        except ValueError:
+            return None
+    return None
 
 
 def _contact_uid(ct: Any) -> str:
@@ -45,6 +63,9 @@ def build_vcards(contacts: Iterable[Any]) -> str:
             lines.append(f"ORG:{rfc.escape_text(org)}")
         if getattr(ct, "notes", ""):
             lines.append(f"NOTE:{rfc.escape_text(ct.notes)}")
+        bday = getattr(ct, "birthday", None)
+        if bday:
+            lines.append(f"BDAY:{bday.isoformat()}")
         lines.append("END:VCARD")
     return rfc.CRLF.join(rfc.fold_line(ln) for ln in lines) + (rfc.CRLF if lines else "")
 
@@ -67,6 +88,7 @@ def parse_vcards(text: str) -> list[dict[str, Any]]:
                 "phone": "",
                 "organization": "",
                 "notes": "",
+                "birthday": None,
             }
             continue
         if upper == "END:VCARD":
@@ -94,4 +116,6 @@ def parse_vcards(text: str) -> list[dict[str, Any]]:
             current["organization"] = rfc.unescape_text(rfc.split_components(value, ";")[0])
         elif name == "NOTE":
             current["notes"] = rfc.unescape_text(value)
+        elif name == "BDAY":
+            current["birthday"] = _parse_bday(value)
     return cards

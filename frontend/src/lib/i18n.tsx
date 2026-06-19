@@ -173,6 +173,12 @@ const de: Dict = {
   "cal.start": "Beginn",
   "cal.end": "Ende",
   "cal.empty": "Noch keine Termine.",
+  "cal.month": "Monat",
+  "cal.agenda": "Agenda",
+  "cal.today": "Heute",
+  "cal.newEvent": "Neuer Termin",
+  "cal.birthday": "Geburtstag",
+  "cal.description": "Beschreibung",
 
   // Contacts
   "contacts.search": "Suche (Name, E-Mail, Firma)…",
@@ -182,7 +188,11 @@ const de: Dict = {
   "contacts.lastName": "Nachname",
   "contacts.phone": "Telefon",
   "contacts.org": "Firma / Organisation",
+  "contacts.birthday": "Geburtstag",
   "contacts.save": "Kontakt speichern",
+  "contacts.edit": "Bearbeiten",
+  "contacts.editTitle": "Kontakt bearbeiten",
+  "contacts.notesPlaceholder": "Notizen…",
   "contacts.empty": "Keine Kontakte gefunden.",
   "contacts.noName": "(ohne Namen)",
 
@@ -401,6 +411,12 @@ const en: Dict = {
   "cal.start": "Start",
   "cal.end": "End",
   "cal.empty": "No events yet.",
+  "cal.month": "Month",
+  "cal.agenda": "Agenda",
+  "cal.today": "Today",
+  "cal.newEvent": "New event",
+  "cal.birthday": "Birthday",
+  "cal.description": "Description",
 
   // Contacts
   "contacts.search": "Search (name, email, company)…",
@@ -410,7 +426,11 @@ const en: Dict = {
   "contacts.lastName": "Last name",
   "contacts.phone": "Phone",
   "contacts.org": "Company / organization",
+  "contacts.birthday": "Birthday",
   "contacts.save": "Save contact",
+  "contacts.edit": "Edit",
+  "contacts.editTitle": "Edit contact",
+  "contacts.notesPlaceholder": "Notes…",
   "contacts.empty": "No contacts found.",
   "contacts.noName": "(no name)",
 

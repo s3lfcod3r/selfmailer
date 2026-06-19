@@ -1,14 +1,24 @@
 import { useEffect, useState } from "react";
 import { api, type Contact } from "../lib/api";
-import { useLang } from "../lib/i18n";
+import { useLang, dateLocale } from "../lib/i18n";
 
-const EMPTY = { first_name: "", last_name: "", email: "", phone: "", organization: "", notes: "" };
+const EMPTY = { first_name: "", last_name: "", email: "", phone: "", organization: "", birthday: "", notes: "" };
+type Form = typeof EMPTY;
+
+// Geburtstag schön anzeigen (Tag + Monat + Jahr in Sprach-Locale).
+function fmtBirthday(iso: string, lang: string): string {
+  const d = new Date(iso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(dateLocale(lang as "de" | "en"), { day: "2-digit", month: "long", year: "numeric" });
+}
 
 export function Contacts() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [q, setQ] = useState("");
-  const [form, setForm] = useState({ ...EMPTY });
+  const [form, setForm] = useState<Form>({ ...EMPTY });
+  const [edit, setEdit] = useState<Contact | null>(null);
+  const [editForm, setEditForm] = useState<Form>({ ...EMPTY });
   const [err, setErr] = useState("");
 
   async function load(query = q) {
@@ -17,19 +27,38 @@ export function Contacts() {
   }
   useEffect(() => { load(""); }, []);
 
-  function set<K extends keyof typeof form>(k: K, v: (typeof form)[K]) {
-    setForm((f) => ({ ...f, [k]: v }));
+  function set<K extends keyof Form>(k: K, v: Form[K]) { setForm((f) => ({ ...f, [k]: v })); }
+  function setE<K extends keyof Form>(k: K, v: Form[K]) { setEditForm((f) => ({ ...f, [k]: v })); }
+
+  // Leeren Geburtstag als null senden, damit das Backend (date | None) sauber bleibt.
+  function payload(f: Form) {
+    return { ...f, birthday: f.birthday || null };
   }
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setErr("");
     if (!form.first_name && !form.last_name && !form.email) { setErr(t("contacts.needNameOrEmail")); return; }
-    try { await api.post<Contact>("/contacts", form); setForm({ ...EMPTY }); load(); }
+    try { await api.post<Contact>("/contacts", payload(form)); setForm({ ...EMPTY }); load(); }
     catch (e) { setErr((e as Error).message); }
   }
   async function remove(ct: Contact) {
     try { await api.del(`/contacts/${ct.id}`); load(); }
+    catch (e) { setErr((e as Error).message); }
+  }
+
+  function openEdit(ct: Contact) {
+    setEdit(ct);
+    setEditForm({
+      first_name: ct.first_name, last_name: ct.last_name, email: ct.email,
+      phone: ct.phone, organization: ct.organization, birthday: ct.birthday ?? "", notes: ct.notes,
+    });
+  }
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!edit) return;
+    setErr("");
+    try { await api.patch<Contact>(`/contacts/${edit.id}`, payload(editForm)); setEdit(null); load(); }
     catch (e) { setErr((e as Error).message); }
   }
 
@@ -51,7 +80,9 @@ export function Contacts() {
           <input placeholder={t("contacts.phone")} value={form.phone} onChange={(e) => set("phone", e.target.value)} />
         </div>
         <input placeholder={t("contacts.org")} value={form.organization} onChange={(e) => set("organization", e.target.value)} />
-        <div className="row">
+        <div className="row" style={{ alignItems: "center" }}>
+          <label className="label" style={{ minWidth: 90 }}>🎂 {t("contacts.birthday")}</label>
+          <input type="date" value={form.birthday} onChange={(e) => set("birthday", e.target.value)} />
           <span className="grow" />
           <button className="primary">{t("contacts.save")}</button>
         </div>
@@ -63,19 +94,52 @@ export function Contacts() {
       <div className="notes-grid">
         {contacts.map((ct) => (
           <div className="card note" key={ct.id}>
-            <div className="note-title">{[ct.first_name, ct.last_name].filter(Boolean).join(" ") || t("contacts.noName")}</div>
+            <button className="note-title contact-open" onClick={() => openEdit(ct)} title={t("contacts.edit")}>
+              {[ct.first_name, ct.last_name].filter(Boolean).join(" ") || t("contacts.noName")}
+            </button>
             <div className="note-body">
               {ct.organization && <div className="muted">{ct.organization}</div>}
               {ct.email && <div>✉ {ct.email}</div>}
               {ct.phone && <div>☎ {ct.phone}</div>}
+              {ct.birthday && <div>🎂 {fmtBirthday(ct.birthday, lang)}</div>}
             </div>
             <div className="note-foot">
-              <span />
+              <button className="ghost" onClick={() => openEdit(ct)}>✎</button>
               <button className="ghost" onClick={() => remove(ct)}>🗑</button>
             </div>
           </div>
         ))}
       </div>
+
+      {edit && (
+        <div className="modal-backdrop" onClick={() => setEdit(null)}>
+          <form className="modal card stack" onClick={(e) => e.stopPropagation()} onSubmit={saveEdit}>
+            <div className="topbar">
+              <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{t("contacts.editTitle")}</h2>
+              <button type="button" className="ghost" onClick={() => setEdit(null)}>✕</button>
+            </div>
+            <div className="row">
+              <input placeholder={t("contacts.firstName")} value={editForm.first_name} onChange={(e) => setE("first_name", e.target.value)} />
+              <input placeholder={t("contacts.lastName")} value={editForm.last_name} onChange={(e) => setE("last_name", e.target.value)} />
+            </div>
+            <div className="row">
+              <input placeholder={t("common.email")} value={editForm.email} onChange={(e) => setE("email", e.target.value)} />
+              <input placeholder={t("contacts.phone")} value={editForm.phone} onChange={(e) => setE("phone", e.target.value)} />
+            </div>
+            <input placeholder={t("contacts.org")} value={editForm.organization} onChange={(e) => setE("organization", e.target.value)} />
+            <div className="row" style={{ alignItems: "center" }}>
+              <label className="label" style={{ minWidth: 90 }}>🎂 {t("contacts.birthday")}</label>
+              <input type="date" value={editForm.birthday} onChange={(e) => setE("birthday", e.target.value)} />
+            </div>
+            <textarea placeholder={t("contacts.notesPlaceholder")} value={editForm.notes} onChange={(e) => setE("notes", e.target.value)} rows={3} />
+            <div className="row">
+              <span className="grow" />
+              <button type="button" className="ghost" onClick={() => setEdit(null)}>{t("common.cancel")}</button>
+              <button className="primary">{t("contacts.save")}</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

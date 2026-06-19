@@ -285,3 +285,58 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   max-height: 90vh; overflow: auto; resize: both; padding: 1.2rem 1.3rem;
 }
 .modal textarea { resize: vertical; }
+
+/* --- Kalender: Monatsgitter + Agenda-Umschalter --- */
+.cal-wrap { display: flex; flex-direction: column; gap: 0.9rem; }
+.cal-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem; }
+.cal-nav { display: flex; align-items: center; gap: 0.3rem; }
+.cal-month-title {
+  font-family: var(--self-font-wordmark); font-weight: 800; letter-spacing: 0.02em;
+  text-transform: capitalize; font-size: 1.15rem; min-width: 11ch; text-align: center;
+}
+.cal-nav .ghost { min-width: 32px; font-size: 1.2rem; line-height: 1; }
+.cal-switch { display: inline-flex; border: 1px solid var(--self-line-strong); border-radius: 8px; overflow: hidden; }
+.cal-switch button { padding: 0.35rem 0.8rem; background: transparent; border: none; color: var(--self-text-2); cursor: pointer; }
+.cal-switch button.on { background: var(--self-teal); color: #04130f; font-weight: 600; }
+
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--self-line); border: 1px solid var(--self-line); border-radius: var(--self-radius); overflow: hidden; }
+.cal-wd { background: var(--self-bg-2); padding: 0.45rem 0.5rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--self-text-3); text-align: center; }
+.cal-cell { background: var(--self-bg-1); min-height: 96px; padding: 0.3rem 0.35rem; cursor: pointer; transition: background var(--self-dur-fast) var(--self-ease); display: flex; flex-direction: column; gap: 0.2rem; }
+.cal-cell:hover { background: var(--self-bg-3); }
+.cal-cell.outside { background: var(--self-bg-0); }
+.cal-cell.outside .cal-daynum { color: var(--self-text-3); }
+.cal-daynum { font-size: 0.8rem; color: var(--self-text-2); text-align: right; padding: 0 0.15rem; }
+.cal-cell.today .cal-daynum {
+  color: #04130f; background: var(--self-teal); font-weight: 700;
+  width: 1.5rem; height: 1.5rem; border-radius: 50%; display: inline-flex;
+  align-items: center; justify-content: center; margin-left: auto; padding: 0;
+}
+.cal-chips { display: flex; flex-direction: column; gap: 0.15rem; overflow: hidden; }
+.cal-chip {
+  font-size: 0.72rem; line-height: 1.3; padding: 0.1rem 0.35rem; border-radius: 4px;
+  background: var(--self-teal-deep); color: var(--self-text); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cal-chip:hover { background: var(--self-teal); color: #04130f; }
+.cal-chip.birthday { background: transparent; color: var(--self-ice-bright); cursor: default; padding-left: 0; }
+.cal-chip.birthday:hover { background: transparent; color: var(--self-ice-bright); }
+@media (max-width: 700px) {
+  .cal-cell { min-height: 64px; }
+  .cal-chip { font-size: 0.62rem; }
+}
+
+/* --- Empfänger-Autocomplete (Compose) --- */
+.recipient-field { position: relative; }
+.recipient-suggest {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 60; margin-top: 2px;
+  background: var(--self-bg-2); border: 1px solid var(--self-line-strong); border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45); overflow: hidden; max-height: 240px; overflow-y: auto;
+}
+.recipient-item { display: flex; flex-direction: column; gap: 0.05rem; width: 100%; text-align: left; padding: 0.4rem 0.7rem; background: transparent; border: none; cursor: pointer; }
+.recipient-item.active, .recipient-item:hover { background: var(--self-bg-3); }
+.recipient-name { font-size: 0.86rem; color: var(--self-text); }
+.recipient-mail { font-size: 0.76rem; color: var(--self-text-3); }
+
+/* Kontakt-Karte: Name als anklickbarer Titel zum Bearbeiten. */
+.contact-open { background: transparent; border: none; padding: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.contact-open:hover { color: var(--self-teal-bright); }

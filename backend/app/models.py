@@ -96,6 +96,7 @@ class Contact(SQLModel, table=True):
     phone: str = ""
     organization: str = ""
     notes: str = ""
+    birthday: dt.date | None = None       # Geburtstag -> jaehrlicher Kalender-Eintrag
     # Herkunft: gesetzt, wenn der Kontakt aus einem externen CardDAV-Konto stammt.
     dav_account_id: int | None = Field(default=None, index=True, foreign_key="davaccount.id")
     external_uid: str = Field(default="", index=True)

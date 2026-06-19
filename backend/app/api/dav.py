@@ -145,6 +145,7 @@ def _sync_contacts(
             target.phone = card["phone"]
             target.organization = card["organization"]
             target.notes = card["notes"]
+            target.birthday = card.get("birthday")
             target.updated_at = dt.datetime.now(dt.timezone.utc)
             session.add(target)
             updated += 1 if existing else 0

@@ -27,7 +27,11 @@ engine = create_engine(
 # automatisches Hinzufuegen ueber create_all). Tabelle -> [(Spalte, DDL-Typ)].
 _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "calendarevent": [("dav_account_id", "INTEGER"), ("external_uid", "VARCHAR")],
-    "contact": [("dav_account_id", "INTEGER"), ("external_uid", "VARCHAR")],
+    "contact": [
+        ("dav_account_id", "INTEGER"),
+        ("external_uid", "VARCHAR"),
+        ("birthday", "DATE"),
+    ],
 }
 
 
