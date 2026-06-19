@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <Container version="2">
-  <Name>selfmailer</Name>
+  <Name>SelfMailer</Name>
   <Repository>ghcr.io/kabelsalatundklartext/selfmailer:latest</Repository>
   <Registry>https://github.com/kabelsalatundklartext/selfmailer/pkgs/container/selfmailer</Registry>
   <Project>https://github.com/kabelsalatundklartext/selfmailer</Project>
