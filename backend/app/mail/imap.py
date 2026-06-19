@@ -338,7 +338,9 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
             for rule in rules:
                 if not getattr(rule, "enabled", True) or not rule.value:
                     continue
-                needle = rule.value.lower()
+                # Mehrere Begriffe kommagetrennt → trifft, wenn EINER vorkommt
+                # (z. B. "slot, casino, bonus"). Einzelwert = Teilstring wie bisher.
+                terms = [t.strip().lower() for t in rule.value.split(",") if t.strip()]
                 if rule.field == "from":
                     # Adresse UND Anzeigename pruefen (vorher nur die Adresse —
                     # darum trafen Regeln auf den Klarnamen nicht).
@@ -355,7 +357,7 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
                     hay = (msg.subject or "").lower()
                 else:
                     hay = ""
-                if needle in hay and msg.uid:
+                if msg.uid and any(term in hay for term in terms):
                     matches.append((msg.uid, rule))
                     break  # erste passende Regel gewinnt
         for uid, rule in matches:

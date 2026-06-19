@@ -395,6 +395,8 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
   }
 
   const folderNames = (foldersByAcc[activeId ?? -1] || []).map((f) => f.name);
+  // Spam-Ordner des aktiven Kontos (für den Spam-Button) per Sonderordner-Heuristik.
+  const spamFolder = folderNames.find((f) => specialKind(f.split(/[/.]/).pop() || f) === "spam");
 
   const visible = messages
     .filter((m) => !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
@@ -485,6 +487,9 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
                   {folderNames.filter((f) => f !== folder).map((f) => <option key={f} value={f}>{f}</option>)}
                 </select>
               )}
+              {spamFolder && folder !== spamFolder && (
+                <button className="ghost" onClick={() => moveUids(spamFolder, [...selected])}>🚫 {t("mail.spam")}</button>
+              )}
               <button className="ghost" onClick={delSelected}>🗑 {t("mail.delete")}</button>
             </div>
           )}
@@ -539,6 +544,9 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
                   <option value="">📁 {t("mail.moveTo")}</option>
                   {folderNames.filter((f) => f !== folder).map((f) => <option key={f} value={f}>{f}</option>)}
                 </select>
+              )}
+              {spamFolder && folder !== spamFolder && (
+                <button className="ghost" onClick={() => moveMsg(open.uid, spamFolder)} title={t("mail.spam")}>🚫 {t("mail.spam")}</button>
               )}
               <button className="ghost" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
               <span className="grow" />
