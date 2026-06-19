@@ -11,10 +11,60 @@ transient im Speicher; persistiert wird ausschliesslich Fernet-verschluesselt.
 """
 from __future__ import annotations
 
-from urllib.parse import urljoin
+import ipaddress
+import socket
+from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree as ET
 
 import httpx
+
+from ..core.config import get_settings
+
+_ALLOWED_SCHEMES = {"http", "https"}
+# RFC 6598 Shared Address Space (CGNAT, z. B. Tailscale 100.64.0.0/10) — von
+# ipaddress je nach Version nicht als is_private gefuehrt, daher explizit.
+_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+_CGNAT6 = ipaddress.ip_network("100::/64")  # IPv6 Discard-Only (RFC 6666)
+
+
+class DavUrlError(ValueError):
+    """Die Ziel-URL ist aus Sicherheitsgruenden nicht erlaubt (SSRF-Schutz)."""
+
+
+def _ip_blocked(ip: ipaddress._BaseAddress, block_private: bool) -> bool:
+    # IMMER blockieren: loopback (127/8, ::1), link-local inkl. Cloud-Metadata
+    # (169.254.169.254, fe80::/10), multicast, unspecified, reserved.
+    if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved:
+        return True
+    if ip in _CGNAT or ip in _CGNAT6:
+        return block_private
+    # Privat (10/8, 172.16/12, 192.168/16, fc00::/7) nur im strikten Modus.
+    if ip.is_private:
+        return block_private
+    return False
+
+
+def _validate_dav_url(url: str) -> None:
+    """SSRF-Schutz: Schema pruefen und alle aufgeloesten IPs gegen die Blockliste.
+
+    link-local/loopback/metadata werden immer abgelehnt; private LAN-Ziele nur,
+    wenn ``SELFMAILER_DAV_BLOCK_PRIVATE=true`` gesetzt ist (untrusted Multi-User).
+    """
+    block_private = get_settings().dav_block_private
+    parsed = urlparse(url)
+    if parsed.scheme not in _ALLOWED_SCHEMES:
+        raise DavUrlError(f"Schema nicht erlaubt: {parsed.scheme or '(leer)'!r}")
+    host = parsed.hostname
+    if not host:
+        raise DavUrlError("URL ohne Host")
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or 0, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise DavUrlError(f"Host nicht aufloesbar: {host}") from exc
+    for *_rest, sockaddr in infos:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if _ip_blocked(ip, block_private):
+            raise DavUrlError(f"Interne/gesperrte Adresse blockiert: {host} → {ip}")
 
 _PROPFIND_BODY = (
     '<?xml version="1.0" encoding="utf-8"?>'
@@ -63,9 +113,13 @@ def fetch_collection(url: str, username: str, password: str) -> list[tuple[str, 
     Returns eine Liste ``(href, body)``. Wirft httpx.HTTPError bei Netz-/Status-
     Fehlern, damit der aufrufende Endpoint sie als Sync-Fehler melden kann.
     """
+    _validate_dav_url(url)
     auth = httpx.BasicAuth(username, password)
     collection_path = httpx.URL(url).path
-    with httpx.Client(auth=auth, timeout=_TIMEOUT, follow_redirects=True) as client:
+    # follow_redirects=False: ein boesartiger/uebernommener Server koennte sonst
+    # per 3xx auf eine interne Adresse umleiten und damit die Vorab-Pruefung
+    # umgehen (SSRF via Redirect).
+    with httpx.Client(auth=auth, timeout=_TIMEOUT, follow_redirects=False) as client:
         pf = client.request(
             "PROPFIND",
             url,
@@ -78,6 +132,8 @@ def fetch_collection(url: str, username: str, password: str) -> list[tuple[str, 
         results: list[tuple[str, str]] = []
         for href in hrefs:
             resource_url = urljoin(str(pf.url), href)
+            # Ein boeser Server koennte absolute hrefs auf interne Ziele liefern.
+            _validate_dav_url(resource_url)
             r = client.get(resource_url)
             r.raise_for_status()
             results.append((href, r.text))

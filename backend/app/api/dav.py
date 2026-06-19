@@ -11,6 +11,7 @@ den Mailkonten. Klartext existiert nur transient waehrend des Sync.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,6 +20,9 @@ from sqlmodel import Session, select
 from ..core.crypto import decrypt, encrypt
 from ..core.db import get_session
 from ..dav import client
+from ..dav.client import DavUrlError
+
+logger = logging.getLogger(__name__)
 from ..dav.ical import parse_events
 from ..dav.vcard import parse_vcards
 from ..models import CalendarEvent, Contact, DavAccount, DavKind, User
@@ -183,11 +187,21 @@ def sync_dav_account(
     acc = _owned(account_id, user, session)
     try:
         resources = client.fetch_collection(acc.url, acc.username, decrypt(acc.secret_enc))
-    except httpx.HTTPError as exc:
-        acc.last_status = f"Fehler: {exc}"
+    except DavUrlError as exc:
+        # SSRF-Schutz hat die Ziel-URL abgelehnt — generische, sichere Meldung
+        # (kein interner Host/IP-Leak); Detail nur ins Server-Log.
+        logger.warning("DAV-Sync konto=%s SSRF-Block: %s", account_id, exc)
+        acc.last_status = "Ziel-URL nicht erlaubt"
         session.add(acc)
         session.commit()
-        return SyncResult(ok=False, error=str(exc))
+        return SyncResult(ok=False, error="Ziel-URL nicht erlaubt")
+    except httpx.HTTPError as exc:
+        # httpx-Fehler koennen interne Hosts/Banner enthalten → nicht nach aussen.
+        logger.warning("DAV-Sync konto=%s Verbindungsfehler: %s", account_id, exc)
+        acc.last_status = "Verbindungsfehler"
+        session.add(acc)
+        session.commit()
+        return SyncResult(ok=False, error="Verbindungsfehler zum DAV-Server")
 
     if acc.kind == DavKind.caldav:
         result = _sync_events(acc, resources, user, session)

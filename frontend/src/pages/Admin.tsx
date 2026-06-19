@@ -43,7 +43,7 @@ export function Admin({ meId }: { meId: number }) {
     const pw = prompt(t("admin.resetPrompt", { name: u.username }));
     if (!pw) return;
     setErr(""); setMsg("");
-    try { await api.patch(`/admin/users/${u.id}/password?new_password=${encodeURIComponent(pw)}`); setMsg(t("admin.pwSet")); }
+    try { await api.patch(`/admin/users/${u.id}/password`, { new_password: pw }); setMsg(t("admin.pwSet")); }
     catch (e) { setErr((e as Error).message); }
   }
   async function remove(u: User) {

@@ -1,12 +1,13 @@
 """Auth: First-Run-Setup, Login (+2FA/TOTP), eigenes Profil, 2FA-Verwaltung."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import Session, func, select
 
 from ..core.config import get_settings
 from ..core.crypto import decrypt, encrypt
 from ..core.db import get_session
+from ..core.ratelimit import check_rate_limit, client_ip
 from ..core.security import (
     create_access_token,
     create_mfa_token,
@@ -33,6 +34,11 @@ from ..schemas import (
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+# Konstanter Dummy-Hash gegen User-Enumeration per Timing: bei unbekanntem
+# Benutzer wird trotzdem ein Argon2-Verify ausgefuehrt, damit die Antwortzeit
+# nicht verraet, ob der Benutzer existiert.
+_DUMMY_HASH = hash_password("selfmailer-timing-dummy-do-not-use")
 
 
 def _user_count(session: Session) -> int:
@@ -95,7 +101,10 @@ def setup_status(session: Session = Depends(get_session)) -> dict:
 
 
 @router.post("/setup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def setup(data: SetupRequest, session: Session = Depends(get_session)) -> TokenResponse:
+def setup(
+    data: SetupRequest, request: Request, session: Session = Depends(get_session)
+) -> TokenResponse:
+    check_rate_limit(f"setup:{client_ip(request)}", limit=5, window_s=60)
     if _user_count(session) > 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Setup bereits abgeschlossen")
 
@@ -117,9 +126,15 @@ def setup(data: SetupRequest, session: Session = Depends(get_session)) -> TokenR
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(data: LoginRequest, session: Session = Depends(get_session)) -> LoginResponse:
+def login(
+    data: LoginRequest, request: Request, session: Session = Depends(get_session)
+) -> LoginResponse:
+    check_rate_limit(f"login:{client_ip(request)}", limit=10, window_s=60)
     user = session.exec(select(User).where(User.username == data.username)).first()
-    if user is None or not verify_password(data.password, user.password_hash):
+    # Immer ein Argon2-Verify ausfuehren (Dummy-Hash bei unbekanntem User), damit
+    # die Antwortzeit nicht verraet, ob der Benutzername existiert.
+    password_ok = verify_password(data.password, user.password_hash if user else _DUMMY_HASH)
+    if user is None or not password_ok:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Anmeldedaten falsch")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Konto gesperrt")
@@ -131,9 +146,12 @@ def login(data: LoginRequest, session: Session = Depends(get_session)) -> LoginR
 
 @router.post("/login/totp", response_model=TokenResponse)
 def login_totp(
-    data: TotpLoginRequest, session: Session = Depends(get_session)
+    data: TotpLoginRequest, request: Request, session: Session = Depends(get_session)
 ) -> TokenResponse:
     """Zweiter Login-Schritt: TOTP- oder Backup-Code gegen den mfa_token."""
+    # Strenger als der Passwort-Login: ein 6-stelliger TOTP-Code hat nur 10^6
+    # Moeglichkeiten — ohne Limit waere Online-Brute-Force denkbar.
+    check_rate_limit(f"totp:{client_ip(request)}", limit=5, window_s=60)
     payload = decode_token(data.mfa_token)
     if not payload or payload.get("stage") != "mfa":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA-Sitzung ungueltig oder abgelaufen")

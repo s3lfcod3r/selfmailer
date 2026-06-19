@@ -29,6 +29,12 @@ class PasswordChange(BaseModel):
     new_password: str = Field(min_length=8)
 
 
+class PasswordReset(BaseModel):
+    """Admin setzt das Passwort eines Users zurueck. Im Body (NICHT als Query-
+    Parameter), damit das Passwort nicht in Server-/Proxy-Logs landet."""
+    new_password: str = Field(min_length=8)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

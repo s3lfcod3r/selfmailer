@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 from ..core.db import get_session
 from ..core.security import hash_password
 from ..models import Role, User
-from ..schemas import UserCreate, UserOut
+from ..schemas import PasswordReset, UserCreate, UserOut
 from .deps import require_admin
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -67,16 +67,16 @@ def set_active(
 @router.patch("/users/{user_id}/password", response_model=UserOut)
 def reset_password(
     user_id: int,
-    new_password: str,
+    data: PasswordReset,
     _: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ) -> User:
-    if len(new_password) < 8:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Passwort zu kurz (min. 8)")
+    # new_password kommt im Body (PasswordReset, min_length=8), nicht als Query —
+    # so landet es nicht in URLs/Logs.
     user = session.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User nicht gefunden")
-    user.password_hash = hash_password(new_password)
+    user.password_hash = hash_password(data.new_password)
     session.add(user)
     session.commit()
     session.refresh(user)
