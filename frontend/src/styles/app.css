@@ -753,4 +753,11 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   .compose-modal { height: 88vh; }
   /* Backup-Codes einspaltig, damit sie nicht gequetscht werden. */
   .totp-backup-grid { grid-template-columns: 1fr; }
+
+  /* Konten-Karte: Titel/E-Mail + Aktions-Buttons passen nicht in eine Zeile →
+     umbrechen. Info nimmt die ganze erste Zeile, Buttons rutschen darunter
+     (vorher quetschte/ueberlappte der Text die Buttons). */
+  .acc-card-head { flex-wrap: wrap; row-gap: 0.5rem; }
+  .acc-card-head > .grow { flex-basis: 100%; }
+  .acc-card-head .mail-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
