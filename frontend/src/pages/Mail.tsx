@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, download, type Account, type MsgHeader, type MsgDetail } from "../lib/api";
 import { useLang } from "../lib/i18n";
-import { buildFolderTree, SPECIAL_ICON, type FolderNode } from "../lib/folders";
+import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
 
 function fmtSize(bytes: number): string {
@@ -194,6 +194,19 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     setErr("");
     try {
       const msg = await api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`);
+      // Im Entwürfe-Ordner: Nachricht zum Weiterschreiben ins Compose-Fenster laden.
+      const lastPart = folder.split(/[/.]/).pop() || folder;
+      if (specialKind(lastPart) === "drafts") {
+        setDraft({
+          to: msg.to.join(", "),
+          cc: "",
+          bcc: "",
+          subject: msg.subject,
+          body: msg.text || msg.html.replace(/<[^>]+>/g, ""),
+          in_reply_to: "",
+        });
+        return;
+      }
       setOpen(msg);
       if (!msg.seen) {
         api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=true`).catch(() => {});
