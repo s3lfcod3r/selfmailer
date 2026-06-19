@@ -8,7 +8,7 @@ from ..core.config import get_settings
 from ..core.db import get_session
 from ..core.security import create_access_token, hash_password, verify_password
 from ..models import Role, User
-from ..schemas import LoginRequest, SetupRequest, TokenResponse, UserOut
+from ..schemas import LoginRequest, PasswordChange, SetupRequest, TokenResponse, UserOut
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -59,3 +59,18 @@ def login(data: LoginRequest, session: Session = Depends(get_session)) -> TokenR
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)) -> User:
     return user
+
+
+@router.post("/password")
+def change_password(
+    data: PasswordChange,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Eigenes Passwort ändern: aktuelles Passwort prüfen, dann neu setzen."""
+    if not verify_password(data.current_password, user.password_hash):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Aktuelles Passwort falsch")
+    user.password_hash = hash_password(data.new_password)
+    session.add(user)
+    session.commit()
+    return {"ok": True}

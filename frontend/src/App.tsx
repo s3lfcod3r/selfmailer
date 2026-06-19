@@ -38,6 +38,12 @@ export function App() {
   const [view, setView] = useState<View>("mail");
   const [search, setSearch] = useState("");
   const [menu, setMenu] = useState<"apps" | "user" | null>(null);
+  const [pwOpen, setPwOpen] = useState(false);
+  const [pwCur, setPwCur] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwMsg, setPwMsg] = useState("");
+  const [pwErr, setPwErr] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
   const [theme, setTheme] = useState<string>(() => localStorage.getItem("selfmailer.theme") || "dark");
 
   useEffect(() => {
@@ -64,6 +70,16 @@ export function App() {
 
   function go(v: View) { setView(v); setMenu(null); }
   function logout() { auth.clear(); setUser(null); }
+  function openPw() { setMenu(null); setPwErr(""); setPwMsg(""); setPwCur(""); setPwNew(""); setPwOpen(true); }
+  async function changePw(e: React.FormEvent) {
+    e.preventDefault();
+    setPwErr(""); setPwMsg(""); setPwBusy(true);
+    try {
+      await api.post("/auth/password", { current_password: pwCur, new_password: pwNew });
+      setPwMsg(t("pw.changed")); setPwCur(""); setPwNew("");
+    } catch (err) { setPwErr((err as Error).message); }
+    finally { setPwBusy(false); }
+  }
 
   return (
     <div className="app-shell">
@@ -111,6 +127,7 @@ export function App() {
           {settings.map((s) => (
             <button key={s.key} onClick={() => go(s.key)}><span>{s.icon}</span> {t(s.labelKey)}</button>
           ))}
+          <button onClick={openPw}><span>🔑</span> {t("user.changePassword")}</button>
           <hr />
           <button onClick={() => { setLang(lang === "de" ? "en" : "de"); setMenu(null); }}>
             <span>🌐</span> {t("shell.langSwitch")}
@@ -135,6 +152,32 @@ export function App() {
         {view === "accounts" && <Accounts />}
         {view === "admin" && isAdmin && <Admin meId={user.id} />}
       </main>
+
+      {pwOpen && (
+        <div className="modal-backdrop" onClick={() => setPwOpen(false)}>
+          <form className="modal card stack" onClick={(e) => e.stopPropagation()} onSubmit={changePw}>
+            <div className="topbar">
+              <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{t("user.changePassword")}</h2>
+              <button type="button" className="ghost" onClick={() => setPwOpen(false)}>✕</button>
+            </div>
+            <div className="stack">
+              <label className="label">{t("pw.current")}</label>
+              <input type="password" value={pwCur} onChange={(e) => setPwCur(e.target.value)} autoFocus required />
+            </div>
+            <div className="stack">
+              <label className="label">{t("pw.new")}</label>
+              <input type="password" value={pwNew} onChange={(e) => setPwNew(e.target.value)} required />
+            </div>
+            {pwErr && <div className="err">{pwErr}</div>}
+            {pwMsg && <div className="muted">{pwMsg}</div>}
+            <div className="row">
+              <span className="grow" />
+              <button type="button" className="ghost" onClick={() => setPwOpen(false)}>{t("common.cancel")}</button>
+              <button className="primary" disabled={pwBusy}>{pwBusy ? "…" : t("pw.save")}</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
