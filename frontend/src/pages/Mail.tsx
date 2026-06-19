@@ -42,7 +42,8 @@ export function Mail({ search = "" }: { search?: string }) {
   useEffect(() => {
     if (activeId == null) return;
     setFolder("INBOX");
-    refreshFolders();
+    // Fehlende Standard-Ordner (Gesendet/Entwürfe/…) einmalig anlegen, dann laden.
+    api.post(`/mail/${activeId}/folders/defaults`).catch(() => {}).finally(refreshFolders);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 
@@ -332,7 +333,11 @@ export function Mail({ search = "" }: { search?: string }) {
             <h2 style={{ marginBottom: "0.2rem", fontSize: "1.2rem" }}>{open.subject || t("mail.noSubject")}</h2>
             <div className="mail-from">{open.from} · {open.date}</div>
             <hr style={{ borderColor: "var(--self-line)", margin: "0.9rem 0" }} />
-            {open.html ? (
+            {open.text ? (
+              // Text-Version bevorzugen → bleibt im dunklen Theme. iframe (weiß) nur
+              // für reine HTML-Mails ohne Text-Teil.
+              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>
+            ) : open.html ? (
               <iframe
                 title="mail-body"
                 sandbox=""
@@ -340,9 +345,7 @@ export function Mail({ search = "" }: { search?: string }) {
                 style={{ width: "100%", height: "62vh", border: "none", background: "#fff", borderRadius: "6px" }}
               />
             ) : (
-              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
-                {open.text || t("mail.emptyBody")}
-              </div>
+              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{t("mail.emptyBody")}</div>
             )}
             {open.attachments?.length > 0 && (
               <div style={{ marginTop: "1.2rem", borderTop: "1px solid var(--self-line)", paddingTop: "0.8rem" }}>

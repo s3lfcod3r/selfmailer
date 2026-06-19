@@ -196,3 +196,21 @@ def create_folder(account: MailAccount, password: str, name: str, parent: str = 
 def delete_folder(account: MailAccount, password: str, name: str) -> None:
     with _mailbox(account, password) as box:
         box.folder.delete(name)
+
+
+# Standard-Unterordner unter INBOX (ASCII-Namen; Anzeige wird im Frontend lokalisiert).
+DEFAULT_SUBFOLDERS = ["Sent", "Drafts", "Trash", "Spam", "Archive"]
+
+
+def ensure_default_folders(account: MailAccount, password: str) -> None:
+    """Legt fehlende Standard-Ordner unter INBOX an (idempotent, best effort)."""
+    with _mailbox(account, password) as box:
+        delim = _delimiter(box)
+        existing = {f.name for f in box.folder.list()}
+        for sub in DEFAULT_SUBFOLDERS:
+            full = f"INBOX{delim}{sub}"
+            if full not in existing:
+                try:
+                    box.folder.create(full)
+                except Exception:  # noqa: BLE001 - Server darf einzelne Namen ablehnen
+                    continue

@@ -84,7 +84,7 @@ export function App() {
   return (
     <div className="app-shell">
       <header className="topbar-main">
-        <div className="topbar-brand"><Wordmark /></div>
+        <div className="topbar-brand"><Wordmark size={1.05} /></div>
 
         <div className="topbar-search">
           <span aria-hidden>🔍</span>
@@ -100,10 +100,9 @@ export function App() {
           <button className="icon-btn" title={t("apps.title")} onClick={() => setMenu(menu === "apps" ? null : "apps")}>▦</button>
           <button className="user-chip" onClick={() => setMenu(menu === "user" ? null : "user")}>
             <span>👤</span>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 120, fontSize: "0.84rem" }}>
               {user.display_name || user.username}
             </span>
-            {isAdmin && <span className="label">{t("shell.adminBadge")}</span>}
             <span aria-hidden>▾</span>
           </button>
         </div>

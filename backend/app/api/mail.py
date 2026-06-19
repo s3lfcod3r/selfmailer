@@ -50,6 +50,20 @@ def create_folder(
     return {"ok": True, "folder": full}
 
 
+@router.post("/{account_id}/folders/defaults")
+def ensure_default_folders(
+    account_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    acc = _account(account_id, user, session)
+    try:
+        imap_mod.ensure_default_folders(acc, decrypt(acc.secret_enc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Standard-Ordner anlegen fehlgeschlagen: {exc}")
+    return {"ok": True}
+
+
 @router.delete("/{account_id}/folders")
 def delete_folder(
     account_id: int,
