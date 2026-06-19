@@ -46,10 +46,15 @@ const de: Dict = {
   "shell.langSwitch": "English",
   "apps.title": "Apps",
   "search.placeholder": "Suchen…",
-  "filter.title": "Filter",
+  "filter.title": "Suchoptionen",
+  "filter.from": "Von (Absender)",
+  "filter.subject": "Betreff",
+  "filter.dateFrom": "Datum von",
+  "filter.dateTo": "Datum bis",
   "filter.starred": "Nur Favoriten",
   "filter.unread": "Nur ungelesene",
   "filter.attachments": "Nur mit Anhang",
+  "filter.reset": "Zurücksetzen",
 
   // Login
   "login.titleSetup": "Erstes Konto anlegen",
@@ -240,10 +245,15 @@ const en: Dict = {
   "shell.langSwitch": "Deutsch",
   "apps.title": "Apps",
   "search.placeholder": "Search…",
-  "filter.title": "Filter",
+  "filter.title": "Search options",
+  "filter.from": "From (sender)",
+  "filter.subject": "Subject",
+  "filter.dateFrom": "Date from",
+  "filter.dateTo": "Date to",
   "filter.starred": "Starred only",
   "filter.unread": "Unread only",
   "filter.attachments": "With attachment",
+  "filter.reset": "Reset",
 
   // Login
   "login.titleSetup": "Create first account",

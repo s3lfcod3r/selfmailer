@@ -38,7 +38,7 @@ export function App() {
   const [view, setView] = useState<View>("mail");
   const [search, setSearch] = useState("");
   const [menu, setMenu] = useState<"apps" | "user" | "filter" | null>(null);
-  const [filter, setFilter] = useState({ unread: false, starred: false, attachments: false });
+  const [filter, setFilter] = useState({ from: "", subject: "", dateFrom: "", dateTo: "", unread: false, starred: false, attachments: false });
   const [pwOpen, setPwOpen] = useState(false);
   const [pwCur, setPwCur] = useState("");
   const [pwNew, setPwNew] = useState("");
@@ -96,7 +96,7 @@ export function App() {
           />
           {search && <button className="search-filter" onClick={() => setSearch("")}>✕</button>}
           <button
-            className={`search-filter ${(filter.unread || filter.starred || filter.attachments) ? "on" : ""}`}
+            className={`search-filter ${(filter.from || filter.subject || filter.dateFrom || filter.dateTo || filter.unread || filter.starred || filter.attachments) ? "on" : ""}`}
             title={t("filter.title")}
             onClick={() => setMenu(menu === "filter" ? null : "filter")}
           >⚙</button>
@@ -117,7 +117,27 @@ export function App() {
       {menu && <div className="menu-backdrop" onClick={() => setMenu(null)} />}
 
       {menu === "filter" && (
-        <div className="filter-menu">
+        <div className="filter-menu" style={{ width: 340 }}>
+          <div className="stack" style={{ gap: "0.5rem", padding: "0.2rem 0.2rem 0.4rem" }}>
+            <div className="stack">
+              <label className="label">{t("filter.from")}</label>
+              <input value={filter.from} onChange={(e) => setFilter((f) => ({ ...f, from: e.target.value }))} />
+            </div>
+            <div className="stack">
+              <label className="label">{t("filter.subject")}</label>
+              <input value={filter.subject} onChange={(e) => setFilter((f) => ({ ...f, subject: e.target.value }))} />
+            </div>
+            <div className="row">
+              <div className="stack" style={{ flex: 1, minWidth: 0 }}>
+                <label className="label">{t("filter.dateFrom")}</label>
+                <input type="date" value={filter.dateFrom} onChange={(e) => setFilter((f) => ({ ...f, dateFrom: e.target.value }))} />
+              </div>
+              <div className="stack" style={{ flex: 1, minWidth: 0 }}>
+                <label className="label">{t("filter.dateTo")}</label>
+                <input type="date" value={filter.dateTo} onChange={(e) => setFilter((f) => ({ ...f, dateTo: e.target.value }))} />
+              </div>
+            </div>
+          </div>
           <button className={filter.starred ? "on" : ""} onClick={() => setFilter((f) => ({ ...f, starred: !f.starred }))}>
             <span>{filter.starred ? "★" : "☆"}</span> {t("filter.starred")}
           </button>
@@ -126,6 +146,10 @@ export function App() {
           </button>
           <button className={filter.attachments ? "on" : ""} onClick={() => setFilter((f) => ({ ...f, attachments: !f.attachments }))}>
             <span>📎</span> {t("filter.attachments")}
+          </button>
+          <hr />
+          <button onClick={() => setFilter({ from: "", subject: "", dateFrom: "", dateTo: "", unread: false, starred: false, attachments: false })}>
+            <span>↺</span> {t("filter.reset")}
           </button>
         </div>
       )}

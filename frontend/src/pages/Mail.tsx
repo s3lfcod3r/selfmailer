@@ -11,7 +11,20 @@ function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-type MailFilter = { unread: boolean; starred: boolean; attachments: boolean };
+// Prüft, ob das (date_str-)Datum einer Mail im Bereich [from, to] liegt (yyyy-mm-dd).
+function inDateRange(dateStr: string, from?: string, to?: string): boolean {
+  if (!from && !to) return true;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return true; // unparsbares Datum nicht herausfiltern
+  if (from && d < new Date(from)) return false;
+  if (to) { const end = new Date(to); end.setHours(23, 59, 59, 999); if (d > end) return false; }
+  return true;
+}
+
+type MailFilter = {
+  from: string; subject: string; dateFrom: string; dateTo: string;
+  unread: boolean; starred: boolean; attachments: boolean;
+};
 
 export function Mail({ search = "", filter }: { search?: string; filter?: MailFilter }) {
   const { t } = useLang();
@@ -263,9 +276,12 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
           <div className="mail-list">
             {messages
               .filter((m) => !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
+              .filter((m) => !filter?.from || m.from.toLowerCase().includes(filter.from.toLowerCase()))
+              .filter((m) => !filter?.subject || m.subject.toLowerCase().includes(filter.subject.toLowerCase()))
               .filter((m) => !filter?.unread || !m.seen)
               .filter((m) => !filter?.starred || m.flagged)
               .filter((m) => !filter?.attachments || m.has_attachments)
+              .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo))
               .map((m) => (
               <div
                 className={`mail-row ${m.seen ? "" : "unseen"}`}
