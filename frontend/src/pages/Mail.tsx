@@ -23,6 +23,7 @@ export function Mail({ search = "" }: { search?: string }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
 
@@ -71,7 +72,7 @@ export function Mail({ search = "" }: { search?: string }) {
 
   function reload() {
     if (activeId == null) return;
-    setLoading(true); setErr(""); setOpen(null);
+    setLoading(true); setErr(""); setOpen(null); setSelected(new Set());
     api.get<MsgHeader[]>(`/mail/${activeId}/messages?folder=${encodeURIComponent(folder)}&limit=50`)
       .then(setMessages)
       .catch((e) => setErr((e as Error).message))
@@ -141,6 +142,34 @@ export function Mail({ search = "" }: { search?: string }) {
       setMessages((ms) => ms.filter((x) => x.uid !== m.uid));
       if (open?.uid === m.uid) setOpen(null);
     } catch (e) { setErr((e as Error).message); }
+  }
+
+  function toggleSelect(uid: string) {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(uid)) n.delete(uid); else n.add(uid);
+      return n;
+    });
+  }
+  async function delSelected() {
+    if (activeId == null || selected.size === 0) return;
+    if (!confirm(t("mail.confirmDelete"))) return;
+    for (const uid of [...selected]) {
+      try { await api.del(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`); }
+      catch (e) { setErr((e as Error).message); }
+    }
+    setMessages((ms) => ms.filter((m) => !selected.has(m.uid)));
+    if (open && selected.has(open.uid)) setOpen(null);
+    setSelected(new Set());
+  }
+  async function markSelectedSeen(seen: boolean) {
+    if (activeId == null || selected.size === 0) return;
+    for (const uid of [...selected]) {
+      try { await api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=${seen}`); }
+      catch { /* einzelne Fehler ignorieren */ }
+    }
+    setMessages((ms) => ms.map((m) => (selected.has(m.uid) ? { ...m, seen } : m)));
+    setSelected(new Set());
   }
 
   function renderNode(node: FolderNode, depth: number): ReactNode {
@@ -219,29 +248,52 @@ export function Mail({ search = "" }: { search?: string }) {
         {/* Listen-Spalte */}
         <div className="mail-listcol">
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
+          {selected.size > 0 && (
+            <div className="row" style={{ marginBottom: "0.5rem", padding: "0.4rem 0.6rem", background: "var(--self-bg-2)", borderRadius: "6px" }}>
+              <span className="label">{t("mail.selected", { n: selected.size })}</span>
+              <span className="grow" />
+              <button className="ghost" onClick={() => markSelectedSeen(true)}>{t("mail.markRead")}</button>
+              <button className="ghost" onClick={() => markSelectedSeen(false)}>{t("mail.markUnread")}</button>
+              <button className="ghost" onClick={delSelected}>🗑 {t("mail.delete")}</button>
+            </div>
+          )}
           <div className="mail-list">
             {(search
-              ? messages.filter((m) => `${m.subject} ${m.from}`.toLowerCase().includes(search.toLowerCase()))
+              ? messages.filter((m) => `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
               : messages
             ).map((m) => (
               <div
                 className={`mail-row ${m.seen ? "" : "unseen"}`}
                 key={m.uid}
-                style={{ display: "flex", alignItems: "center", gap: "0.5rem", borderColor: open?.uid === m.uid ? "var(--self-teal)" : undefined }}
+                style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: open?.uid === m.uid ? "var(--self-teal)" : undefined }}
               >
+                <input
+                  type="checkbox"
+                  checked={selected.has(m.uid)}
+                  onChange={() => toggleSelect(m.uid)}
+                  style={{ flex: "0 0 auto", marginTop: "0.3rem" }}
+                />
                 <button
                   className="ghost"
-                  style={{ padding: "0 0.2rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }}
+                  style={{ padding: "0 0.1rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }}
                   onClick={() => toggleFlag(m)}
                   title={t("mail.flag")}
                 >
                   {m.flagged ? "★" : "☆"}
                 </button>
                 <div className="grow" style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)}>
-                  <div className="mail-subj" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || t("mail.noSubject")}</div>
-                  <div className="mail-from" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.from}</div>
+                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
+                    <span style={{ flex: 1, minWidth: 0, fontWeight: m.seen ? 400 : 700, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{m.from}</span>
+                    <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{m.date?.slice(0, 16)}</span>
+                  </div>
+                  <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || t("mail.noSubject")}</span>
+                    {m.has_attachments && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
+                  </div>
+                  {m.snippet && (
+                    <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.snippet}</div>
+                  )}
                 </div>
-                <div className="muted" style={{ fontSize: "0.74rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{m.date?.slice(0, 16)}</div>
                 <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => toggleSeen(m)} title={m.seen ? t("mail.markUnread") : t("mail.markRead")}>
                   {m.seen ? "○" : "●"}
                 </button>

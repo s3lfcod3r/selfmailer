@@ -3,6 +3,7 @@ Threadpool). Verbindungen sind kurzlebig: oeffnen, lesen, schliessen.
 """
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from collections.abc import Iterator
 
@@ -54,12 +55,20 @@ def list_folders(account: MailAccount, password: str) -> list[str]:
     return names
 
 
+def _snippet(text: str, html: str) -> str:
+    """Kurze 1-Zeilen-Vorschau aus Text- oder HTML-Body (Tags grob entfernt)."""
+    src = text or re.sub(r"<[^>]+>", " ", html)
+    return " ".join(src.split())[:160]
+
+
 def list_messages(
     account: MailAccount, password: str, folder: str = "INBOX", limit: int = 50
 ) -> list[dict]:
     out: list[dict] = []
+    # headers_only=False, damit Vorschau (snippet) und Anhang-Indikator verfügbar
+    # sind (Synology-artige Liste). TODO: partial fetch für große Postfächer.
     with _mailbox(account, password, folder=folder) as box:
-        for msg in box.fetch(AND(all=True), reverse=True, limit=limit, mark_seen=False, headers_only=True):
+        for msg in box.fetch(AND(all=True), reverse=True, limit=limit, mark_seen=False):
             out.append(
                 {
                     "uid": msg.uid or "",
@@ -68,6 +77,8 @@ def list_messages(
                     "date": msg.date_str,
                     "seen": SEEN in msg.flags,
                     "flagged": FLAGGED in msg.flags,
+                    "snippet": _snippet(msg.text or "", msg.html or ""),
+                    "has_attachments": bool(msg.attachments),
                 }
             )
     return out

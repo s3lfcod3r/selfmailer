@@ -84,6 +84,8 @@ class MessageHeader(BaseModel):
     date: str
     seen: bool
     flagged: bool
+    snippet: str = ""
+    has_attachments: bool = False
 
     model_config = {"populate_by_name": True}
 

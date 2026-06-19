@@ -70,6 +70,7 @@ export type Account = {
 };
 export type MsgHeader = {
   uid: string; subject: string; from: string; date: string; seen: boolean; flagged: boolean;
+  snippet: string; has_attachments: boolean;
 };
 export type Attachment = { index: number; filename: string; content_type: string; size: number };
 export type MsgDetail = MsgHeader & {
