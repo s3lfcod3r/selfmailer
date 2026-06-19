@@ -39,8 +39,34 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [folderOrder, setFolderOrder] = useState<string[]>([]);
+  const [dragPath, setDragPath] = useState<string | null>(null);
 
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
+
+  // Top-Level-Ordner gemäß gespeicherter Reihenfolge sortieren (Rest hinten anhängen).
+  const sortedRoots = useMemo(() => {
+    if (!folderOrder.length) return tree;
+    const rank = (p: string) => {
+      const i = folderOrder.indexOf(p);
+      return i < 0 ? 1000 : i;
+    };
+    return [...tree].sort((a, b) => rank(a.path) - rank(b.path));
+  }, [tree, folderOrder]);
+
+  function orderKey(id: number | null) { return `selfmailer.folderOrder.${id}`; }
+
+  function reorderFolders(dragged: string, target: string) {
+    if (dragged === target) return;
+    const order = sortedRoots.map((n) => n.path);
+    const di = order.indexOf(dragged);
+    const ti = order.indexOf(target);
+    if (di < 0 || ti < 0) return;
+    order.splice(di, 1);
+    order.splice(ti, 0, dragged);
+    setFolderOrder(order);
+    if (activeId != null) localStorage.setItem(orderKey(activeId), JSON.stringify(order));
+  }
 
   useEffect(() => {
     api.get<Account[]>("/accounts").then((a) => {
@@ -57,6 +83,10 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
   useEffect(() => {
     if (activeId == null) return;
     setFolder("INBOX");
+    try {
+      const saved = localStorage.getItem(orderKey(activeId));
+      setFolderOrder(saved ? (JSON.parse(saved) as string[]) : []);
+    } catch { setFolderOrder([]); }
     // Fehlende Standard-Ordner (Gesendet/Entwürfe/…) einmalig anlegen, dann laden.
     api.post(`/mail/${activeId}/folders/defaults`).catch(() => {}).finally(refreshFolders);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -195,7 +225,14 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     const icon = node.special ? SPECIAL_ICON[node.special] : "📁";
     return (
       <div key={node.path}>
-        <div style={{ display: "flex", alignItems: "center" }}>
+        <div
+          style={{ display: "flex", alignItems: "center", opacity: dragPath === node.path ? 0.4 : 1 }}
+          draggable={depth === 0}
+          onDragStart={depth === 0 ? () => setDragPath(node.path) : undefined}
+          onDragOver={depth === 0 ? (e) => e.preventDefault() : undefined}
+          onDrop={depth === 0 ? (e) => { e.preventDefault(); if (dragPath) reorderFolders(dragPath, node.path); setDragPath(null); } : undefined}
+          onDragEnd={() => setDragPath(null)}
+        >
           {hasKids ? (
             <button className="mail-folder-toggle" style={{ marginLeft: depth * 12 }} onClick={() => toggleExpand(node.path)}>
               {isOpen ? "▼" : "▶"}
@@ -258,7 +295,7 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
               {accounts.map((a) => <option key={a.id} value={a.id}>{a.label || a.email}</option>)}
             </select>
           )}
-          {tree.map((n) => renderNode(n, 0))}
+          {sortedRoots.map((n) => renderNode(n, 0))}
         </aside>
 
         {/* Listen-Spalte */}
