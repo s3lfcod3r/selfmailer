@@ -235,18 +235,25 @@ def delete_folder(account: MailAccount, password: str, name: str) -> None:
 
 
 def _draft_folder(box: MailBox) -> str:
-    """Findet den Entwürfe-Ordner (SPECIAL-USE \\Drafts oder Namensheuristik)."""
-    names: list[str] = []
+    """Findet den Entwürfe-Ordner (SPECIAL-USE \\Drafts oder Namensheuristik).
+
+    Bevorzugt den SERVER-eigenen Ordner vor einem evtl. von uns frueher angelegten
+    "INBOX/Drafts", damit Entwuerfe dort landen, wo der Anbieter sie erwartet.
+    """
+    delim = _delimiter(box)
+    ours = {f"INBOX{delim}{s}" for s in DEFAULT_SUBFOLDERS}
+    matches: list[str] = []
     for f in box.folder.list():
         flags = " ".join(getattr(f, "flags", ()) or ()).lower()
         if "\\drafts" in flags:
             return f.name
-        names.append(f.name)
-    for name in names:
-        low = name.lower()
+        low = f.name.lower()
         if any(k in low for k in ("drafts", "entwurf", "entwürfe", "entwuerfe")):
+            matches.append(f.name)
+    for name in matches:  # Server-eigenen Ordner bevorzugen
+        if name not in ours:
             return name
-    return ""
+    return matches[0] if matches else ""
 
 
 def save_draft(
@@ -349,31 +356,48 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> int:
 
 
 def ensure_default_folders(account: MailAccount, password: str) -> None:
-    """Legt fehlende Standard-Ordner unter INBOX an (idempotent, best effort).
+    """Bringt die Sonderordner in Ordnung (best effort).
 
-    Wichtig: Bringt der Server bereits einen Ordner DIESER Art mit (z. B. ein
-    eigenes "Gesendet"/"Papierkorb"), wird KEIN zweiter angelegt — sonst stuenden
-    Sonderordner doppelt in der Liste.
+    1. Frueher von UNS angelegte LEERE Doppel (INBOX/Sent|Drafts|Trash|Spam|Archive)
+       werden geloescht, sobald der Server einen eigenen Ordner derselben Art mit-
+       bringt. Server-Ordner haben immer Vorrang.
+    2. Nur KOMPLETT fehlende Arten werden neu angelegt (z. B. Server mit nur INBOX),
+       damit Entwuerfe/Papierkorb-Funktionen einen Zielordner haben.
+    Es wird nie ein nicht-leerer Ordner geloescht.
     """
     with _mailbox(account, password) as box:
         delim = _delimiter(box)
-        existing = {f.name for f in box.folder.list()}
-        # Welche Sonderarten gibt es schon (egal unter welchem Namen/Ebene)?
-        present_kinds: set[str] = set()
-        for name in existing:
-            last = re.split(r"[/.]", name)[-1]
-            k = _special_kind(last)
-            if k:
-                present_kinds.add(k)
+        names = [f.name for f in box.folder.list()]
+        ours = {f"INBOX{delim}{s}": _DEFAULT_KIND[s] for s in DEFAULT_SUBFOLDERS}
+
+        def kind_of(name: str) -> str | None:
+            return _special_kind(re.split(r"[/.]", name)[-1])
+
+        # 1) Unsere leeren Doppel entfernen, wenn es einen Server-Ordner gleicher Art gibt.
+        for path, kind in ours.items():
+            if path not in names:
+                continue
+            if not any(n != path and kind_of(n) == kind for n in names):
+                continue
+            try:
+                st = box.folder.status(path, ["MESSAGES"])
+                if int(st.get("MESSAGES", 0) or 0) == 0:
+                    box.folder.delete(path)
+                    names.remove(path)
+            except Exception:  # noqa: BLE001 - Loeschen darf scheitern
+                pass
+
+        # 2) Nur komplett fehlende Arten anlegen.
+        present = {kind_of(n) for n in names if kind_of(n)}
         for sub in DEFAULT_SUBFOLDERS:
-            kind = _DEFAULT_KIND.get(sub)
-            if kind and kind in present_kinds:
-                continue  # Server hat schon so einen Ordner -> kein Doppel
+            kind = _DEFAULT_KIND[sub]
+            if kind in present:
+                continue
             full = f"INBOX{delim}{sub}"
-            if full not in existing:
+            if full not in names:
                 try:
                     box.folder.create(full)
-                    if kind:
-                        present_kinds.add(kind)
+                    names.append(full)
+                    present.add(kind)
                 except Exception:  # noqa: BLE001 - Server darf einzelne Namen ablehnen
                     continue

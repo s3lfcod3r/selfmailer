@@ -33,22 +33,6 @@ function loadSet(key: string): Set<number> {
   catch { return new Set(); }
 }
 
-// Manche Server liefern eigene Sonderordner mit, zusaetzlich zu unseren Standard-
-// Ordnern -> Doppel (zwei "Gesendet"/"Papierkorb"...). Pro Sonderart nur den
-// "vollsten" Ordner behalten (echte Server-Variante hat i. d. R. mehr Mails).
-function dedupeSpecials(fcs: FolderCount[]): FolderCount[] {
-  const best: Record<string, FolderCount> = {};
-  const keep: FolderCount[] = [];
-  for (const f of fcs) {
-    const last = f.name.split(/[/.]/).pop() || f.name;
-    const kind = specialKind(last);
-    if (!kind || kind === "inbox") { keep.push(f); continue; }
-    const cur = best[kind];
-    if (!cur || f.total > cur.total) best[kind] = f;
-  }
-  return [...keep, ...Object.values(best)];
-}
-
 export function Mail({ search = "", filter }: { search?: string; filter?: MailFilter }) {
   const { t } = useLang();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -114,7 +98,7 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
 
   const treesByAcc = useMemo(() => {
     const out: Record<number, FolderNode[]> = {};
-    for (const [id, fcs] of Object.entries(foldersByAcc)) out[Number(id)] = buildFolderTree(dedupeSpecials(fcs).map((f) => f.name));
+    for (const [id, fcs] of Object.entries(foldersByAcc)) out[Number(id)] = buildFolderTree(fcs.map((f) => f.name));
     return out;
   }, [foldersByAcc]);
 
