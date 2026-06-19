@@ -30,8 +30,28 @@ def _mailbox(account: MailAccount, password: str, folder: str = "INBOX") -> Iter
 
 
 def list_folders(account: MailAccount, password: str) -> list[str]:
+    """Listet Ordner robust: viele Server (z. B. web.de/Courier) zeigen INBOX-
+    Unterordner nicht beim einfachen LIST "" "*". Daher mehrere Strategien
+    kombinieren und deduplizieren.
+    """
+    seen: dict[str, None] = {}
     with _mailbox(account, password) as box:
-        return [f.name for f in box.folder.list()]
+        attempts = [
+            lambda: box.folder.list("", "*"),            # alles ab Root
+            lambda: box.folder.list("INBOX", "*"),        # INBOX-Unterordner explizit
+            lambda: box.folder.list("", "*", subscribed_only=True),  # abonnierte
+        ]
+        for attempt in attempts:
+            try:
+                for f in attempt():
+                    if f.name:
+                        seen.setdefault(f.name, None)
+            except Exception:  # noqa: BLE001 - einzelne LIST-Variante darf scheitern
+                continue
+    names = list(seen) or ["INBOX"]
+    # INBOX immer zuerst, Rest alphabetisch (case-insensitiv).
+    names.sort(key=lambda n: (n.upper() != "INBOX", n.lower()))
+    return names
 
 
 def list_messages(
