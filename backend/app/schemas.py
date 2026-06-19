@@ -198,11 +198,21 @@ class SendRequest(BaseModel):
 
 # ---- Filterregeln --------------------------------------------------------
 class RuleCreate(BaseModel):
-    field: str = "from"            # from | to | subject
+    field: str = "from"            # from | from_domain | to | subject
     value: str
     target_folder: str = ""
     mark_read: bool = False
     star: bool = False
+
+
+class RuleUpdate(BaseModel):
+    """Teil-Update einer Regel (Bearbeiten). Nur gesetzte Felder werden geaendert."""
+    field: str | None = None
+    value: str | None = None
+    target_folder: str | None = None
+    mark_read: bool | None = None
+    star: bool | None = None
+    enabled: bool | None = None
 
 
 class RuleOut(BaseModel):

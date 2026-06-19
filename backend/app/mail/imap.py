@@ -335,7 +335,15 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> int:
                     continue
                 needle = rule.value.lower()
                 if rule.field == "from":
-                    hay = (msg.from_ or "").lower()
+                    # Adresse UND Anzeigename pruefen (vorher nur die Adresse —
+                    # darum trafen Regeln auf den Klarnamen nicht).
+                    fv = getattr(msg, "from_values", None)
+                    name = getattr(fv, "name", "") if fv else ""
+                    hay = f"{msg.from_ or ''} {name}".lower()
+                elif rule.field == "from_domain":
+                    # Nur die Absender-Domain (Teil nach dem letzten @), damit eine
+                    # Regel auf die ganze (Haupt-)Domain matcht und verschiebt.
+                    hay = (msg.from_ or "").rsplit("@", 1)[-1].lower()
                 elif rule.field == "to":
                     hay = " ".join(msg.to or ()).lower()
                 elif rule.field == "subject":

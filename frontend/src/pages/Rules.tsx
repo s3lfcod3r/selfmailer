@@ -11,6 +11,7 @@ export function Rules() {
   const [folders, setFolders] = useState<string[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [form, setForm] = useState({ ...EMPTY });
+  const [editId, setEditId] = useState<number | null>(null);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,18 +31,25 @@ export function Rules() {
 
   function set<K extends keyof typeof form>(k: K, v: (typeof form)[K]) { setForm((f) => ({ ...f, [k]: v })); }
 
-  async function add(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(""); setMsg("");
     if (activeId == null) return;
     if (!form.value.trim()) { setErr(t("rules.needValue")); return; }
     if (!form.target_folder && !form.mark_read && !form.star) { setErr(t("rules.needAction")); return; }
     try {
-      await api.post(`/mail/${activeId}/rules`, form);
-      setForm({ ...EMPTY });
+      if (editId != null) await api.patch(`/mail/${activeId}/rules/${editId}`, form);
+      else await api.post(`/mail/${activeId}/rules`, form);
+      setForm({ ...EMPTY }); setEditId(null);
       loadRules(activeId);
     } catch (e) { setErr((e as Error).message); }
   }
+  function startEdit(r: Rule) {
+    setEditId(r.id);
+    setForm({ field: r.field, value: r.value, target_folder: r.target_folder, mark_read: r.mark_read, star: r.star });
+    setErr(""); setMsg("");
+  }
+  function cancelEdit() { setEditId(null); setForm({ ...EMPTY }); }
   async function remove(r: Rule) {
     if (activeId == null) return;
     try { await api.del(`/mail/${activeId}/rules/${r.id}`); setRules((rs) => rs.filter((x) => x.id !== r.id)); }
@@ -60,6 +68,7 @@ export function Rules() {
   function fieldLabel(f: string): string {
     if (f === "to") return t("rules.to");
     if (f === "subject") return t("filter.subject");
+    if (f === "from_domain") return t("rules.fromDomain");
     return t("filter.from");
   }
 
@@ -73,11 +82,12 @@ export function Rules() {
         </select>
       )}
 
-      <form className="card stack" style={{ padding: "1rem", marginBottom: "1.4rem" }} onSubmit={add}>
-        <div className="label">{t("rules.new")}</div>
+      <form className="card stack" style={{ padding: "1rem", marginBottom: "1.4rem" }} onSubmit={submit}>
+        <div className="label">{editId != null ? t("rules.edit") : t("rules.new")}</div>
         <div className="row">
-          <select value={form.field} onChange={(e) => set("field", e.target.value)} style={{ maxWidth: 160 }}>
+          <select value={form.field} onChange={(e) => set("field", e.target.value)} style={{ maxWidth: 180 }}>
             <option value="from">{t("filter.from")}</option>
+            <option value="from_domain">{t("rules.fromDomain")}</option>
             <option value="to">{t("rules.to")}</option>
             <option value="subject">{t("filter.subject")}</option>
           </select>
@@ -98,7 +108,8 @@ export function Rules() {
             <input type="checkbox" style={{ width: "auto" }} checked={form.mark_read} onChange={(e) => set("mark_read", e.target.checked)} /> {t("rules.markRead")}
           </label>
           <span className="grow" />
-          <button className="primary">{t("rules.add")}</button>
+          {editId != null && <button type="button" className="ghost" onClick={cancelEdit}>{t("common.cancel")}</button>}
+          <button className="primary">{editId != null ? t("rules.save") : t("rules.add")}</button>
         </div>
       </form>
 
@@ -123,6 +134,7 @@ export function Rules() {
                 → {r.target_folder ? `${t("rules.moveTo")}: ${r.target_folder}` : ""}{r.star ? " ★" : ""}{r.mark_read ? ` · ${t("rules.markRead")}` : ""}
               </div>
             </div>
+            <button className="ghost" onClick={() => startEdit(r)}>{t("rules.editBtn")}</button>
             <button className="ghost" onClick={() => remove(r)}>{t("common.delete")}</button>
           </div>
         ))}

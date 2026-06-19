@@ -8,7 +8,7 @@ from ..core.crypto import decrypt
 from ..core.db import get_session
 from ..mail import imap as imap_mod
 from ..models import MailAccount, MailRule, User
-from ..schemas import RuleCreate, RuleOut
+from ..schemas import RuleCreate, RuleOut, RuleUpdate
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/mail", tags=["rules"])
@@ -58,6 +58,26 @@ def create_rule(
         star=data.star,
         position=pos,
     )
+    session.add(rule)
+    session.commit()
+    session.refresh(rule)
+    return rule
+
+
+@router.patch("/{account_id}/rules/{rule_id}", response_model=RuleOut)
+def update_rule(
+    account_id: int,
+    rule_id: int,
+    data: RuleUpdate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> MailRule:
+    _account(account_id, user, session)
+    rule = session.get(MailRule, rule_id)
+    if rule is None or rule.account_id != account_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Regel nicht gefunden")
+    for key, val in data.model_dump(exclude_unset=True).items():
+        setattr(rule, key, val)
     session.add(rule)
     session.commit()
     session.refresh(rule)
