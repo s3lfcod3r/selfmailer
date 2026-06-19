@@ -30,6 +30,9 @@ async def send_message(
     bcc: list[str] | None = None,
     in_reply_to: str = "",
     attachments: list[dict] | None = None,
+    html: str = "",
+    read_receipt: bool = False,
+    delivery_receipt: bool = False,
 ) -> None:
     msg = EmailMessage()
     msg["From"] = account.email
@@ -41,7 +44,14 @@ async def send_message(
         # Verknuepft die Antwort mit dem Originalthread (Threading in Clients).
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to
+    if read_receipt:
+        msg["Disposition-Notification-To"] = account.email
+    if delivery_receipt:
+        msg["Return-Receipt-To"] = account.email
     msg.set_content(body)
+    if html:
+        # HTML-Variante als Alternative (Clients zeigen bevorzugt HTML).
+        msg.add_alternative(html, subtype="html")
 
     for att in attachments or []:
         data = _decode_b64(att["content_b64"])

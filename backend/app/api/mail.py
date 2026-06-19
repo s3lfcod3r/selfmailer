@@ -210,6 +210,9 @@ async def send(
             bcc=[str(x) for x in data.bcc],
             in_reply_to=data.in_reply_to,
             attachments=[a.model_dump() for a in data.attachments],
+            html=data.html,
+            read_receipt=data.read_receipt,
+            delivery_receipt=data.delivery_receipt,
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Versand fehlgeschlagen: {exc}")

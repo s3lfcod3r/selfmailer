@@ -116,10 +116,13 @@ class AttachmentIn(BaseModel):
 class SendRequest(BaseModel):
     to: list[EmailStr]
     subject: str = ""
-    body: str = ""
+    body: str = ""                 # Plaintext-Teil (immer)
+    html: str = ""                 # optionaler HTML-Teil (Rich-Text)
     cc: list[EmailStr] = []
     bcc: list[EmailStr] = []
     in_reply_to: str = ""
+    read_receipt: bool = False     # Lesebestätigung anfordern
+    delivery_receipt: bool = False  # Empfangsbestätigung anfordern
     attachments: list[AttachmentIn] = []
 
 
