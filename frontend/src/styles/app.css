@@ -307,10 +307,43 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   flex: 1.7 1 0; display: flex; align-items: center; justify-content: center;
   color: var(--self-text-3); border-left: 1px solid var(--self-line); min-height: 40vh;
 }
+/* Nur Mobile/Tablet sichtbare Helfer (Standard: versteckt). */
+.mobile-only { display: none; }
+.mail-mobilebar { display: none; }
+
+/* Mobile/Tablet: 3-Spalten-Mail wird zum Drill-down (Ordner → Liste → Lesen).
+   Konten bleiben IMMER gestapelt (kein nebeneinander). Es ist stets nur die zu
+   data-pane passende Spalte sichtbar; die Resize-Griffe entfallen. */
 @media (max-width: 900px) {
-  .mail-layout { flex-direction: column; }
-  .mail-folders { flex-basis: auto; flex-direction: row; flex-wrap: wrap; max-height: none; }
+  .mobile-only { display: inline-flex; }
+  .mail-mobilebar {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0 0 0.55rem; margin-bottom: 0.1rem;
+  }
+  .mail-mobilebar > button { flex: 0 0 auto; }
+
+  .mail-layout { flex-direction: column; gap: 0; }
+  .mail-layout > .resize-handle { display: none; }
+  .mail-folders,
+  .mail-listcol,
+  .mail-readcol,
+  .mail-placeholder {
+    flex: 1 1 auto !important; width: 100% !important; max-width: none !important;
+    min-height: 0;
+  }
   .mail-readcol, .mail-placeholder { border-left: none; padding-left: 0; }
+  /* Konten gestapelt: die alte flex-row-Regel ist entfernt. */
+  .mail-folders { padding-right: 0; }
+
+  /* Drill-down: nur die aktive Spalte zeigen. */
+  .mail-layout[data-pane="folders"] > .mail-listcol,
+  .mail-layout[data-pane="folders"] > .mail-readcol,
+  .mail-layout[data-pane="folders"] > .mail-placeholder { display: none; }
+  .mail-layout[data-pane="list"] > .mail-folders,
+  .mail-layout[data-pane="list"] > .mail-readcol,
+  .mail-layout[data-pane="list"] > .mail-placeholder { display: none; }
+  .mail-layout[data-pane="read"] > .mail-folders,
+  .mail-layout[data-pane="read"] > .mail-listcol { display: none; }
 }
 .muted { color: var(--self-text-3); }
 .row { display: flex; gap: 0.6rem; align-items: center; }
@@ -675,4 +708,22 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 @media (max-width: 720px) {
   .md-page { flex-direction: column; height: auto; }
   .md-list { flex: 0 0 auto; max-height: 40vh; }
+}
+
+/* --- Topbar & Overlays auf schmalen Screens --- */
+@media (max-width: 640px) {
+  .topbar-main { gap: 0.45rem; padding: 0.3rem 0.6rem; }
+  .topbar-search { margin: 0; min-width: 0; }
+  .topbar-actions { gap: 0.2rem; }
+  .topbar-actions .icon-btn { padding: 0.3rem 0.45rem; font-size: 0.98rem; }
+  .app-main { padding: 0.85rem 0.7rem; }
+  /* Popovers nie breiter als der Viewport. */
+  .filter-menu, .user-menu, .app-switcher {
+    max-width: calc(100vw - 1.2rem);
+    box-sizing: border-box;
+  }
+  .filter-menu { left: auto; right: 0.6rem; transform: none; }
+  .user-menu, .app-switcher { right: 0.6rem; }
+  /* Kalender-Monatsraster luftiger antippbar. */
+  .cal-aside { width: 100%; }
 }

@@ -63,6 +63,9 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
     const v = Number(localStorage.getItem("selfmailer.foldersW"));
     return v >= 160 && v <= 420 ? v : 210;
   });
+  // Mobile/Tablet: nur eine Spalte zur Zeit (Drill-down Ordner → Liste → Lesen).
+  // Auf Desktop (>900px) ignoriert das CSS das Attribut und zeigt alle 3 Spalten.
+  const [mobilePane, setMobilePane] = useState<"folders" | "list" | "read">("list");
 
   function makeResize(current: number, setW: (n: number) => void, key: string, min: number, max: number) {
     return (e: React.MouseEvent) => {
@@ -222,6 +225,12 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(reload, [sel?.acc, sel?.folder]);
 
+  // Mobile: schließt sich die Lese-Ansicht (Löschen/Verschieben/✕), zurück zur Liste.
+  useEffect(() => {
+    if (!open && mobilePane === "read") setMobilePane("list");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   // Auto-Abruf: alle pollMin Minuten Zaehler aller Konten + aktive Liste auffrischen.
   useEffect(() => {
     if (!pollMin || accounts.length === 0) return;
@@ -248,6 +257,7 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
         return;
       }
       setOpen(msg);
+      setMobilePane("read");
       if (!msg.seen) {
         api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=true`).catch(() => {});
         patchHeader(uid, { seen: true });
@@ -357,7 +367,7 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
           <button
             className={`mail-folder ${active ? "active" : ""} ${dropPath === node.path ? "drop" : ""}`}
             style={{ flex: 1, minWidth: 0 }}
-            onClick={() => setSel({ acc: accId, folder: node.path })}
+            onClick={() => { setSel({ acc: accId, folder: node.path }); setMobilePane("list"); }}
             onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ acc: accId, node, x: e.clientX, y: e.clientY }); }}
             onDragOver={(e) => { if (accId === activeId && dragUids.length) { e.preventDefault(); setDropPath(node.path); } }}
             onDragLeave={() => setDropPath((p) => (p === node.path ? null : p))}
@@ -403,7 +413,7 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
     <div className="mail-page">
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
 
-      <div className="mail-layout">
+      <div className="mail-layout" data-pane={mobilePane}>
         {/* Konten + Ordner (Thunderbird-Stil) */}
         <aside className="mail-folders" style={{ flex: `0 0 ${foldersW}px` }}>
           <div className="row" style={{ marginBottom: "0.55rem" }}>
@@ -452,6 +462,13 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
 
         {/* Listen-Spalte */}
         <div className="mail-listcol" style={{ flex: `0 0 ${listW}px` }}>
+          {/* Nur Mobile/Tablet sichtbar (CSS .mail-mobilebar): zurück zu den Postfächern. */}
+          <div className="mail-mobilebar">
+            <button className="ghost" onClick={() => setMobilePane("folders")}>☰ {t("mail.mailbox")}</button>
+            <span className="muted" style={{ fontSize: "0.82rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {activeId != null ? (accountById(activeId)?.label || accountById(activeId)?.email) : ""}
+            </span>
+          </div>
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
           {selected.size > 0 && (
             <div className="row" style={{ marginBottom: "0.5rem", padding: "0.4rem 0.6rem", background: "var(--self-bg-2)", borderRadius: "6px", flexWrap: "wrap" }}>
@@ -522,7 +539,7 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
               )}
               <button className="ghost" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
               <span className="grow" />
-              <button className="ghost" onClick={() => setOpen(null)} title={t("mail.back")}>✕</button>
+              <button className="ghost" onClick={() => { setOpen(null); setMobilePane("list"); }} title={t("mail.back")}>✕</button>
             </div>
             <h2 style={{ marginBottom: "0.2rem", fontSize: "1.2rem" }}>{open.subject || t("mail.noSubject")}</h2>
             <div className="mail-from">{open.from} · {open.date}</div>
