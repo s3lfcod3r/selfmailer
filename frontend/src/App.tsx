@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, auth, type User } from "./lib/api";
+import { useLang } from "./lib/i18n";
 import { Login } from "./pages/Login";
 import { Notes } from "./pages/Notes";
 import { Accounts } from "./pages/Accounts";
@@ -12,19 +13,20 @@ import { Wordmark } from "./components/Wordmark";
 
 type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin";
 
-type NavItem = { key: View; label: string; icon: string; adminOnly?: boolean };
+type NavItem = { key: View; labelKey: string; icon: string; adminOnly?: boolean };
 
 const NAV: NavItem[] = [
-  { key: "mail", label: "Mail", icon: "✉" },
-  { key: "calendar", label: "Kalender", icon: "📅" },
-  { key: "contacts", label: "Kontakte", icon: "👤" },
-  { key: "notes", label: "Notizen", icon: "🗒" },
-  { key: "sync", label: "Sync & Export", icon: "🔄" },
-  { key: "accounts", label: "Konten", icon: "⚙" },
-  { key: "admin", label: "Verwaltung", icon: "👥", adminOnly: true },
+  { key: "mail", labelKey: "nav.mail", icon: "✉" },
+  { key: "calendar", labelKey: "nav.calendar", icon: "📅" },
+  { key: "contacts", labelKey: "nav.contacts", icon: "👤" },
+  { key: "notes", labelKey: "nav.notes", icon: "🗒" },
+  { key: "sync", labelKey: "nav.sync", icon: "🔄" },
+  { key: "accounts", labelKey: "nav.accounts", icon: "⚙" },
+  { key: "admin", labelKey: "nav.admin", icon: "👥", adminOnly: true },
 ];
 
 export function App() {
+  const { t, lang, setLang } = useLang();
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>("mail");
@@ -44,7 +46,7 @@ export function App() {
   }
   useEffect(() => { loadMe(); }, []);
 
-  if (!ready) return <div className="auth-wrap"><span className="muted">Laden…</span></div>;
+  if (!ready) return <div className="auth-wrap"><span className="muted">{t("common.loading")}</span></div>;
   if (!user) return <Login onAuthed={() => { setReady(false); loadMe(); }} />;
 
   const isAdmin = user.role === "admin";
@@ -62,16 +64,23 @@ export function App() {
             className={`nav-item ${view === n.key ? "active" : ""}`}
             onClick={() => setView(n.key)}
           >
-            <span>{n.icon}</span> {n.label}
+            <span>{n.icon}</span> {t(n.labelKey)}
           </div>
         ))}
         <span className="grow" />
         <div
           className="nav-item"
-          onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+          onClick={() => setLang(lang === "de" ? "en" : "de")}
+        >
+          <span>🌐</span>
+          {t("shell.langSwitch")}
+        </div>
+        <div
+          className="nav-item"
+          onClick={() => setTheme((tm) => (tm === "dark" ? "light" : "dark"))}
         >
           <span>{theme === "dark" ? "☀" : "🌙"}</span>
-          {theme === "dark" ? "Helles Design" : "Dunkles Design"}
+          {theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}
         </div>
         <div className="nav-item" style={{ cursor: "default" }}>
           <span>👤</span>
@@ -81,15 +90,15 @@ export function App() {
           >
             {user.display_name || user.username}
           </span>
-          {isAdmin && <span className="label">Admin</span>}
+          {isAdmin && <span className="label">{t("shell.adminBadge")}</span>}
         </div>
-        <div className="nav-item" onClick={logout}><span>⎋</span> Abmelden</div>
+        <div className="nav-item" onClick={logout}><span>⎋</span> {t("shell.logout")}</div>
       </aside>
 
       <main className="main">
         <div className="topbar">
           <h1 style={{ margin: 0, fontSize: "1.4rem" }}>
-            {nav.find((n) => n.key === view)?.label}
+            {t(nav.find((n) => n.key === view)?.labelKey ?? "")}
           </h1>
         </div>
 

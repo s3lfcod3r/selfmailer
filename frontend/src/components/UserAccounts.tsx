@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Account } from "../lib/api";
+import { useLang } from "../lib/i18n";
 
 const EMPTY = {
   label: "", email: "", password: "",
@@ -10,6 +11,7 @@ const EMPTY = {
 
 // Admin-Ansicht: Mailkonten eines bestimmten Users anlegen/entfernen.
 export function UserAccounts({ userId }: { userId: number }) {
+  const { t } = useLang();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [form, setForm] = useState({ ...EMPTY });
   const [err, setErr] = useState("");
@@ -45,28 +47,28 @@ export function UserAccounts({ userId }: { userId: number }) {
         {accounts.map((a) => (
           <div className="row" key={a.id}>
             <span className="grow">{a.label || a.email} <span className="mail-from">· {a.imap_host || "—"}</span></span>
-            <button className="ghost" onClick={() => remove(a)}>Entfernen</button>
+            <button className="ghost" onClick={() => remove(a)}>{t("common.remove")}</button>
           </div>
         ))}
-        {accounts.length === 0 && <span className="muted">Noch kein Konto für diesen User.</span>}
+        {accounts.length === 0 && <span className="muted">{t("uacc.empty")}</span>}
       </div>
 
       <form className="stack" onSubmit={add}>
         <div className="row">
-          <input placeholder="Bezeichnung" value={form.label} onChange={(e) => set("label", e.target.value)} />
-          <input placeholder="E-Mail" value={form.email} onChange={(e) => set("email", e.target.value)} required />
+          <input placeholder={t("common.label")} value={form.label} onChange={(e) => set("label", e.target.value)} />
+          <input placeholder={t("common.email")} value={form.email} onChange={(e) => set("email", e.target.value)} required />
         </div>
-        <input type="password" placeholder="Passwort / App-Passwort" value={form.password} onChange={(e) => set("password", e.target.value)} required />
+        <input type="password" placeholder={t("accounts.appPassword")} value={form.password} onChange={(e) => set("password", e.target.value)} required />
         <div className="row">
-          <input placeholder="IMAP-Host" value={form.imap_host} onChange={(e) => set("imap_host", e.target.value)} />
+          <input placeholder={t("uacc.imapHost")} value={form.imap_host} onChange={(e) => set("imap_host", e.target.value)} />
           <input type="number" value={form.imap_port} onChange={(e) => set("imap_port", Number(e.target.value))} style={{ maxWidth: 100 }} />
-          <input placeholder="SMTP-Host" value={form.smtp_host} onChange={(e) => set("smtp_host", e.target.value)} />
+          <input placeholder={t("uacc.smtpHost")} value={form.smtp_host} onChange={(e) => set("smtp_host", e.target.value)} />
           <input type="number" value={form.smtp_port} onChange={(e) => set("smtp_port", Number(e.target.value))} style={{ maxWidth: 100 }} />
         </div>
         {err && <div className="err">{err}</div>}
         <div className="row">
           <span className="grow" />
-          <button className="primary">Konto für User anlegen</button>
+          <button className="primary">{t("uacc.createForUser")}</button>
         </div>
       </form>
     </div>
