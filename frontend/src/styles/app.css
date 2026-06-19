@@ -730,4 +730,27 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   .user-menu, .app-switcher { right: 0.6rem; }
   /* Kalender-Monatsraster luftiger antippbar. */
   .cal-aside { width: 100%; }
+
+  /* Suchfeld: im Normalzustand schmal, beim Tippen aber unbrauchbar. Daher
+     bei Fokus über die ganze Topbar-Breite aufklappen (Popup-artig), damit
+     man die Eingabe sieht. */
+  .topbar-search:focus-within {
+    position: absolute;
+    left: 0.5rem; right: 0.5rem; top: 50%; transform: translateY(-50%);
+    z-index: 36; margin: 0; max-width: none;
+    background: var(--self-bg-2); border-color: var(--self-teal);
+    padding: 0.4rem 0.7rem;
+  }
+
+  /* Modals fuellen auf dem Handy die Breite statt der 420px-Mindestbreite
+     (sonst laufen Passwort-/2FA-/Kalender-Termin-Dialoge ueber den Rand). */
+  .modal-backdrop { padding: 0.6rem; }
+  .modal {
+    min-width: 0; width: 100%; max-width: 100%;
+    max-height: 92vh; resize: none; padding: 1rem;
+  }
+  /* Compose bleibt gross, aber randlos passend. */
+  .compose-modal { height: 88vh; }
+  /* Backup-Codes einspaltig, damit sie nicht gequetscht werden. */
+  .totp-backup-grid { grid-template-columns: 1fr; }
 }
