@@ -290,6 +290,24 @@ def rename_folder(account: MailAccount, password: str, old: str, new_name: str) 
 
 # Standard-Unterordner unter INBOX (ASCII-Namen; Anzeige wird im Frontend lokalisiert).
 DEFAULT_SUBFOLDERS = ["Sent", "Drafts", "Trash", "Spam", "Archive"]
+_DEFAULT_KIND = {"Sent": "sent", "Drafts": "drafts", "Trash": "trash", "Spam": "spam", "Archive": "archive"}
+
+# Sonderordner-Erkennung (DE+EN) — spiegelt frontend/src/lib/folders.ts.
+_SPECIAL_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("inbox", re.compile(r"^inbox$", re.I)),
+    ("drafts", re.compile(r"^(drafts?|entw[uü]rfe?|entwurf)$", re.I)),
+    ("sent", re.compile(r"^(sent|sent items|gesendet|gesendete objekte)$", re.I)),
+    ("spam", re.compile(r"^(spam|junk|junk[- ]?e-?mail|werbung)$", re.I)),
+    ("trash", re.compile(r"^(trash|deleted|deleted items|papierkorb|gel[oö]schte? objekte)$", re.I)),
+    ("archive", re.compile(r"^(archive|archiv|archiviert)$", re.I)),
+]
+
+
+def _special_kind(last_part: str) -> str | None:
+    for kind, rx in _SPECIAL_PATTERNS:
+        if rx.match(last_part):
+            return kind
+    return None
 
 
 def apply_rules(account: MailAccount, password: str, rules: list) -> int:
@@ -331,14 +349,31 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> int:
 
 
 def ensure_default_folders(account: MailAccount, password: str) -> None:
-    """Legt fehlende Standard-Ordner unter INBOX an (idempotent, best effort)."""
+    """Legt fehlende Standard-Ordner unter INBOX an (idempotent, best effort).
+
+    Wichtig: Bringt der Server bereits einen Ordner DIESER Art mit (z. B. ein
+    eigenes "Gesendet"/"Papierkorb"), wird KEIN zweiter angelegt — sonst stuenden
+    Sonderordner doppelt in der Liste.
+    """
     with _mailbox(account, password) as box:
         delim = _delimiter(box)
         existing = {f.name for f in box.folder.list()}
+        # Welche Sonderarten gibt es schon (egal unter welchem Namen/Ebene)?
+        present_kinds: set[str] = set()
+        for name in existing:
+            last = re.split(r"[/.]", name)[-1]
+            k = _special_kind(last)
+            if k:
+                present_kinds.add(k)
         for sub in DEFAULT_SUBFOLDERS:
+            kind = _DEFAULT_KIND.get(sub)
+            if kind and kind in present_kinds:
+                continue  # Server hat schon so einen Ordner -> kein Doppel
             full = f"INBOX{delim}{sub}"
             if full not in existing:
                 try:
                     box.folder.create(full)
+                    if kind:
+                        present_kinds.add(kind)
                 except Exception:  # noqa: BLE001 - Server darf einzelne Namen ablehnen
                     continue
