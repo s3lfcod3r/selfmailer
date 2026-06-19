@@ -7,6 +7,8 @@ export function Mail() {
   const { t } = useLang();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [folders, setFolders] = useState<string[]>([]);
+  const [folder, setFolder] = useState("INBOX");
   const [messages, setMessages] = useState<MsgHeader[]>([]);
   const [open, setOpen] = useState<MsgDetail | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -20,21 +22,74 @@ export function Mail() {
     });
   }, []);
 
+  // Ordnerliste laden, sobald ein Konto aktiv ist.
+  useEffect(() => {
+    if (activeId == null) return;
+    setFolder("INBOX");
+    api.get<string[]>(`/mail/${activeId}/folders`)
+      .then(setFolders)
+      .catch(() => setFolders([]));
+  }, [activeId]);
+
   function reload() {
     if (activeId == null) return;
     setLoading(true); setErr(""); setOpen(null);
-    api.get<MsgHeader[]>(`/mail/${activeId}/messages?folder=INBOX&limit=50`)
+    api.get<MsgHeader[]>(`/mail/${activeId}/messages?folder=${encodeURIComponent(folder)}&limit=50`)
       .then(setMessages)
       .catch((e) => setErr((e as Error).message))
       .finally(() => setLoading(false));
   }
-  useEffect(reload, [activeId]);
+  useEffect(reload, [activeId, folder]);
+
+  // Lokalen Header nach einer Aktion aktualisieren (immutabel).
+  function patchHeader(uid: string, patch: Partial<MsgHeader>) {
+    setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
+  }
 
   async function openMsg(uid: string) {
     if (activeId == null) return;
     setErr("");
-    try { setOpen(await api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=INBOX`)); }
+    try {
+      const msg = await api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`);
+      setOpen(msg);
+      if (!msg.seen) {
+        // Beim Oeffnen als gelesen markieren (best effort).
+        api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=true`).catch(() => {});
+        patchHeader(uid, { seen: true });
+      }
+    } catch (e) { setErr((e as Error).message); }
+  }
+
+  async function toggleSeen(m: MsgHeader) {
+    if (activeId == null) return;
+    const next = !m.seen;
+    patchHeader(m.uid, { seen: next });
+    try { await api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(folder)}&seen=${next}`); }
+    catch (e) { patchHeader(m.uid, { seen: m.seen }); setErr((e as Error).message); }
+  }
+  async function toggleFlag(m: MsgHeader) {
+    if (activeId == null) return;
+    const next = !m.flagged;
+    patchHeader(m.uid, { flagged: next });
+    try { await api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(folder)}&flagged=${next}`); }
+    catch (e) { patchHeader(m.uid, { flagged: m.flagged }); setErr((e as Error).message); }
+  }
+  async function markUnread(uid: string) {
+    if (activeId == null) return;
+    patchHeader(uid, { seen: false });
+    setOpen(null);
+    try { await api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=false`); }
     catch (e) { setErr((e as Error).message); }
+  }
+  async function del(m: MsgHeader) {
+    if (activeId == null) return;
+    if (!confirm(t("mail.confirmDelete"))) return;
+    setErr("");
+    try {
+      await api.del(`/mail/${activeId}/messages/${m.uid}?folder=${encodeURIComponent(folder)}`);
+      setMessages((ms) => ms.filter((x) => x.uid !== m.uid));
+      if (open?.uid === m.uid) setOpen(null);
+    } catch (e) { setErr((e as Error).message); }
   }
 
   if (accounts.length === 0) {
@@ -44,13 +99,17 @@ export function Mail() {
   return (
     <div>
       <div className="row" style={{ marginBottom: "1rem" }}>
-        <select value={activeId ?? ""} onChange={(e) => setActiveId(Number(e.target.value))} style={{ maxWidth: 320 }}>
+        <select value={activeId ?? ""} onChange={(e) => setActiveId(Number(e.target.value))} style={{ maxWidth: 260 }}>
           {accounts.map((a) => <option key={a.id} value={a.id}>{a.label || a.email}</option>)}
         </select>
+        {folders.length > 0 && (
+          <select value={folder} onChange={(e) => setFolder(e.target.value)} style={{ maxWidth: 200 }} aria-label={t("mail.folderLabel")}>
+            {folders.map((f) => <option key={f} value={f}>{f}</option>)}
+          </select>
+        )}
         <button className="primary" onClick={() => setDraft(emptyDraft())}>{t("mail.newMail")}</button>
         <span className="grow" />
         <button className="ghost" onClick={reload}>↻</button>
-        <span className="label">{t("mail.inbox")}</span>
       </div>
 
       {err && <div className="err">{err}</div>}
@@ -63,6 +122,11 @@ export function Mail() {
             <span className="grow" />
             <button onClick={() => setDraft(replyDraft(open, t))}>{t("mail.reply")}</button>
             <button onClick={() => setDraft(forwardDraft(open, t))}>{t("mail.forward")}</button>
+            <button className="ghost" onClick={() => toggleFlag(open)} title={t("mail.flag")}>
+              {(messages.find((m) => m.uid === open.uid)?.flagged ?? open.flagged) ? "★" : "☆"}
+            </button>
+            <button className="ghost" onClick={() => markUnread(open.uid)}>{t("mail.markUnread")}</button>
+            <button className="ghost" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
           </div>
           <h2 style={{ marginBottom: "0.2rem" }}>{open.subject || t("mail.noSubject")}</h2>
           <div className="mail-from">{open.from} · {open.date}</div>
@@ -74,12 +138,24 @@ export function Mail() {
       ) : (
         <div className="mail-list">
           {messages.map((m) => (
-            <div className={`mail-row ${m.seen ? "" : "unseen"}`} key={m.uid} onClick={() => openMsg(m.uid)}>
-              <div>
+            <div className={`mail-row ${m.seen ? "" : "unseen"}`} key={m.uid}>
+              <button
+                className="ghost"
+                style={{ padding: "0 0.3rem", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }}
+                onClick={() => toggleFlag(m)}
+                title={t("mail.flag")}
+              >
+                {m.flagged ? "★" : "☆"}
+              </button>
+              <div className="grow" style={{ cursor: "pointer", overflow: "hidden" }} onClick={() => openMsg(m.uid)}>
                 <div className="mail-subj">{m.subject || t("mail.noSubject")}</div>
                 <div className="mail-from">{m.from}</div>
               </div>
-              <div className="muted" style={{ fontSize: "0.78rem" }}>{m.date?.slice(0, 16)}</div>
+              <div className="muted" style={{ fontSize: "0.78rem", whiteSpace: "nowrap" }}>{m.date?.slice(0, 16)}</div>
+              <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => toggleSeen(m)} title={m.seen ? t("mail.markUnread") : t("mail.markRead")}>
+                {m.seen ? "○" : "●"}
+              </button>
+              <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => del(m)} title={t("mail.delete")}>🗑</button>
             </div>
           ))}
           {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}

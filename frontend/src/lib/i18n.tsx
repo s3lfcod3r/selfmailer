@@ -97,6 +97,12 @@ const de: Dict = {
   "mail.noSubject": "(kein Betreff)",
   "mail.emptyBody": "(leer)",
   "mail.noMessages": "Keine Nachrichten.",
+  "mail.folderLabel": "Ordner",
+  "mail.delete": "Löschen",
+  "mail.markRead": "Gelesen",
+  "mail.markUnread": "Ungelesen",
+  "mail.flag": "Markieren",
+  "mail.confirmDelete": "Nachricht löschen bzw. in den Papierkorb verschieben?",
 
   // Calendar
   "cal.needFields": "Titel, Beginn und Ende sind nötig.",
@@ -258,6 +264,12 @@ const en: Dict = {
   "mail.noSubject": "(no subject)",
   "mail.emptyBody": "(empty)",
   "mail.noMessages": "No messages.",
+  "mail.folderLabel": "Folder",
+  "mail.delete": "Delete",
+  "mail.markRead": "Mark read",
+  "mail.markUnread": "Unread",
+  "mail.flag": "Star",
+  "mail.confirmDelete": "Delete message / move to trash?",
 
   // Calendar
   "cal.needFields": "Title, start and end are required.",

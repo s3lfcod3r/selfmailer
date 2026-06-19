@@ -69,3 +69,51 @@ def get_message(account: MailAccount, password: str, uid: str, folder: str = "IN
                 "html": msg.html or "",
             }
     return None
+
+
+def set_flags(
+    account: MailAccount,
+    password: str,
+    uid: str,
+    folder: str = "INBOX",
+    *,
+    seen: bool | None = None,
+    flagged: bool | None = None,
+) -> None:
+    """Setzt/entfernt \\Seen bzw. \\Flagged fuer eine Nachricht (nur uebergebene Flags)."""
+    with _mailbox(account, password, folder=folder) as box:
+        if seen is not None:
+            box.flag(uid, SEEN, seen)
+        if flagged is not None:
+            box.flag(uid, FLAGGED, flagged)
+
+
+def _trash_folder(box: MailBox, current: str) -> str | None:
+    """Findet den Papierkorb: erst per SPECIAL-USE-Flag \\Trash, dann per Namensheuristik."""
+    names: list[str] = []
+    for f in box.folder.list():
+        flags = " ".join(getattr(f, "flags", ()) or ()).lower()
+        if "\\trash" in flags:
+            return f.name
+        names.append(f.name)
+    for name in names:
+        low = name.lower()
+        if any(k in low for k in ("trash", "papierkorb", "deleted", "geloscht", "gelöscht")):
+            return name
+    return None
+
+
+def delete_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> str:
+    """In den Papierkorb verschieben; ist keiner da (oder schon im Papierkorb) -> hart loeschen."""
+    with _mailbox(account, password, folder=folder) as box:
+        trash = _trash_folder(box, folder)
+        if trash and trash != folder:
+            box.move(uid, trash)
+            return "moved"
+        box.delete(uid)
+        return "deleted"
+
+
+def move_message(account: MailAccount, password: str, uid: str, dest: str, folder: str = "INBOX") -> None:
+    with _mailbox(account, password, folder=folder) as box:
+        box.move(uid, dest)

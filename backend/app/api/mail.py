@@ -59,6 +59,57 @@ def message(
     return msg
 
 
+@router.post("/{account_id}/messages/{uid}/flags")
+def set_flags(
+    account_id: int,
+    uid: str,
+    folder: str = "INBOX",
+    seen: bool | None = None,
+    flagged: bool | None = None,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    acc = _account(account_id, user, session)
+    try:
+        imap_mod.set_flags(acc, decrypt(acc.secret_enc), uid, folder=folder, seen=seen, flagged=flagged)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Aktion fehlgeschlagen: {exc}")
+    return {"ok": True}
+
+
+@router.post("/{account_id}/messages/{uid}/move")
+def move_message(
+    account_id: int,
+    uid: str,
+    dest: str,
+    folder: str = "INBOX",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    acc = _account(account_id, user, session)
+    try:
+        imap_mod.move_message(acc, decrypt(acc.secret_enc), uid, dest, folder=folder)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Verschieben fehlgeschlagen: {exc}")
+    return {"ok": True}
+
+
+@router.delete("/{account_id}/messages/{uid}")
+def delete_message(
+    account_id: int,
+    uid: str,
+    folder: str = "INBOX",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    acc = _account(account_id, user, session)
+    try:
+        result = imap_mod.delete_message(acc, decrypt(acc.secret_enc), uid, folder=folder)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Loeschen fehlgeschlagen: {exc}")
+    return {"ok": True, "result": result}
+
+
 @router.post("/{account_id}/send", status_code=status.HTTP_202_ACCEPTED)
 async def send(
     account_id: int,
