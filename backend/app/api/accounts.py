@@ -12,7 +12,7 @@ from ..core.crypto import decrypt, encrypt
 from ..core.db import get_session
 from ..mail import imap as imap_mod
 from ..models import MailAccount, Protocol, User
-from ..schemas import AccountCreate, AccountOut
+from ..schemas import AccountCreate, AccountOut, AccountUpdate
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
@@ -52,6 +52,23 @@ def add_account(
         auth_user=data.auth_user,
         secret_enc=encrypt(data.password),
     )
+    session.add(acc)
+    session.commit()
+    session.refresh(acc)
+    return acc
+
+
+@router.patch("/{account_id}", response_model=AccountOut)
+def update_account(
+    account_id: int,
+    data: AccountUpdate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> MailAccount:
+    """Aendert Anzeigename/Signatur des eigenen Kontos (keine Zugangsdaten)."""
+    acc = _owned(account_id, user, session)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(acc, field, value)
     session.add(acc)
     session.commit()
     session.refresh(acc)

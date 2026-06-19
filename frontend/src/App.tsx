@@ -16,16 +16,16 @@ type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "
 
 type AppItem = { key: View; labelKey: string; icon: string; adminOnly?: boolean };
 
-// App-Switcher (4-Kachel-Menü) — die „Apps".
+// Haupt-Apps — als Icons direkt in der Topbar (neben dem Benutzer).
 const APPS: AppItem[] = [
   { key: "mail", labelKey: "nav.mail", icon: "✉" },
   { key: "calendar", labelKey: "nav.calendar", icon: "📅" },
-  { key: "contacts", labelKey: "nav.contacts", icon: "👤" },
+  { key: "contacts", labelKey: "nav.contacts", icon: "📇" },
   { key: "notes", labelKey: "nav.notes", icon: "🗒" },
-  { key: "sync", labelKey: "nav.sync", icon: "🔄" },
 ];
-// Einstellungen im Benutzer-Menü.
+// Im Benutzer-Menü: Sync & Export + Einstellungen.
 const SETTINGS: AppItem[] = [
+  { key: "sync", labelKey: "nav.sync", icon: "🔄" },
   { key: "rules", labelKey: "nav.rules", icon: "🔀" },
   { key: "accounts", labelKey: "nav.accounts", icon: "⚙" },
   { key: "admin", labelKey: "nav.admin", icon: "👥", adminOnly: true },
@@ -105,7 +105,14 @@ export function App() {
         </div>
 
         <div className="topbar-actions">
-          <button className="icon-btn" title={t("apps.title")} onClick={() => setMenu(menu === "apps" ? null : "apps")}>▦</button>
+          {apps.map((a) => (
+            <button
+              key={a.key}
+              className={`icon-btn ${view === a.key ? "on" : ""}`}
+              title={t(a.labelKey)}
+              onClick={() => go(a.key)}
+            >{a.icon}</button>
+          ))}
           <button className="user-chip" onClick={() => setMenu(menu === "user" ? null : "user")}>
             <span>👤</span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 120, fontSize: "0.84rem" }}>
@@ -157,17 +164,6 @@ export function App() {
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {menu === "apps" && (
-        <div className="app-switcher">
-          {apps.map((a) => (
-            <button key={a.key} className={`app-tile ${view === a.key ? "active" : ""}`} onClick={() => go(a.key)}>
-              <span className="app-ico">{a.icon}</span>
-              <span>{t(a.labelKey)}</span>
-            </button>
-          ))}
         </div>
       )}
 

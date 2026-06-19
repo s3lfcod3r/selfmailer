@@ -57,6 +57,7 @@ class MailAccount(SQLModel, table=True):
 
     auth_user: str = ""                 # falls abweichend von email
     secret_enc: str                     # VERSCHLUESSELT (Fernet)
+    signature: str = ""                 # E-Mail-Signatur (Plaintext, beim Schreiben angehaengt)
     created_at: dt.datetime = Field(default_factory=_now)
 
 

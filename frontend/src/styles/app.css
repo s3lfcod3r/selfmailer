@@ -186,6 +186,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   color: var(--self-text-2); cursor: pointer; padding: 0.35rem 0.62rem; font-size: 1rem;
 }
 .icon-btn:hover { color: var(--self-text); border-color: var(--self-line-strong); }
+.icon-btn.on { color: var(--self-teal); border-color: var(--self-teal); background: color-mix(in srgb, var(--self-teal) 12%, transparent); }
 .user-chip {
   display: flex; align-items: center; gap: 0.45rem;
   background: none; border: 1px solid var(--self-line); border-radius: 8px;

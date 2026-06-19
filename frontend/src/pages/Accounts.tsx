@@ -13,12 +13,16 @@ export function Accounts() {
   const { t } = useLang();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [form, setForm] = useState({ ...EMPTY });
+  const [sigDraft, setSigDraft] = useState<Record<number, string>>({});
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
 
   async function load() {
-    try { setAccounts(await api.get<Account[]>("/accounts")); }
-    catch (e) { setErr((e as Error).message); }
+    try {
+      const list = await api.get<Account[]>("/accounts");
+      setAccounts(list);
+      setSigDraft(Object.fromEntries(list.map((a) => [a.id, a.signature ?? ""])));
+    } catch (e) { setErr((e as Error).message); }
   }
   useEffect(() => { load(); }, []);
 
@@ -46,6 +50,14 @@ export function Accounts() {
   async function remove(a: Account) {
     await api.del(`/accounts/${a.id}`);
     load();
+  }
+  async function saveSig(a: Account) {
+    setErr(""); setMsg("");
+    try {
+      await api.patch<Account>(`/accounts/${a.id}`, { signature: sigDraft[a.id] ?? "" });
+      setMsg(t("accounts.signatureSaved"));
+      load();
+    } catch (e) { setErr((e as Error).message); }
   }
 
   return (
@@ -76,13 +88,28 @@ export function Accounts() {
 
       <div className="stack">
         {accounts.map((a) => (
-          <div className="card row" style={{ padding: "0.8rem 1rem" }} key={a.id}>
-            <div className="grow">
-              <div style={{ fontWeight: 600 }}>{a.label || a.email}</div>
-              <div className="mail-from">{a.email} · {a.imap_host || "—"}</div>
+          <div className="card stack" style={{ padding: "0.8rem 1rem", gap: "0.6rem" }} key={a.id}>
+            <div className="row">
+              <div className="grow">
+                <div style={{ fontWeight: 600 }}>{a.label || a.email}</div>
+                <div className="mail-from">{a.email} · {a.imap_host || "—"}</div>
+              </div>
+              <button onClick={() => test(a)}>{t("accounts.test")}</button>
+              <button className="ghost" onClick={() => remove(a)}>{t("common.remove")}</button>
             </div>
-            <button onClick={() => test(a)}>{t("accounts.test")}</button>
-            <button className="ghost" onClick={() => remove(a)}>{t("common.remove")}</button>
+            <div className="stack" style={{ gap: "0.35rem" }}>
+              <label className="label">✍ {t("accounts.signature")}</label>
+              <textarea
+                rows={3}
+                placeholder={t("accounts.signaturePlaceholder")}
+                value={sigDraft[a.id] ?? ""}
+                onChange={(e) => setSigDraft((s) => ({ ...s, [a.id]: e.target.value }))}
+              />
+              <div className="row">
+                <span className="grow" />
+                <button className="ghost" onClick={() => saveSig(a)}>{t("accounts.saveSignature")}</button>
+              </div>
+            </div>
           </div>
         ))}
         {accounts.length === 0 && <p className="muted">{t("accounts.empty")}</p>}

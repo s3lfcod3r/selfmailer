@@ -102,6 +102,10 @@ const de: Dict = {
   "accounts.save": "Konto speichern",
   "accounts.test": "Verbindung testen",
   "accounts.empty": "Noch kein Konto. Lege oben eines an.",
+  "accounts.signature": "Signatur",
+  "accounts.signaturePlaceholder": "z. B. Mit freundlichen Grüßen\nSven Schmidt",
+  "accounts.saveSignature": "Signatur speichern",
+  "accounts.signatureSaved": "Signatur gespeichert.",
 
   // Compose
   "compose.needRecipient": "Mindestens einen Empfänger angeben.",
@@ -354,6 +358,10 @@ const en: Dict = {
   "accounts.save": "Save account",
   "accounts.test": "Test connection",
   "accounts.empty": "No account yet. Create one above.",
+  "accounts.signature": "Signature",
+  "accounts.signaturePlaceholder": "e.g. Best regards\nSven Schmidt",
+  "accounts.saveSignature": "Save signature",
+  "accounts.signatureSaved": "Signature saved.",
 
   // Compose
   "compose.needRecipient": "Enter at least one recipient.",

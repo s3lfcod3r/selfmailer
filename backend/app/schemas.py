@@ -74,6 +74,12 @@ class AccountOut(BaseModel):
     imap_port: int
     smtp_host: str
     smtp_port: int
+    signature: str = ""
+
+
+class AccountUpdate(BaseModel):
+    label: str | None = None
+    signature: str | None = None
 
 
 # ---- Mail ----------------------------------------------------------------

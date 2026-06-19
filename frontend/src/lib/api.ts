@@ -67,6 +67,7 @@ export type Note = {
 export type Account = {
   id: number; label: string; email: string; protocol: string;
   imap_host: string; imap_port: number; smtp_host: string; smtp_port: number;
+  signature: string;
 };
 export type MsgHeader = {
   uid: string; subject: string; from: string; date: string; seen: boolean; flagged: boolean;
