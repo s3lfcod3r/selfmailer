@@ -130,20 +130,39 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 .app-shell { display: flex; flex-direction: column; height: 100vh; }
 .topbar-main {
   display: flex; align-items: center; gap: 1rem;
-  padding: 0.55rem 1.1rem; border-bottom: 1px solid var(--self-line);
+  padding: 0.3rem 1rem; border-bottom: 1px solid var(--self-line);
   background: var(--self-bg-1); position: relative; z-index: 30;
 }
 .topbar-brand { flex: 0 0 auto; }
 .topbar-search {
   flex: 1 1 auto; max-width: 460px; margin: 0 auto;
-  display: flex; align-items: center; gap: 0.5rem;
+  display: flex; align-items: center; gap: 0.45rem;
   background: var(--self-bg-2); border: 1px solid var(--self-line);
-  border-radius: 9px; padding: 0.4rem 0.8rem; color: var(--self-text-3);
+  border-radius: 8px; padding: 0.18rem 0.7rem; color: var(--self-text-3);
+  font-size: 0.86rem;
 }
 .topbar-search input {
   flex: 1; min-width: 0; background: none; border: none; outline: none;
-  color: var(--self-text); font: inherit;
+  color: var(--self-text); font: inherit; padding: 0.15rem 0; height: auto; margin: 0;
 }
+.search-filter {
+  background: none; border: none; cursor: pointer; color: var(--self-text-3);
+  padding: 0 0.15rem; font-size: 0.9rem; flex: 0 0 auto;
+}
+.search-filter.on { color: var(--self-teal); }
+.filter-menu {
+  position: absolute; left: 50%; transform: translateX(-50%); top: 44px; z-index: 50;
+  background: var(--self-bg-2); border: 1px solid var(--self-line-strong);
+  border-radius: 10px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  padding: 0.5rem; display: flex; flex-direction: column; gap: 0.1rem; min-width: 200px;
+}
+.filter-menu button {
+  display: flex; align-items: center; gap: 0.55rem; text-align: left;
+  background: none; border: none; color: var(--self-text-2);
+  padding: 0.45rem 0.6rem; border-radius: 7px; cursor: pointer; font: inherit; font-size: 0.86rem;
+}
+.filter-menu button:hover { background: var(--self-bg-3); color: var(--self-text); }
+.filter-menu button.on { color: var(--self-text); }
 .topbar-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 0.6rem; }
 .icon-btn {
   background: none; border: 1px solid var(--self-line); border-radius: 8px;

@@ -37,7 +37,8 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>("mail");
   const [search, setSearch] = useState("");
-  const [menu, setMenu] = useState<"apps" | "user" | null>(null);
+  const [menu, setMenu] = useState<"apps" | "user" | "filter" | null>(null);
+  const [filter, setFilter] = useState({ unread: false, starred: false, attachments: false });
   const [pwOpen, setPwOpen] = useState(false);
   const [pwCur, setPwCur] = useState("");
   const [pwNew, setPwNew] = useState("");
@@ -93,7 +94,12 @@ export function App() {
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("search.placeholder")}
           />
-          {search && <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => setSearch("")}>✕</button>}
+          {search && <button className="search-filter" onClick={() => setSearch("")}>✕</button>}
+          <button
+            className={`search-filter ${(filter.unread || filter.starred || filter.attachments) ? "on" : ""}`}
+            title={t("filter.title")}
+            onClick={() => setMenu(menu === "filter" ? null : "filter")}
+          >⚙</button>
         </div>
 
         <div className="topbar-actions">
@@ -109,6 +115,20 @@ export function App() {
       </header>
 
       {menu && <div className="menu-backdrop" onClick={() => setMenu(null)} />}
+
+      {menu === "filter" && (
+        <div className="filter-menu">
+          <button className={filter.starred ? "on" : ""} onClick={() => setFilter((f) => ({ ...f, starred: !f.starred }))}>
+            <span>{filter.starred ? "★" : "☆"}</span> {t("filter.starred")}
+          </button>
+          <button className={filter.unread ? "on" : ""} onClick={() => setFilter((f) => ({ ...f, unread: !f.unread }))}>
+            <span>{filter.unread ? "●" : "○"}</span> {t("filter.unread")}
+          </button>
+          <button className={filter.attachments ? "on" : ""} onClick={() => setFilter((f) => ({ ...f, attachments: !f.attachments }))}>
+            <span>📎</span> {t("filter.attachments")}
+          </button>
+        </div>
+      )}
 
       {menu === "apps" && (
         <div className="app-switcher">
@@ -143,7 +163,7 @@ export function App() {
         {view !== "mail" && (
           <div className="view-title">{t(current?.labelKey ?? "")}</div>
         )}
-        {view === "mail" && <Mail search={search} />}
+        {view === "mail" && <Mail search={search} filter={filter} />}
         {view === "calendar" && <Calendar />}
         {view === "contacts" && <Contacts />}
         {view === "notes" && <Notes />}

@@ -46,6 +46,10 @@ const de: Dict = {
   "shell.langSwitch": "English",
   "apps.title": "Apps",
   "search.placeholder": "Suchen…",
+  "filter.title": "Filter",
+  "filter.starred": "Nur Favoriten",
+  "filter.unread": "Nur ungelesene",
+  "filter.attachments": "Nur mit Anhang",
 
   // Login
   "login.titleSetup": "Erstes Konto anlegen",
@@ -236,6 +240,10 @@ const en: Dict = {
   "shell.langSwitch": "Deutsch",
   "apps.title": "Apps",
   "search.placeholder": "Search…",
+  "filter.title": "Filter",
+  "filter.starred": "Starred only",
+  "filter.unread": "Unread only",
+  "filter.attachments": "With attachment",
 
   // Login
   "login.titleSetup": "Create first account",

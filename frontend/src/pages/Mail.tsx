@@ -11,7 +11,9 @@ function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function Mail({ search = "" }: { search?: string }) {
+type MailFilter = { unread: boolean; starred: boolean; attachments: boolean };
+
+export function Mail({ search = "", filter }: { search?: string; filter?: MailFilter }) {
   const { t } = useLang();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -259,10 +261,12 @@ export function Mail({ search = "" }: { search?: string }) {
             </div>
           )}
           <div className="mail-list">
-            {(search
-              ? messages.filter((m) => `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
-              : messages
-            ).map((m) => (
+            {messages
+              .filter((m) => !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
+              .filter((m) => !filter?.unread || !m.seen)
+              .filter((m) => !filter?.starred || m.flagged)
+              .filter((m) => !filter?.attachments || m.has_attachments)
+              .map((m) => (
               <div
                 className={`mail-row ${m.seen ? "" : "unseen"}`}
                 key={m.uid}
