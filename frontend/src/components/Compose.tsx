@@ -158,7 +158,7 @@ export function Compose({
   return (
     // Klick auf den Hintergrund schließt NICHT (kein versehentliches Verwerfen).
     <div className="modal-backdrop">
-      <div className="modal card" onClick={(e) => e.stopPropagation()}>
+      <div className="modal card compose-modal" onClick={(e) => e.stopPropagation()}>
         <div className="topbar">
           <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{t("compose.new")}</h2>
           <button className="ghost" onClick={closeAsDraft} title={t("compose.closeDraft")}>✕</button>
