@@ -112,6 +112,12 @@ const de: Dict = {
   "notes.save": "Notiz speichern",
   "notes.empty": "Noch keine Notizen.",
   "notes.pin": "Anheften",
+  "notes.new": "Neue Notiz",
+  "notes.untitled": "Ohne Titel",
+  "notes.selectHint": "Notiz auswählen oder neue erstellen.",
+  "notes.confirmDelete": "Diese Notiz wirklich löschen?",
+  "contacts.selectHint": "Kontakt auswählen oder neuen anlegen.",
+  "contacts.confirmDelete": "Diesen Kontakt wirklich löschen?",
 
   // Accounts (Self-Service)
   "accounts.added": "Konto hinzugefügt.",
@@ -404,6 +410,12 @@ const en: Dict = {
   "notes.save": "Save note",
   "notes.empty": "No notes yet.",
   "notes.pin": "Pin",
+  "notes.new": "New note",
+  "notes.untitled": "Untitled",
+  "notes.selectHint": "Select a note or create a new one.",
+  "notes.confirmDelete": "Really delete this note?",
+  "contacts.selectHint": "Select a contact or add a new one.",
+  "contacts.confirmDelete": "Really delete this contact?",
 
   // Accounts (self-service)
   "accounts.added": "Account added.",

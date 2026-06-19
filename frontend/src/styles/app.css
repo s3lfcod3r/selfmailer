@@ -567,3 +567,112 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 .mail-acc-head[draggable="true"] { cursor: grab; }
 .mail-acc.dragging { opacity: 0.5; }
 .mail-acc.dragging .mail-acc-head { cursor: grabbing; }
+
+/* ── Master-Detail-Layout (Notizen, Kontakte) — Synology-Stil ───── */
+.md-page {
+  display: flex;
+  gap: 1rem;
+  height: calc(100vh - 140px);
+  min-height: 420px;
+}
+.md-list {
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--self-bg-1);
+  border: 1px solid var(--self-line);
+  border-radius: var(--self-radius);
+  overflow: hidden;
+}
+.md-list-head { padding: 0.7rem; border-bottom: 1px solid var(--self-line); }
+.md-search {
+  display: flex; align-items: center; gap: 0.45rem;
+  padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--self-line);
+  color: var(--self-text-3);
+}
+.md-search input { border: none; background: transparent; padding: 0.2rem 0; flex: 1; }
+.md-search input:focus { outline: none; box-shadow: none; }
+.md-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+
+.md-item {
+  display: flex; gap: 0.7rem; width: 100%;
+  text-align: left; background: transparent; border: none;
+  border-bottom: 1px solid var(--self-line);
+  padding: 0.7rem 0.8rem; cursor: pointer;
+  transition: background var(--self-dur-fast) var(--self-ease);
+}
+.md-item:hover { background: var(--self-bg-2); }
+.md-item.active { background: color-mix(in srgb, var(--self-teal) 14%, transparent); }
+.md-item.active::before {
+  content: ""; position: absolute; left: 0; width: 3px; height: 100%;
+  background: var(--self-teal);
+}
+.md-item { position: relative; }
+
+.md-date {
+  flex: 0 0 46px; display: flex; flex-direction: column; align-items: center;
+  color: var(--self-teal); line-height: 1.05; padding-top: 0.1rem;
+}
+.md-date-day { font-size: 1.5rem; font-weight: 800; }
+.md-date-sub { font-size: 0.66rem; color: var(--self-text-3); text-transform: uppercase; }
+
+.md-item-main { min-width: 0; flex: 1; }
+.md-item-title {
+  font-weight: 700; font-size: 0.92rem; color: var(--self-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; align-items: center; gap: 0.3rem;
+}
+.md-pin { color: var(--self-teal); flex: 0 0 auto; }
+.md-item-snippet {
+  font-size: 0.8rem; color: var(--self-text-2); margin-top: 0.15rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.md-detail {
+  flex: 1; min-width: 0; overflow-y: auto;
+  background: var(--self-bg-1);
+  border: 1px solid var(--self-line);
+  border-radius: var(--self-radius);
+  padding: 1.1rem 1.3rem;
+}
+.md-placeholder {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  color: var(--self-text-3); font-size: 0.9rem;
+}
+.md-title-input {
+  font-size: 1.15rem; font-weight: 700; border: none; background: transparent;
+  padding: 0.2rem 0; flex: 1;
+}
+.md-title-input:focus { outline: none; box-shadow: none; border-bottom: 1px solid var(--self-teal); }
+.md-body-input {
+  flex: 1; min-height: 50vh; resize: vertical; line-height: 1.55;
+  font-family: inherit; font-size: 0.95rem;
+}
+
+/* Kontakt-Avatar (Initialen) */
+.ct-avatar {
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 0.9rem;
+  background: color-mix(in srgb, var(--self-teal) 22%, var(--self-bg-3));
+  color: var(--self-teal-bright);
+}
+.ct-avatar-lg { width: 52px; height: 52px; font-size: 1.2rem; }
+.ct-item { align-items: center; }
+.ct-detail-info {
+  display: flex; flex-direction: column; gap: 0.3rem;
+  font-size: 0.9rem; color: var(--self-text);
+  background: var(--self-bg-2); border-radius: var(--self-radius-sm);
+  padding: 0.8rem 0.9rem;
+}
+.ct-edit summary {
+  cursor: pointer; font-size: 0.82rem; color: var(--self-text-2);
+  padding: 0.3rem 0; user-select: none;
+}
+.ct-edit summary:hover { color: var(--self-teal-bright); }
+
+@media (max-width: 720px) {
+  .md-page { flex-direction: column; height: auto; }
+  .md-list { flex: 0 0 auto; max-height: 40vh; }
+}
