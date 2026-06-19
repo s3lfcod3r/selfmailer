@@ -208,6 +208,11 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 }
 .user-chip:hover { border-color: var(--self-line-strong); }
 .menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+.user-menu-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.45rem 0.7rem; color: var(--self-text-2); font-size: 0.86rem;
+}
+.user-menu-row select { font-size: 0.82rem; padding: 0.15rem 0.3rem; }
 .app-switcher, .user-menu {
   position: absolute; right: 1.1rem; top: 52px; z-index: 50;
   background: var(--self-bg-2); border: 1px solid var(--self-line-strong);

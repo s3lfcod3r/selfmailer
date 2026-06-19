@@ -31,8 +31,6 @@ const SETTINGS: AppItem[] = [
   { key: "admin", labelKey: "nav.admin", icon: "👥", adminOnly: true },
 ];
 
-const ALL = [...APPS, ...SETTINGS];
-
 export function App() {
   const { t, lang, setLang } = useLang();
   const [user, setUser] = useState<User | null>(null);
@@ -48,11 +46,16 @@ export function App() {
   const [pwErr, setPwErr] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
   const [theme, setTheme] = useState<string>(() => localStorage.getItem("selfmailer.theme") || "dark");
+  const [pollMin, setPollMin] = useState<number>(() => {
+    const v = Number(localStorage.getItem("selfmailer.pollMin"));
+    return [0, 1, 5, 15, 30].includes(v) ? v : 5;
+  });
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("selfmailer.theme", theme);
   }, [theme]);
+  useEffect(() => { localStorage.setItem("selfmailer.pollMin", String(pollMin)); }, [pollMin]);
 
   function loadMe() {
     if (!auth.get()) { setUser(null); setReady(true); return; }
@@ -69,7 +72,6 @@ export function App() {
   const isAdmin = user.role === "admin";
   const apps = APPS;
   const settings = SETTINGS.filter((s) => !s.adminOnly || isAdmin);
-  const current = ALL.find((a) => a.key === view);
 
   function go(v: View) { setView(v); setMenu(null); }
   function logout() { auth.clear(); setUser(null); }
@@ -180,16 +182,23 @@ export function App() {
           <button onClick={() => setTheme((tm) => (tm === "dark" ? "light" : "dark"))}>
             <span>{theme === "dark" ? "☀" : "🌙"}</span> {theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}
           </button>
+          <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
+            <span>🔄 {t("shell.autoRefresh")}</span>
+            <select value={pollMin} onChange={(e) => setPollMin(Number(e.target.value))}>
+              <option value={0}>{t("shell.autoOff")}</option>
+              <option value={1}>1 min</option>
+              <option value={5}>5 min</option>
+              <option value={15}>15 min</option>
+              <option value={30}>30 min</option>
+            </select>
+          </div>
           <hr />
           <button onClick={logout}><span>⎋</span> {t("shell.logout")}</button>
         </div>
       )}
 
       <main className="app-main">
-        {view !== "mail" && (
-          <div className="view-title">{t(current?.labelKey ?? "")}</div>
-        )}
-        {view === "mail" && <Mail search={search} filter={filter} />}
+        {view === "mail" && <Mail search={search} filter={filter} pollMin={pollMin} />}
         {view === "calendar" && <Calendar />}
         {view === "contacts" && <Contacts />}
         {view === "notes" && <Notes />}

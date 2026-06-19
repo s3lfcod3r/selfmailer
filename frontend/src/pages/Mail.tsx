@@ -33,7 +33,7 @@ function loadSet(key: string): Set<number> {
   catch { return new Set(); }
 }
 
-export function Mail({ search = "", filter }: { search?: string; filter?: MailFilter }) {
+export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; filter?: MailFilter; pollMin?: number }) {
   const { t } = useLang();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [foldersByAcc, setFoldersByAcc] = useState<Record<number, FolderCount[]>>({});
@@ -119,6 +119,12 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     api.get<FolderCount[]>(`/mail/${accId}/folders/counts`)
       .then((fc) => setFoldersByAcc((m) => ({ ...m, [accId]: fc }))).catch(() => {});
   }
+  // ↻ pro Konto: Filterregeln anwenden, Zaehler neu holen + aktive Liste neu laden.
+  async function refreshAccount(accId: number) {
+    try { await api.post(`/mail/${accId}/rules/apply`); } catch { /* egal */ }
+    refreshCounts(accId);
+    if (activeId === accId) reload();
+  }
 
   function toggleAccount(accId: number) {
     setCollapsedAcc((s) => {
@@ -191,14 +197,19 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(reload, [sel?.acc, sel?.folder]);
 
+  // Auto-Abruf: alle pollMin Minuten Zaehler aller Konten + aktive Liste auffrischen.
+  useEffect(() => {
+    if (!pollMin || accounts.length === 0) return;
+    const id = window.setInterval(() => {
+      accounts.forEach((a) => refreshCounts(a.id));
+      reload();
+    }, pollMin * 60000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollMin, accounts, sel?.acc, sel?.folder]);
+
   function patchHeader(uid: string, patch: Partial<MsgHeader>) {
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
-  }
-  async function refreshWithRules() {
-    if (activeId == null) return;
-    try { await api.post(`/mail/${activeId}/rules/apply`); } catch { /* egal */ }
-    reload();
-    refreshCounts(activeId);
   }
 
   async function openMsg(uid: string) {
@@ -338,9 +349,8 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
       <div className="mail-layout">
         {/* Konten + Ordner (Thunderbird-Stil) */}
         <aside className="mail-folders" style={{ flex: `0 0 ${foldersW}px` }}>
-          <div className="row" style={{ marginBottom: "0.55rem", gap: "0.4rem" }}>
+          <div className="row" style={{ marginBottom: "0.55rem" }}>
             <button className="primary" style={{ flex: 1 }} onClick={() => activeId != null && setDraft(emptyDraft())}>{t("mail.newMail")}</button>
-            <button className="ghost" onClick={refreshWithRules} title="↻">↻</button>
           </div>
 
           {accounts.map((a) => {
@@ -353,6 +363,12 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
                   <button className="mail-folder-toggle">{collapsed ? "▶" : "▼"}</button>
                   <span className="mail-acc-name" title={a.email}>{a.label || a.email}</span>
                   {collapsed && roll > 0 && <span className="mail-badge">{roll}</span>}
+                  <button
+                    className="mail-folder-toggle"
+                    style={{ width: "auto", padding: "0 0.25rem" }}
+                    onClick={(e) => { e.stopPropagation(); refreshAccount(a.id); }}
+                    title="↻"
+                  >↻</button>
                   <button
                     className="mail-folder-toggle"
                     style={{ width: "auto", padding: "0 0.25rem" }}
