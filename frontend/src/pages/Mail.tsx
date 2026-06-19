@@ -41,6 +41,7 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [folderOrder, setFolderOrder] = useState<string[]>([]);
   const [dragPath, setDragPath] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ node: FolderNode; x: number; y: number } | null>(null);
   const [listW, setListW] = useState<number>(() => {
     const v = Number(localStorage.getItem("selfmailer.listW"));
     return v >= 260 && v <= 760 ? v : 380;
@@ -64,21 +65,27 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
 
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
 
-  // Top-Level-Ordner gemäß gespeicherter Reihenfolge sortieren (Rest hinten anhängen).
-  const sortedRoots = useMemo(() => {
-    if (!folderOrder.length) return tree;
-    const rank = (p: string) => {
-      const i = folderOrder.indexOf(p);
-      return i < 0 ? 1000 : i;
-    };
-    return [...tree].sort((a, b) => rank(a.path) - rank(b.path));
-  }, [tree, folderOrder]);
+  // Ordner gemäß gespeicherter Reihenfolge sortieren (gilt für jede Ebene; Geschwister).
+  function rankOf(p: string) {
+    const i = folderOrder.indexOf(p);
+    return i < 0 ? 1000 : i;
+  }
+  function sortKids(kids: FolderNode[]): FolderNode[] {
+    return folderOrder.length ? [...kids].sort((a, b) => rankOf(a.path) - rankOf(b.path)) : kids;
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sortedRoots = useMemo(() => sortKids(tree), [tree, folderOrder]);
 
   function orderKey(id: number | null) { return `selfmailer.folderOrder.${id}`; }
 
   function reorderFolders(dragged: string, target: string) {
     if (dragged === target) return;
-    const order = sortedRoots.map((n) => n.path);
+    // Aktuelle Anzeige-Reihenfolge (alle Ebenen) flachklopfen, dann umsortieren.
+    const order: string[] = [];
+    const walk = (nodes: FolderNode[]) => {
+      for (const n of nodes) { order.push(n.path); walk(sortKids(n.children)); }
+    };
+    walk(sortedRoots);
     const di = order.indexOf(dragged);
     const ti = order.indexOf(target);
     if (di < 0 || ti < 0) return;
@@ -118,6 +125,16 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     if (!name || !name.trim()) return;
     try {
       await api.post(`/mail/${activeId}/folders?name=${encodeURIComponent(name.trim())}&parent=${encodeURIComponent(folder)}`);
+      refreshFolders();
+    } catch (e) { setErr((e as Error).message); }
+  }
+  async function newSubfolder(node: FolderNode) {
+    if (activeId == null) return;
+    const name = prompt(t("folder.newPrompt", { parent: node.special ? t(`folder.${node.special}`) : node.label }));
+    if (!name || !name.trim()) return;
+    try {
+      await api.post(`/mail/${activeId}/folders?name=${encodeURIComponent(name.trim())}&parent=${encodeURIComponent(node.path)}`);
+      setExpanded((s) => { const n = new Set(s); n.add(node.path); return n; });
       refreshFolders();
     } catch (e) { setErr((e as Error).message); }
   }
@@ -262,10 +279,10 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
       <div key={node.path}>
         <div
           style={{ display: "flex", alignItems: "center", opacity: dragPath === node.path ? 0.4 : 1 }}
-          draggable={depth === 0}
-          onDragStart={depth === 0 ? () => setDragPath(node.path) : undefined}
-          onDragOver={depth === 0 ? (e) => e.preventDefault() : undefined}
-          onDrop={depth === 0 ? (e) => { e.preventDefault(); if (dragPath) reorderFolders(dragPath, node.path); setDragPath(null); } : undefined}
+          draggable
+          onDragStart={() => setDragPath(node.path)}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); if (dragPath) reorderFolders(dragPath, node.path); setDragPath(null); }}
           onDragEnd={() => setDragPath(null)}
         >
           {hasKids ? (
@@ -279,8 +296,8 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
             className={`mail-folder ${node.path === folder ? "active" : ""}`}
             style={{ flex: 1, minWidth: 0 }}
             onClick={() => setFolder(node.path)}
-            onContextMenu={!node.special ? (e) => { e.preventDefault(); renameFolder(node); } : undefined}
-            title={node.special ? node.path : `${node.path} — ${t("folder.renameHint")}`}
+            onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ node, x: e.clientX, y: e.clientY }); }}
+            title={node.path}
           >
             <span>{icon}</span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
@@ -296,7 +313,7 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
             </button>
           )}
         </div>
-        {hasKids && isOpen && node.children.map((c) => renderNode(c, depth + 1))}
+        {hasKids && isOpen && sortKids(node.children).map((c) => renderNode(c, depth + 1))}
       </div>
     );
   }
@@ -335,7 +352,7 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
         </aside>
 
         {/* Listen-Spalte */}
-        <div className="mail-listcol" style={open ? { flex: `0 0 ${listW}px` } : undefined}>
+        <div className="mail-listcol" style={{ flex: `0 0 ${listW}px` }}>
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
           {selected.size > 0 && (
             <div className="row" style={{ marginBottom: "0.5rem", padding: "0.4rem 0.6rem", background: "var(--self-bg-2)", borderRadius: "6px" }}>
@@ -398,7 +415,7 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
           </div>
         </div>
 
-        {open && <div className="resize-handle" onMouseDown={startResize} title={t("mail.resizeHint")} />}
+        <div className="resize-handle" onMouseDown={startResize} title={t("mail.resizeHint")} />
 
         {/* Lese-Spalte */}
         {open ? (
@@ -465,6 +482,25 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
           <div className="mail-placeholder">{t("mail.selectHint")}</div>
         )}
       </div>
+
+      {ctxMenu && (
+        <>
+          <div
+            className="menu-backdrop"
+            onClick={() => setCtxMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
+          />
+          <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+            <button onClick={() => { newSubfolder(ctxMenu.node); setCtxMenu(null); }}>📁 {t("folder.newSub")}</button>
+            {!ctxMenu.node.special && (
+              <button onClick={() => { renameFolder(ctxMenu.node); setCtxMenu(null); }}>✏ {t("folder.rename")}</button>
+            )}
+            {!ctxMenu.node.special && (
+              <button onClick={() => { delFolder(ctxMenu.node.path); setCtxMenu(null); }}>🗑 {t("common.delete")}</button>
+            )}
+          </div>
+        </>
+      )}
 
       {draft && activeId != null && (
         <Compose accountId={activeId} draft={draft} onClose={() => setDraft(null)} />

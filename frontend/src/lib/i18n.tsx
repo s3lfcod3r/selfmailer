@@ -153,6 +153,8 @@ const de: Dict = {
   "folder.deleteConfirm": "Ordner „{name}“ löschen?",
   "folder.renamePrompt": "Neuer Ordnername:",
   "folder.renameHint": "Rechtsklick zum Umbenennen",
+  "folder.newSub": "Unterordner erstellen",
+  "folder.rename": "Umbenennen",
   "mail.resizeHint": "Breite ziehen",
 
   // Calendar
@@ -371,6 +373,8 @@ const en: Dict = {
   "folder.deleteConfirm": "Delete folder “{name}”?",
   "folder.renamePrompt": "New folder name:",
   "folder.renameHint": "Right-click to rename",
+  "folder.newSub": "Create subfolder",
+  "folder.rename": "Rename",
   "mail.resizeHint": "Drag to resize",
 
   // Calendar

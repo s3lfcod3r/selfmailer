@@ -223,6 +223,18 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   border-left: 1px solid var(--self-line); border-right: 1px solid transparent;
 }
 .resize-handle:hover { border-left-color: var(--self-teal); }
+.ctx-menu {
+  position: fixed; z-index: 60; background: var(--self-bg-2);
+  border: 1px solid var(--self-line-strong); border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5); padding: 0.3rem; min-width: 190px;
+  display: flex; flex-direction: column; gap: 0.1rem;
+}
+.ctx-menu button {
+  display: flex; align-items: center; gap: 0.5rem; text-align: left;
+  background: none; border: none; color: var(--self-text-2);
+  padding: 0.45rem 0.7rem; border-radius: 6px; cursor: pointer; font: inherit; font-size: 0.85rem;
+}
+.ctx-menu button:hover { background: var(--self-bg-3); color: var(--self-text); }
 .mail-placeholder {
   flex: 1.7 1 0; display: flex; align-items: center; justify-content: center;
   color: var(--self-text-3); border-left: 1px solid var(--self-line); min-height: 40vh;
