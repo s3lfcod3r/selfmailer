@@ -36,7 +36,16 @@ export function specialKind(lastPart: string): SpecialKind | null {
 // Erkennt das Hierarchie-Trennzeichen: "/" (Gmail/Dovecot) oder "." (INBOX.Sent bei vielen Servern).
 function detectDelimiter(names: string[]): string {
   if (names.some((n) => n.includes("/"))) return "/";
-  if (names.some((n) => /^INBOX\./i.test(n))) return ".";
+  // "." ist das Trennzeichen, wenn entweder ein INBOX.x-Ordner existiert ODER
+  // ein "x.y"-Ordner, dessen Punkt-Elternteil "x" ebenfalls ein Ordner ist
+  // (z. B. eigener Top-Level "Ordner" + Unterordner "Ordner.Synology"). Ohne
+  // diese zweite Bedingung wurden eigene Unterordner nicht geschachtelt.
+  const set = new Set(names);
+  const dotNested = names.some((n) => {
+    const i = n.indexOf(".");
+    return i > 0 && set.has(n.slice(0, i));
+  });
+  if (dotNested || names.some((n) => /^INBOX\./i.test(n))) return ".";
   return "/";
 }
 
