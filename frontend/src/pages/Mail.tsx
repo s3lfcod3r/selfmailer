@@ -4,6 +4,9 @@ import { useLang } from "../lib/i18n";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
 
+// Einrückung pro Ordner-Ebene (px). 0 = Unterordner buendig mit Hauptordnern.
+const INDENT = 0;
+
 function fmtSize(bytes: number): string {
   if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
@@ -46,22 +49,31 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
     const v = Number(localStorage.getItem("selfmailer.listW"));
     return v >= 260 && v <= 760 ? v : 380;
   });
+  const [foldersW, setFoldersW] = useState<number>(() => {
+    const v = Number(localStorage.getItem("selfmailer.foldersW"));
+    return v >= 140 && v <= 380 ? v : 172;
+  });
 
-  // Trennlinie zwischen Liste und Lesebereich ziehen.
-  function startResize(e: React.MouseEvent) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = listW;
-    let last = startW;
-    function move(ev: MouseEvent) { last = Math.max(260, Math.min(760, startW + ev.clientX - startX)); setListW(last); }
-    function up() {
-      document.removeEventListener("mousemove", move);
-      document.removeEventListener("mouseup", up);
-      localStorage.setItem("selfmailer.listW", String(last));
-    }
-    document.addEventListener("mousemove", move);
-    document.addEventListener("mouseup", up);
+  // Generischer Spalten-Resize: zieht eine Breite zwischen min/max und speichert sie.
+  function makeResize(
+    current: number, setW: (n: number) => void, key: string, min: number, max: number,
+  ) {
+    return (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      let last = current;
+      function move(ev: MouseEvent) { last = Math.max(min, Math.min(max, current + ev.clientX - startX)); setW(last); }
+      function up() {
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", up);
+        localStorage.setItem(key, String(last));
+      }
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", up);
+    };
   }
+  const startResize = makeResize(listW, setListW, "selfmailer.listW", 260, 760);
+  const startResizeFolders = makeResize(foldersW, setFoldersW, "selfmailer.foldersW", 140, 380);
 
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
 
@@ -299,11 +311,11 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
           onDragEnd={() => setDragPath(null)}
         >
           {hasKids ? (
-            <button className="mail-folder-toggle" style={{ marginLeft: depth * 12 }} onClick={() => toggleExpand(node.path)}>
+            <button className="mail-folder-toggle" style={{ marginLeft: depth * INDENT }} onClick={() => toggleExpand(node.path)}>
               {isOpen ? "▼" : "▶"}
             </button>
           ) : (
-            <span style={{ flex: "0 0 14px", width: 14, marginLeft: depth * 12 }} />
+            <span style={{ flex: "0 0 14px", width: 14, marginLeft: depth * INDENT }} />
           )}
           <button
             className={`mail-folder ${node.path === folder ? "active" : ""}`}
@@ -337,17 +349,15 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
 
   return (
     <div>
-      <div className="row" style={{ marginBottom: "1rem" }}>
-        <button className="primary" onClick={() => setDraft(emptyDraft())}>{t("mail.newMail")}</button>
-        <span className="grow" />
-        <button className="ghost" onClick={refreshWithRules}>↻</button>
-      </div>
-
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
 
       <div className="mail-layout">
         {/* Mailbox-Ordnerbaum */}
-        <aside className="mail-folders">
+        <aside className="mail-folders" style={{ flex: `0 0 ${foldersW}px` }}>
+          <div className="row" style={{ marginBottom: "0.55rem", gap: "0.4rem" }}>
+            <button className="primary" style={{ flex: 1 }} onClick={() => setDraft(emptyDraft())}>{t("mail.newMail")}</button>
+            <button className="ghost" onClick={refreshWithRules} title="↻">↻</button>
+          </div>
           <div className="mail-mailbox-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span>{t("mail.mailbox")}</span>
             <button className="mail-folder-toggle" style={{ width: "auto", fontSize: "0.9rem", padding: "0 0.2rem" }} onClick={newFolder} title={t("folder.new")}>＋</button>
@@ -363,6 +373,8 @@ export function Mail({ search = "", filter }: { search?: string; filter?: MailFi
           )}
           {sortedRoots.map((n) => renderNode(n, 0))}
         </aside>
+
+        <div className="resize-handle" onMouseDown={startResizeFolders} title={t("mail.resizeHint")} />
 
         {/* Listen-Spalte */}
         <div className="mail-listcol" style={{ flex: `0 0 ${listW}px` }}>
