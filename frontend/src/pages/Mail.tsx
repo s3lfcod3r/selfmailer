@@ -264,6 +264,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   // die Liste aktualisiert, wenn der Nutzer noch im selben Ordner ist.
   const selRef = useRef(sel);
   useEffect(() => { selRef.current = sel; }, [sel]);
+  // Anzahl aktuell geladener Mails (fuer den stillen Auto-Refresh, damit bereits
+  // nachgeladene Seiten erhalten bleiben).
+  const loadedRef = useRef(0);
+  useEffect(() => { loadedRef.current = messages.length; }, [messages]);
 
   function reload() {
     if (!sel) return;
@@ -276,13 +280,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
       .finally(() => { setLoading(false); bgSync(acc, folder); });
   }
   // 2) Hintergrund-Sync: neue Mails/Flags nachziehen, dann still aktualisieren.
-  function bgSync(acc: number, folder: string) {
+  function bgSync(acc: number, folder: string, count: number = PAGE_SIZE) {
     setSyncing(true);
     api.post(`/mail/${acc}/sync?folder=${encodeURIComponent(folder)}`)
-      .then(() => api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(folder)}&limit=${PAGE_SIZE}`))
+      .then(() => api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(folder)}&limit=${count}`))
       .then((ms) => {
         if (selRef.current?.acc === acc && selRef.current?.folder === folder) {
-          setMessages(ms); setHasMore(ms.length === PAGE_SIZE);
+          setMessages(ms); setHasMore(ms.length === count);
         }
         refreshCounts(acc);
       })
@@ -312,7 +316,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     if (!pollMin || accounts.length === 0) return;
     const id = window.setInterval(() => {
       accounts.forEach((a) => refreshCounts(a.id));
-      reload();
+      // Still aktualisieren: nur Delta-Sync + leise Liste — KEIN reload (kein
+      // Spinner, offene Mail bleibt offen, bereits geladene Seiten bleiben).
+      if (selRef.current) bgSync(selRef.current.acc, selRef.current.folder, Math.max(PAGE_SIZE, loadedRef.current));
     }, pollMin * 60000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
