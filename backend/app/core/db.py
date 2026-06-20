@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from .config import get_settings
@@ -19,8 +19,29 @@ if _dir:
 engine = create_engine(
     f"sqlite:///{_db_path}",
     echo=False,
-    connect_args={"check_same_thread": False},
+    # timeout = SQLite busy_timeout (Sek.): bei gleichzeitigem Schreiben warten
+    # statt sofort "database is locked" zu werfen.
+    connect_args={"check_same_thread": False, "timeout": 30},
 )
+
+
+@event.listens_for(engine, "connect")
+def _sqlite_pragmas(dbapi_conn, _record) -> None:
+    """Performance-PRAGMAs pro Verbindung.
+
+    WAL ist DER Hebel hier: Leser blockieren Schreiber nicht mehr (UI-Abfragen
+    laufen weiter, waehrend der Hintergrund-Sync schreibt). synchronous=NORMAL ist
+    mit WAL crash-sicher und spart die meisten fsyncs. busy_timeout verhindert
+    sofortige Lock-Fehler; temp_store/cache_size halten Sortierungen im RAM.
+    """
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")
+    cur.execute("PRAGMA synchronous=NORMAL")
+    cur.execute("PRAGMA busy_timeout=30000")
+    cur.execute("PRAGMA temp_store=MEMORY")
+    cur.execute("PRAGMA cache_size=-16000")  # ~16 MB Page-Cache je Verbindung
+    cur.execute("PRAGMA foreign_keys=ON")
+    cur.close()
 
 
 # Additive Spalten, die ggf. in einer aelteren DB fehlen (SQLite kennt kein
@@ -81,12 +102,40 @@ def _ensure_columns() -> None:
                     )
 
 
+# Zusammengesetzte Indizes fuer die Hot-Path-Queries. Die einzelnen
+# Field(index=True) decken Mehrspalten-Filter+Sortierung nicht gut ab; diese
+# Composite-Indizes machen die Listen-, Detail- und Zaehler-Abfragen schnell —
+# besonders bei grossen Ordnern (mehrere tausend Mails).
+_INDEXES: list[str] = [
+    # Listenanzeige + recent_unseen: WHERE account_id, folder ORDER BY sort_date DESC
+    "CREATE INDEX IF NOT EXISTS ix_cm_acc_folder_sort "
+    "ON cachedmessage (account_id, folder, sort_date DESC)",
+    # Einzelmail (Detail/Flags/Loeschen): WHERE account_id, folder, uid
+    "CREATE INDEX IF NOT EXISTS ix_cm_acc_folder_uid "
+    "ON cachedmessage (account_id, folder, uid)",
+    # FolderSync-Zaehler: WHERE account_id (+ folder)
+    "CREATE INDEX IF NOT EXISTS ix_fs_acc_folder "
+    "ON foldersync (account_id, folder)",
+    # Gecachte Ordnerliste: WHERE account_id ORDER BY idx
+    "CREATE INDEX IF NOT EXISTS ix_cf_acc_idx "
+    "ON cachedfolder (account_id, idx)",
+]
+
+
+def _ensure_indexes() -> None:
+    """Legt die Composite-Indizes an (idempotent)."""
+    with engine.begin() as conn:
+        for ddl in _INDEXES:
+            conn.execute(text(ddl))
+
+
 def init_db() -> None:
     # Modelle importieren, damit SQLModel sie kennt.
     from .. import models  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
     _ensure_columns()
+    _ensure_indexes()
 
 
 def get_session() -> Iterator[Session]:
