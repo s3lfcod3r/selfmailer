@@ -36,7 +36,12 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    yield
+    from .mail.scheduler import start_scheduler, stop_scheduler
+    start_scheduler()  # haelt den Cache im Hintergrund warm -> UI wartet nie auf IMAP
+    try:
+        yield
+    finally:
+        stop_scheduler()
 
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
@@ -81,7 +86,7 @@ app.include_router(dashboard.router)
 
 # Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
-APP_BUILD = "2026-06-20-batch-flags"
+APP_BUILD = "2026-06-21-bg-sync"
 
 
 @app.get("/api/health")
