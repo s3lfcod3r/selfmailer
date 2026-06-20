@@ -546,7 +546,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     setSelected(new Set()); setSelectAllFolder(false);
     // EIN Request statt N: alle UIDs in einer IMAP-Session loeschen (ein Login).
     // Im Hintergrund; bei Fehler echte Liste wiederherstellen.
-    api.post(`/mail/${acc}/messages/batch/delete`, { folder: fol, uids: [...ids] })
+    api.post(`/mail/${acc}/messages/batch-delete`, { folder: fol, uids: [...ids] })
       .then(() => { refreshCounts(acc); if (wasAll && selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); })
       .catch((e) => { setErr((e as Error).message); if (selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); });
   }
@@ -557,7 +557,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     setMessages((ms) => ms.map((m) => (selected.has(m.uid) ? { ...m, seen } : m)));
     setSelected(new Set()); setSelectAllFolder(false);
     try {
-      await api.post(`/mail/${acc}/messages/batch/flags?seen=${seen}`, { folder: fol, uids: ids });
+      await api.post(`/mail/${acc}/messages/batch-flags?seen=${seen}`, { folder: fol, uids: ids });
       refreshCounts(acc);
     } catch (e) {
       setErr((e as Error).message);
@@ -574,7 +574,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     setMessages((ms) => ms.filter((m) => !ids.includes(m.uid)));
     setSelected(new Set()); setSelectAllFolder(false);
     // EIN Request statt N: alle UIDs in einer IMAP-Session verschieben (ein Login).
-    api.post(`/mail/${acc}/messages/batch/move`, { folder: fol, uids: ids, dest })
+    api.post(`/mail/${acc}/messages/batch-move`, { folder: fol, uids: ids, dest })
       .then(() => { refreshCounts(acc); if (wasAll && selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); })
       .catch((e) => { setErr((e as Error).message); if (selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); });
   }

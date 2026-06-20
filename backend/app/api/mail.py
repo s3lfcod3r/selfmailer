@@ -372,7 +372,7 @@ def prefetch_bodies(
         return {"ok": False, "cached": 0}
 
 
-@router.post("/{account_id}/messages/batch/delete")
+@router.post("/{account_id}/messages/batch-delete")
 def delete_messages_batch(
     account_id: int,
     data: BatchRequest,
@@ -392,7 +392,7 @@ def delete_messages_batch(
     return {"ok": True, "result": result}
 
 
-@router.post("/{account_id}/messages/batch/flags")
+@router.post("/{account_id}/messages/batch-flags")
 def set_flags_batch(
     account_id: int,
     data: BatchRequest,
@@ -417,7 +417,7 @@ def set_flags_batch(
     return {"ok": True, "count": n}
 
 
-@router.post("/{account_id}/messages/batch/move")
+@router.post("/{account_id}/messages/batch-move")
 def move_messages_batch(
     account_id: int,
     data: BatchRequest,
