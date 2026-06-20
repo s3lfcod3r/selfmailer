@@ -113,3 +113,7 @@ export type Rule = {
 export type SyncResult = {
   ok: boolean; imported: number; updated: number; removed: number; error: string;
 };
+export type MigrateResult = {
+  counts: Record<string, number>; unmatched: number; moved: number;
+  scanned: number; errors: string[]; dry_run: boolean;
+};

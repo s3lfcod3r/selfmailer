@@ -205,6 +205,14 @@ class RuleCreate(BaseModel):
     star: bool = False
 
 
+class MigrateRequest(BaseModel):
+    """Postfach-Migration: aus einem Quellkonto (Synology) in die passenden Ziele."""
+    source_folder: str = "INBOX"
+    target_folder: str = "INBOX"
+    dry_run: bool = True
+    limit: int = Field(default=500, ge=1, le=2000)
+
+
 class RuleUpdate(BaseModel):
     """Teil-Update einer Regel (Bearbeiten). Nur gesetzte Felder werden geaendert."""
     field: str | None = None

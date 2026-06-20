@@ -4,14 +4,15 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ..core.crypto import decrypt
 from ..core.db import get_session
 from ..mail import imap as imap_mod
+from ..mail import migrate as migrate_mod
 from ..mail import smtp as smtp_mod
 from ..models import MailAccount, User
-from ..schemas import MessageDetail, MessageHeader, SendRequest
+from ..schemas import MessageDetail, MessageHeader, MigrateRequest, SendRequest
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
@@ -116,6 +117,33 @@ def messages(
 ) -> list[dict]:
     acc = _account(account_id, user, session)
     return imap_mod.list_messages(acc, decrypt(acc.secret_enc), folder=folder, limit=limit)
+
+
+@router.post("/{account_id}/migrate")
+def migrate_account(
+    account_id: int,
+    data: MigrateRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Migriert Mails aus diesem Quellkonto (z. B. Synology) in die uebrigen
+    Konten des Users — pro Mail anhand des Empfaengers ins passende Postfach.
+    dry_run=True (Default) zeigt nur die Vorschau, schreibt nichts."""
+    source = _account(account_id, user, session)
+    dests = [
+        (a, decrypt(a.secret_enc))
+        for a in session.exec(select(MailAccount).where(MailAccount.user_id == user.id)).all()
+        if a.id != source.id
+    ]
+    if not dests:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Kein Zielkonto vorhanden")
+    try:
+        return migrate_mod.migrate(
+            source, decrypt(source.secret_enc), data.source_folder, dests,
+            data.target_folder, dry_run=data.dry_run, limit=data.limit,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Migration fehlgeschlagen: {exc}")
 
 
 @router.get("/{account_id}/messages/{uid}", response_model=MessageDetail)
