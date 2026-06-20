@@ -79,9 +79,14 @@ app.include_router(dav.router)
 app.include_router(dashboard.router)
 
 
+# Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
+# (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
+APP_BUILD = "2026-06-20-perf-imap-timeout"
+
+
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "app": settings.app_name, "version": "0.1.0"}
+    return {"status": "ok", "app": settings.app_name, "version": "0.1.0", "build": APP_BUILD}
 
 
 # Optionales Static-Frontend (Produktion). Der Pfad unterscheidet sich je nach
