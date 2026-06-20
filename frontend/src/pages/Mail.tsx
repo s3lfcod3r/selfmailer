@@ -21,6 +21,18 @@ function prettyDate(s: string): string {
   return isNaN(d.getTime()) ? s : d.toLocaleString();
 }
 
+// CSP, die im Mail-iframe ALLE externen Ladevorgaenge (Bilder/Schriften/Medien)
+// blockiert — nur eingebettete data:/cid:-Bilder und Inline-Styles sind erlaubt.
+// So laden keine Tracking-Pixel; Skripte sind ohnehin per sandbox="" geblockt.
+const _CSP_BLOCK =
+  `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; font-src data:; media-src data:;">`;
+function hasRemoteContent(html: string): boolean {
+  return /(?:src|background)\s*=\s*["']?\s*https?:/i.test(html) || /url\(\s*['"]?\s*https?:/i.test(html);
+}
+function buildSrcDoc(html: string, block: boolean): string {
+  return `<!DOCTYPE html><meta charset="utf-8">${block ? _CSP_BLOCK : ""}<base target="_blank">${html}`;
+}
+
 function fmtSize(bytes: number): string {
   if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
@@ -47,7 +59,7 @@ function loadSet(key: string): Set<number> {
   catch { return new Set(); }
 }
 
-export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; filter?: MailFilter; pollMin?: number }) {
+export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean }) {
   const { t } = useLang();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [foldersByAcc, setFoldersByAcc] = useState<Record<number, FolderCount[]>>({});
@@ -64,6 +76,8 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
   // Lese-Kopf: Mehr-Menü (⋯) und ausklappbare Detailzeilen (Von/An/Datum/Betreff).
   const [readMenu, setReadMenu] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // Pro geoeffneter Mail: hat der Nutzer externe Bilder freigegeben?
+  const [showImages, setShowImages] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dragUids, setDragUids] = useState<string[]>([]);
@@ -322,6 +336,7 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
       setMobilePane("read");
       setDetailsOpen(false);
       setReadMenu(false);
+      setShowImages(false);
       if (!msg.seen) {
         api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=true`).catch(() => {});
         patchHeader(uid, { seen: true });
@@ -701,7 +716,17 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
             {open.text ? (
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>
             ) : open.html ? (
-              <iframe title="mail-body" sandbox="" srcDoc={open.html} style={{ width: "100%", height: "62vh", border: "none", background: "#fff", borderRadius: "6px" }} />
+              <>
+                {blockImages && !showImages && hasRemoteContent(open.html) && (
+                  <div className="img-banner">
+                    <span>🛡 {t("mail.imagesBlocked")}</span>
+                    <button className="ghost" onClick={() => setShowImages(true)}>{t("mail.showImages")}</button>
+                  </div>
+                )}
+                <iframe title="mail-body" sandbox=""
+                  srcDoc={buildSrcDoc(open.html, blockImages && !showImages)}
+                  style={{ width: "100%", height: "62vh", border: "none", background: "#fff", borderRadius: "6px" }} />
+              </>
             ) : (
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{t("mail.emptyBody")}</div>
             )}

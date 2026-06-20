@@ -350,6 +350,16 @@ select.bulk-btn { max-width: 170px; }
 .bulk-del { color: var(--self-red); }
 .bulk-del:hover { border-color: var(--self-red); color: var(--self-red); }
 
+/* --- Banner: externe Bilder blockiert --- */
+.img-banner {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  margin-bottom: 0.6rem; padding: 0.5rem 0.8rem;
+  background: color-mix(in srgb, var(--self-teal) 9%, var(--self-bg-2));
+  border: 1px solid color-mix(in srgb, var(--self-teal) 28%, var(--self-line));
+  border-radius: 8px; font-size: 0.85rem; color: var(--self-text-2);
+}
+.img-banner button { padding: 0.3rem 0.7rem; font-size: 0.82rem; margin-left: auto; }
+
 /* Compose: Formatier-Leiste + Editor + Optionen-Menü */
 .compose-toolbar {
   display: flex; flex-wrap: wrap; gap: 0.1rem;

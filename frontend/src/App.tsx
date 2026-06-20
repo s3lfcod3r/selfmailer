@@ -78,12 +78,15 @@ export function App() {
     const v = Number(localStorage.getItem("selfmailer.pollMin"));
     return [0, 1, 5, 15, 30].includes(v) ? v : 5;
   });
+  // Externe Bilder (Tracking-Pixel) standardmaessig blockieren — Datenschutz/Sicherheit.
+  const [blockImages, setBlockImages] = useState<boolean>(() => localStorage.getItem("selfmailer.blockImages") !== "0");
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("selfmailer.theme", theme);
   }, [theme]);
   useEffect(() => { localStorage.setItem("selfmailer.pollMin", String(pollMin)); }, [pollMin]);
+  useEffect(() => { localStorage.setItem("selfmailer.blockImages", blockImages ? "1" : "0"); }, [blockImages]);
 
   function loadMe() {
     if (!auth.get()) { setUser(null); setReady(true); return; }
@@ -212,6 +215,10 @@ export function App() {
           <div className="user-menu-section">{t("menu.security")}</div>
           <button onClick={openPw}><span>🔑</span> {t("user.changePassword")}</button>
           <button onClick={() => { setMenu(null); setTotpOpen(true); }}><span>🛡</span> {t("totp.menu")}</button>
+          <button onClick={() => setBlockImages((b) => !b)}>
+            <span>🖼</span> {t("shell.blockImages")}
+            <span style={{ marginLeft: "auto", color: blockImages ? "var(--self-teal-bright)" : "var(--self-text-3)" }}>{blockImages ? "✓" : "—"}</span>
+          </button>
 
           <div className="user-menu-section">{t("menu.appearance")}</div>
           <button onClick={() => { setLang(lang === "de" ? "en" : "de"); setMenu(null); }}>
@@ -240,7 +247,7 @@ export function App() {
         {/* Mail bleibt gemountet (nur versteckt), damit beim Zurückwechseln
             nicht neu geladen wird – kein sichtbares Nachladen. */}
         <div style={{ display: view === "mail" ? "contents" : "none" }}>
-          <Mail search={search} filter={filter} pollMin={pollMin} />
+          <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} />
         </div>
         <Suspense fallback={<div className="muted">{t("common.loading")}</div>}>
           {view === "calendar" && <Calendar />}
