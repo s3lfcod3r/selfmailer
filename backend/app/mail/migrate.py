@@ -185,8 +185,14 @@ def transfer_messages(
 
         for sf, df, fuids in pairs:
             if not _ensure_folder(dst, df, dst_delim):
+                # Echte Ursache einfangen (z. B. "quota exceeded" = Zielpostfach voll).
+                reason = "konnte nicht angelegt werden"
+                try:
+                    dst.folder.create(df)
+                except Exception as exc:  # noqa: BLE001
+                    reason = str(exc).split("Data:")[-1].strip() or reason
                 if len(errors) < 8:
-                    errors.append(f"{df}: Zielordner konnte nicht angelegt werden")
+                    errors.append(f"{df}: {reason}")
                 continue
             seen_ids = _existing_message_ids(dst, df)
             src.folder.set(sf)
