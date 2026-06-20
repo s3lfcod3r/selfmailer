@@ -6,7 +6,17 @@ import { Wordmark } from "../components/Wordmark";
 type Token = { access_token: string };
 
 export function Login({ onAuthed }: { onAuthed: () => void }) {
-  const { t } = useLang();
+  const { t, lang, setLang } = useLang();
+
+  // Sprach-Umschalter (oben rechts) — auf dem Login-Screen gibt es noch kein
+  // Benutzermenü, daher hier separat.
+  const langToggle = (
+    <button
+      type="button"
+      className="ghost auth-lang"
+      onClick={() => setLang(lang === "de" ? "en" : "de")}
+    >🌐 {lang === "de" ? "EN" : "DE"}</button>
+  );
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -76,6 +86,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
   if (mfaToken) {
     return (
       <div className="auth-wrap">
+        {langToggle}
         <form className="auth-card card stack" onSubmit={submitCode}>
           <Wordmark size={1.8} />
           <h1>{t("totp.loginTitle")}</h1>
@@ -103,6 +114,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
   // ── Erster Schritt: Login / Setup ──────────────────────────────────────
   return (
     <div className="auth-wrap">
+      {langToggle}
       <form className="auth-card card stack" onSubmit={submit}>
         <Wordmark size={1.8} />
         <h1>{needsSetup ? t("login.titleSetup") : t("login.titleLogin")}</h1>

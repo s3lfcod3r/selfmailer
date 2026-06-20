@@ -55,6 +55,11 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 }
 
 /* --- Auth-Screen --- */
+.auth-lang {
+  position: fixed; top: 1rem; right: 1rem; z-index: 5;
+  padding: 0.35rem 0.7rem; font-size: 0.82rem;
+  border: 1px solid var(--self-line); border-radius: 8px;
+}
 .auth-wrap {
   min-height: 100%;
   display: grid;
