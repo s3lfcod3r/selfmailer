@@ -156,9 +156,18 @@ def messages(
     # Beim ersten Mal wird nur die erste Seite live nachgeladen (schnell), den Rest
     # holt der Hintergrund-Sync (/sync). Faellt der Cache aus → ganz normal live.
     try:
+        pw = decrypt(acc.secret_enc)
         if not cache_mod.has_cache(session, account_id, folder):
-            cache_mod.sync_folder(session, acc, decrypt(acc.secret_enc), folder, cap=max(limit, 50))
-        return cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset)
+            cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
+        msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset)
+        # Self-heal: 1. Seite leer, obwohl der Ordner Mails hat (z. B. nach dem
+        # Loeschen der einzigen gecachten Seite) -> live nachsyncen und erneut lesen.
+        if not msgs and offset == 0:
+            cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
+            msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset)
+            if not msgs:
+                msgs = imap_mod.list_messages(acc, pw, folder=folder, limit=limit, offset=offset)
+        return msgs
     except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
         return imap_mod.list_messages(acc, decrypt(acc.secret_enc), folder=folder, limit=limit, offset=offset)
 

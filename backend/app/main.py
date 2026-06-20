@@ -81,7 +81,7 @@ app.include_router(dashboard.router)
 
 # Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
-APP_BUILD = "2026-06-20-diag-parallel"
+APP_BUILD = "2026-06-20-msglist-selfheal"
 
 
 @app.get("/api/health")
