@@ -99,6 +99,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   // Lese-Kopf: Mehr-Menü (⋯) und ausklappbare Detailzeilen (Von/An/Datum/Betreff).
   const [readMenu, setReadMenu] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // Absender als Kontakt gespeichert? (kurzes Erfolgs-Feedback im Lesekopf)
+  const [contactSaved, setContactSaved] = useState(false);
   // Pro geoeffneter Mail: hat der Nutzer externe Bilder freigegeben?
   const [showImages, setShowImages] = useState(false);
   const [err, setErr] = useState("");
@@ -343,6 +345,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   // Mobile: schließt sich die Lese-Ansicht (Löschen/Verschieben/✕), zurück zur Liste.
   useEffect(() => {
     if (!open && mobilePane === "read") setMobilePane("list");
+    setContactSaved(false);  // bei jeder geoeffneten Mail das Kontakt-Feedback zuruecksetzen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -506,6 +509,17 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
       const acc = folderMove.acc;
       setFolderMove(null);
       loadAccountFolders(accountById(acc));
+    } catch (e) { setErr((e as Error).message); }
+  }
+
+  // Absender der offenen Mail ins Adressbuch uebernehmen (Name + Adresse).
+  async function saveSenderAsContact() {
+    if (!open) return;
+    const { name, email } = parseAddr(open.from);
+    if (!email) return;
+    try {
+      await api.post("/contacts", { name: name || email, email });
+      setContactSaved(true);
     } catch (e) { setErr((e as Error).message); }
   }
 
@@ -817,6 +831,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                   <span className="mail-head-name">{parseAddr(open.from).name}</span>
                   <span className="mail-head-addr">&lt;{parseAddr(open.from).email}&gt;</span>
                 </div>
+                <button className="ghost mail-head-addc" onClick={saveSenderAsContact} disabled={contactSaved}
+                  title={contactSaved ? t("mail.contactSaved") : t("mail.addContact")}>
+                  {contactSaved ? "✓" : "＋👤"}
+                </button>
                 <button className="mail-head-toexp" onClick={() => setDetailsOpen((v) => !v)} title={t("mail.details")}>
                   {t("mail.hdrTo")}: {open.to[0] || "—"} <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>
                 </button>
