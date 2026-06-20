@@ -362,6 +362,19 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 .sel-all-note { font-size: 0.78rem; color: var(--self-text-2); display: inline-flex; align-items: center; gap: 0.4rem; }
 .link-btn { background: none; border: none; padding: 0; cursor: pointer; color: var(--self-teal-bright); font-size: 0.78rem; text-decoration: underline; }
 .link-btn:hover { color: var(--self-teal); }
+
+/* Ausgeblendete ("ignorierte") Ordner je Konto */
+.mail-hidden { margin: 0.15rem 0 0.2rem; padding-left: 0.2rem; }
+.mail-hidden-toggle {
+  background: none; border: none; cursor: pointer; padding: 0.15rem 0.4rem;
+  color: var(--self-text-3); font-size: 0.74rem; text-align: left; width: 100%;
+}
+.mail-hidden-toggle:hover { color: var(--self-text-2); }
+.mail-hidden-row {
+  display: flex; align-items: center; gap: 0.3rem;
+  padding: 0.1rem 0.4rem 0.1rem 0.9rem; color: var(--self-text-3); font-size: 0.78rem;
+}
+.mail-hidden-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bulk-actions { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; margin-left: auto; }
 .bulk-btn {
   background: var(--self-bg-3); border: 1px solid var(--self-line); color: var(--self-text-2);

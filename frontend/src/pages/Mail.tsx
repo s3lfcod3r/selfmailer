@@ -120,6 +120,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     const v = Number(localStorage.getItem("selfmailer.foldersW"));
     return v >= 160 && v <= 420 ? v : 210;
   });
+  // Ausgeblendete ("ignorierte") Ordner je Konto: { [accId]: pfad[] } in localStorage.
+  // Rein optisch — der Ordner bleibt am Server, wird nur in der Sidebar versteckt.
+  const [hiddenByAcc, setHiddenByAcc] = useState<Record<number, string[]>>(() => {
+    try { const v = JSON.parse(localStorage.getItem("selfmailer.hiddenFolders") || "{}"); return v && typeof v === "object" ? v : {}; }
+    catch { return {}; }
+  });
+  // Welche Konten zeigen ihre ausgeblendeten Ordner gerade an (zum Einblenden)?
+  const [revealHidden, setRevealHidden] = useState<Set<number>>(new Set());
   // Mobile/Tablet: nur eine Spalte zur Zeit (Drill-down Ordner → Liste → Lesen).
   // Auf Desktop (>900px) ignoriert das CSS das Attribut und zeigt alle 3 Spalten.
   const [mobilePane, setMobilePane] = useState<"folders" | "list" | "read">("list");
@@ -501,7 +509,27 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     } catch (e) { setErr((e as Error).message); }
   }
 
+  function persistHidden(next: Record<number, string[]>) {
+    setHiddenByAcc(next);
+    localStorage.setItem("selfmailer.hiddenFolders", JSON.stringify(next));
+  }
+  function hideFolder(accId: number, path: string) {
+    const cur = hiddenByAcc[accId] || [];
+    if (cur.includes(path)) return;
+    persistHidden({ ...hiddenByAcc, [accId]: [...cur, path] });
+    // War der ausgeblendete Ordner gerade aktiv → zurueck auf den Posteingang.
+    if (activeId === accId && folder === path) setSel({ acc: accId, folder: "INBOX" });
+  }
+  function unhideFolder(accId: number, path: string) {
+    const cur = hiddenByAcc[accId] || [];
+    persistHidden({ ...hiddenByAcc, [accId]: cur.filter((p) => p !== path) });
+  }
+  function toggleReveal(accId: number) {
+    setRevealHidden((s) => { const n = new Set(s); if (n.has(accId)) n.delete(accId); else n.add(accId); return n; });
+  }
+
   function renderNode(accId: number, node: FolderNode, depth: number): ReactNode {
+    if ((hiddenByAcc[accId] || []).includes(node.path)) return null;  // ausgeblendet
     const hasKids = node.children.length > 0;
     const isOpen = expanded.has(expKey(accId, node.path));
     const label = node.special ? t(`folder.${node.special}`) : node.label;
@@ -591,6 +619,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
             const collapsed = collapsedAcc.has(a.id);
             const tree = treesByAcc[a.id] || [];
             const roll = rollupUnseen(a.id);
+            const hid = hiddenByAcc[a.id] || [];
             return (
               <div className={`mail-acc ${dragAcc === a.id ? "dragging" : ""}`} key={a.id}>
                 <div
@@ -620,6 +649,19 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                   >＋</button>
                 </div>
                 {!collapsed && (tree.length ? tree.map((n) => renderNode(a.id, n, 0)) : <div className="muted" style={{ fontSize: "0.78rem", padding: "0.2rem 0.6rem" }}>…</div>)}
+                {!collapsed && hid.length > 0 && (
+                  <div className="mail-hidden">
+                    <button className="mail-hidden-toggle" onClick={() => toggleReveal(a.id)}>
+                      🙈 {t("folder.hiddenCount", { n: hid.length })} {revealHidden.has(a.id) ? "▲" : "▾"}
+                    </button>
+                    {revealHidden.has(a.id) && hid.map((p) => (
+                      <div className="mail-hidden-row" key={p}>
+                        <span className="mail-hidden-name" title={p}>{p.split(/[/.]/).pop() || p}</span>
+                        <button className="mail-folder-toggle" style={{ width: "auto", padding: "0 0.3rem" }} onClick={() => unhideFolder(a.id, p)} title={t("folder.unhide")}>👁</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -837,6 +879,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
             {!ctxMenu.node.special && <button onClick={() => { setFolderMove({ acc: ctxMenu.acc, path: ctxMenu.node.path }); setFmParent(""); setCtxMenu(null); }}>📂 {t("folder.moveInto")}</button>}
             {!ctxMenu.node.special && <button onClick={() => { renameFolder(ctxMenu.acc, ctxMenu.node); setCtxMenu(null); }}>✏ {t("folder.rename")}</button>}
             {!ctxMenu.node.special && <button onClick={() => { delFolder(ctxMenu.acc, ctxMenu.node.path); setCtxMenu(null); }}>🗑 {t("common.delete")}</button>}
+            {ctxMenu.node.special !== "inbox" && <button onClick={() => { hideFolder(ctxMenu.acc, ctxMenu.node.path); setCtxMenu(null); }}>🙈 {t("folder.hide")}</button>}
           </div>
         </>
       )}
