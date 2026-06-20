@@ -853,6 +853,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                     <>
                       <div className="menu-backdrop" onClick={() => setReadMenu(false)} />
                       <div className="read-menu">
+                        <button onClick={() => { saveSenderAsContact(); setReadMenu(false); }} disabled={contactSaved}>
+                          {contactSaved ? "✓" : "👤"} {contactSaved ? t("mail.contactSaved") : t("mail.addContact")}
+                        </button>
                         <button onClick={() => { markUnread(open.uid); setReadMenu(false); }}>● {t("mail.markUnread")}</button>
                         {spamFolder && folder !== spamFolder && (
                           <button onClick={() => { moveMsg(open.uid, spamFolder); setReadMenu(false); }}>🚫 {t("mail.spam")}</button>
@@ -882,10 +885,6 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                   <span className="mail-head-name">{parseAddr(open.from).name}</span>
                   <span className="mail-head-addr">&lt;{parseAddr(open.from).email}&gt;</span>
                 </div>
-                <button className="ghost mail-head-addc" onClick={saveSenderAsContact} disabled={contactSaved}
-                  title={contactSaved ? t("mail.contactSaved") : t("mail.addContact")}>
-                  {contactSaved ? "✓" : "＋👤"}
-                </button>
                 <button className="mail-head-toexp" onClick={() => setDetailsOpen((v) => !v)} title={t("mail.details")}>
                   {t("mail.hdrTo")}: {open.to[0] || "—"} <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>
                 </button>
