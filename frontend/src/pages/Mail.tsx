@@ -552,14 +552,17 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   }
   async function markSelectedSeen(seen: boolean) {
     if (activeId == null || selected.size === 0) return;
-    const ids = selected;
-    for (const uid of [...ids]) {
-      try { await api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=${seen}`); }
-      catch { /* egal */ }
-    }
-    setMessages((ms) => ms.map((m) => (ids.has(m.uid) ? { ...m, seen } : m)));
+    const ids = [...selected], acc = activeId, fol = folder;
+    // SOFORT optisch markieren, dann EIN Batch-Request (eine IMAP-Session) statt N.
+    setMessages((ms) => ms.map((m) => (selected.has(m.uid) ? { ...m, seen } : m)));
     setSelected(new Set()); setSelectAllFolder(false);
-    refreshCounts(activeId);
+    try {
+      await api.post(`/mail/${acc}/messages/batch/flags?seen=${seen}`, { folder: fol, uids: ids });
+      refreshCounts(acc);
+    } catch (e) {
+      setErr((e as Error).message);
+      if (selRef.current?.acc === acc && selRef.current?.folder === fol) reload();
+    }
   }
   // Mehrere Nachrichten verschieben (Auswahl-Leiste ODER Drag&Drop).
   async function moveUids(dest: string, uids: string[]) {

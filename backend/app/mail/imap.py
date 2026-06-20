@@ -233,6 +233,27 @@ def inbox_unseen(account: MailAccount, password: str, folder: str = "INBOX") -> 
         return int(st.get("UNSEEN", 0) or 0)
 
 
+def set_flags_many(
+    account: MailAccount, password: str, uids: list[str], folder: str = "INBOX",
+    *, seen: bool | None = None, flagged: bool | None = None,
+) -> int:
+    """Setzt Seen/Flagged fuer VIELE UIDs in EINER IMAP-Session (statt N Logins).
+
+    In 200er-Chunks, damit das STORE-Kommando nicht zu lang wird (manche Server
+    begrenzen die Zeilenlaenge). Fuer "alles als gelesen" bei grossen Ordnern."""
+    uids = [u for u in uids if u]
+    if not uids or (seen is None and flagged is None):
+        return 0
+    with _mailbox(account, password, folder=folder) as box:
+        for i in range(0, len(uids), 200):
+            chunk = uids[i:i + 200]
+            if seen is not None:
+                box.flag(chunk, SEEN, seen)
+            if flagged is not None:
+                box.flag(chunk, FLAGGED, flagged)
+    return len(uids)
+
+
 def _snippet(text: str, html: str) -> str:
     """Kurze 1-Zeilen-Vorschau aus Text- oder HTML-Body (Tags grob entfernt)."""
     src = text or re.sub(r"<[^>]+>", " ", html)

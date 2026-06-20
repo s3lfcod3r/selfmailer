@@ -392,6 +392,31 @@ def delete_messages_batch(
     return {"ok": True, "result": result}
 
 
+@router.post("/{account_id}/messages/batch/flags")
+def set_flags_batch(
+    account_id: int,
+    data: BatchRequest,
+    seen: bool | None = None,
+    flagged: bool | None = None,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Setzt Seen/Flagged fuer VIELE Mails in EINER IMAP-Session (z. B. "alles als
+    gelesen" bei tausenden Mails) — statt N Einzel-Requests/Logins."""
+    acc = _account(account_id, user, session)
+    try:
+        n = imap_mod.set_flags_many(
+            acc, decrypt(acc.secret_enc), data.uids, folder=data.folder, seen=seen, flagged=flagged,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Markieren fehlgeschlagen: {exc}")
+    try:
+        cache_mod.set_flags_bulk(session, account_id, data.folder, data.uids, seen=seen, flagged=flagged)
+    except Exception:  # noqa: BLE001 - Cache-Pflege darf die Aktion nie kippen
+        pass
+    return {"ok": True, "count": n}
+
+
 @router.post("/{account_id}/messages/batch/move")
 def move_messages_batch(
     account_id: int,

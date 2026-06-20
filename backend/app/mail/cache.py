@@ -11,6 +11,7 @@ import datetime as dt
 import json
 
 from imap_tools import AND
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
@@ -208,6 +209,35 @@ def update_flags(session: Session, account_id: int, folder: str, uid: str, *, se
     if flagged is not None:
         row.flagged = flagged
     session.add(row)
+    session.commit()
+
+
+def set_flags_bulk(
+    session: Session, account_id: int, folder: str, uids: list[str],
+    *, seen: bool | None = None, flagged: bool | None = None,
+) -> None:
+    """Setzt seen/flagged fuer viele Cache-Zeilen in EINEM UPDATE je Chunk.
+
+    Gechunkt (<=500), weil SQLite die Anzahl Variablen je Query begrenzt (~999)."""
+    vals: dict = {}
+    if seen is not None:
+        vals["seen"] = seen
+    if flagged is not None:
+        vals["flagged"] = flagged
+    uids = [u for u in uids if u]
+    if not vals or not uids:
+        return
+    for i in range(0, len(uids), 500):
+        chunk = uids[i:i + 500]
+        session.execute(
+            update(CachedMessage)
+            .where(
+                CachedMessage.account_id == account_id,
+                CachedMessage.folder == folder,
+                CachedMessage.uid.in_(chunk),
+            )
+            .values(**vals)
+        )
     session.commit()
 
 
