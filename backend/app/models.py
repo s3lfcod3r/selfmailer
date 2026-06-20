@@ -226,6 +226,23 @@ class FolderSync(SQLModel, table=True):
     last_sync: dt.datetime | None = None
 
 
+class CachedFolder(SQLModel, table=True):
+    """Gecachte Ordnerliste eines Kontos inkl. Zaehler — fuer die SOFORTige
+    Seitenleiste beim Laden (kein Live-IMAP).
+
+    Pro (account_id, folder) eine Zeile. Wird bei jedem Live-Abruf der Zaehler
+    komplett ersetzt; `idx` haelt die Server-Reihenfolge fuer eine stabile
+    Anzeige. Reine Beschleunigung wie der Nachrichten-Cache.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    account_id: int = Field(index=True, foreign_key="mailaccount.id")
+    folder: str = Field(index=True)
+    idx: int = 0                          # Reihenfolge wie vom Server geliefert
+    unseen: int = 0
+    total: int = 0
+
+
 class FeedToken(SQLModel, table=True):
     """Geheimer Token fuer abonnierbare Export-Feeds (ICS/vCard).
 

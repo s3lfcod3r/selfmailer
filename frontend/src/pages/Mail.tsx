@@ -169,13 +169,31 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
 
   // --- Konten + Ordner (mit Zaehlern) laden ---
   async function loadAccountFolders(a: Account) {
-    try { await api.post(`/mail/${a.id}/folders/defaults`); } catch { /* egal */ }
+    // Cache-first: ist die Ordnerliste schon gecacht, erscheint die Seitenleiste
+    // SOFORT (kein IMAP). Danach wird im Hintergrund still live aufgefrischt.
+    let hadCache = false;
     try {
-      const fc = await api.get<FolderCount[]>(`/mail/${a.id}/folders/counts`);
-      setFoldersByAcc((m) => ({ ...m, [a.id]: fc }));
-    } catch {
-      setFoldersByAcc((m) => ({ ...m, [a.id]: [{ name: "INBOX", unseen: 0, total: 0 }] }));
+      const cached = await api.get<FolderCount[]>(`/mail/${a.id}/folders/counts`);
+      if (cached.length) { hadCache = true; setFoldersByAcc((m) => ({ ...m, [a.id]: cached })); }
+    } catch { /* egal — unten Live/Fallback */ }
+
+    if (!hadCache) {
+      // Erstmalig fuer dieses Konto: Standard-Ordner sicherstellen, dann live
+      // holen (fuellt den Cache). Nur hier blockierend — bei F5 nie mehr.
+      try { await api.post(`/mail/${a.id}/folders/defaults`); } catch { /* egal */ }
+      try {
+        const fc = await api.get<FolderCount[]>(`/mail/${a.id}/folders/counts?live=1`);
+        setFoldersByAcc((m) => ({ ...m, [a.id]: fc.length ? fc : [{ name: "INBOX", unseen: 0, total: 0 }] }));
+      } catch {
+        setFoldersByAcc((m) => ({ ...m, [a.id]: [{ name: "INBOX", unseen: 0, total: 0 }] }));
+      }
+      return;
     }
+
+    // Folge-Laden (F5): Live-Abgleich nur im Hintergrund, ohne zu blockieren.
+    api.get<FolderCount[]>(`/mail/${a.id}/folders/counts?live=1`)
+      .then((fc) => { if (fc.length) setFoldersByAcc((m) => ({ ...m, [a.id]: fc })); })
+      .catch(() => { /* Cache bleibt stehen */ });
   }
   useEffect(() => {
     api.get<Account[]>("/accounts").then((list) => {
@@ -223,8 +241,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     }));
   }
   function refreshCounts(accId: number) {
-    api.get<FolderCount[]>(`/mail/${accId}/folders/counts`)
-      .then((fc) => setFoldersByAcc((m) => ({ ...m, [accId]: fc }))).catch(() => {});
+    // Auffrischen heisst hier: echte, frische Zaehler vom Server (live) holen —
+    // und damit zugleich den Cache aktualisieren.
+    api.get<FolderCount[]>(`/mail/${accId}/folders/counts?live=1`)
+      .then((fc) => { if (fc.length) setFoldersByAcc((m) => ({ ...m, [accId]: fc })); }).catch(() => {});
   }
   // ↻ pro Konto: Filterregeln anwenden, Zaehler neu holen + aktive Liste neu laden.
   async function refreshAccount(accId: number) {

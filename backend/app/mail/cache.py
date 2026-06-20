@@ -12,7 +12,7 @@ import datetime as dt
 from imap_tools import AND
 from sqlmodel import Session, select
 
-from ..models import CachedMessage, FolderSync, MailAccount
+from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
 from .imap import FLAGGED, SEEN, _mailbox, _snippet
 
 # Obergrenze, wie viele (neueste) Mail-Koepfe pro Sync nachgeladen werden.
@@ -65,6 +65,38 @@ def folder_uids(session: Session, account_id: int, folder: str) -> list[str]:
 def read_counts(session: Session, account_id: int) -> dict[str, FolderSync]:
     rows = session.exec(select(FolderSync).where(FolderSync.account_id == account_id)).all()
     return {r.folder: r for r in rows}
+
+
+def read_folder_counts(session: Session, account_id: int) -> list[dict]:
+    """Gecachte Ordnerliste + Zaehler (fuer die SOFORTige Seitenleiste beim F5).
+
+    Leer, wenn fuer das Konto noch nie ein Live-Abruf lief — dann faellt der
+    Aufrufer auf Live-IMAP zurueck.
+    """
+    rows = session.exec(
+        select(CachedFolder)
+        .where(CachedFolder.account_id == account_id)
+        .order_by(CachedFolder.idx)
+    ).all()
+    return [{"name": r.folder, "unseen": r.unseen, "total": r.total} for r in rows]
+
+
+def write_folder_counts(session: Session, account_id: int, items: list[dict]) -> None:
+    """Ersetzt den Ordner-Cache eines Kontos mit frisch live geholten Zaehlern."""
+    old = session.exec(
+        select(CachedFolder).where(CachedFolder.account_id == account_id)
+    ).all()
+    for r in old:
+        session.delete(r)
+    for idx, it in enumerate(items):
+        name = it.get("name")
+        if not name:
+            continue
+        session.add(CachedFolder(
+            account_id=account_id, folder=name, idx=idx,
+            unseen=int(it.get("unseen", 0) or 0), total=int(it.get("total", 0) or 0),
+        ))
+    session.commit()
 
 
 def update_flags(session: Session, account_id: int, folder: str, uid: str, *, seen: bool | None = None, flagged: bool | None = None) -> None:

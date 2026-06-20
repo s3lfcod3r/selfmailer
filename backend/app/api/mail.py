@@ -39,12 +39,28 @@ def folders(
 @router.get("/{account_id}/folders/counts")
 def folder_counts(
     account_id: int,
+    live: bool = False,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[dict]:
-    """Ordner mit Ungelesen-/Gesamt-Zaehler (fuer die Thunderbird-Ansicht)."""
+    """Ordner mit Ungelesen-/Gesamt-Zaehler (fuer die Thunderbird-Ansicht).
+
+    Cache-first: ohne ?live=1 kommt die Liste SOFORT aus dem DB-Cache (kein
+    IMAP). Ist der Cache leer (erster Aufruf), wird einmal live geholt. Das
+    Frontend zeigt erst den Cache und ruft dann ?live=1 im Hintergrund zum
+    Auffrischen. Faellt der Live-Abruf aus, bleibt der Cache stehen.
+    """
     acc = _account(account_id, user, session)
-    return imap_mod.folder_counts(acc, decrypt(acc.secret_enc))
+    if not live:
+        cached = cache_mod.read_folder_counts(session, account_id)
+        if cached:
+            return cached
+    out = imap_mod.folder_counts(acc, decrypt(acc.secret_enc))
+    try:
+        cache_mod.write_folder_counts(session, account_id, out)
+    except Exception:  # noqa: BLE001 - Cache-Pflege darf den Abruf nie kippen
+        pass
+    return out
 
 
 @router.post("/{account_id}/folders")
