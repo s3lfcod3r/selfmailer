@@ -14,6 +14,9 @@ nie — es zaehlt dann eben 0.
 """
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
@@ -37,22 +40,15 @@ def _cached_unseen(session: Session, account_id: int) -> int:
     return int(fs.unseen) if fs else 0
 
 
-def _account_block(session: Session, acc: MailAccount, live: bool) -> tuple[int, list[dict]]:
-    """(ungelesen, neueste Ungelesene) eines Kontos.
-
-    live=1: NUR schneller IMAP-STATUS der INBOX (1 Login, kein Header-Download) →
-    aktuelle Ungelesen-Zahl ohne Timeout-Risiko grosser Postfaecher. Die Vorschau
-    (recent) kommt weiter aus dem Cache (wird beim Nutzen der WebUI aufgefrischt).
-    """
-    if live:
-        try:
-            unseen = imap_mod.inbox_unseen(acc, decrypt(acc.secret_enc), INBOX)
-        except Exception:  # noqa: BLE001 - ein defektes Konto darf die Uebersicht nicht kippen
-            unseen = _cached_unseen(session, acc.id)
-    else:
-        unseen = _cached_unseen(session, acc.id)
-    recent = cache_mod.recent_unseen(session, acc.id, INBOX, limit=PER_ACCOUNT_RECENT)
-    return unseen, recent
+def _live_unseen(acc: MailAccount) -> tuple[int, int | None, str | None]:
+    """(ungelesen, dauer_ms, fehler) per schnellem IMAP-STATUS. NUR IMAP, KEIN
+    Session-/DB-Zugriff (damit es thread-safe in einem Pool laufen kann)."""
+    t0 = time.monotonic()
+    try:
+        u = imap_mod.inbox_unseen(acc, decrypt(acc.secret_enc), INBOX)
+        return u, int((time.monotonic() - t0) * 1000), None
+    except Exception as ex:  # noqa: BLE001
+        return -1, int((time.monotonic() - t0) * 1000), f"{type(ex).__name__}: {str(ex)[:140]}"
 
 
 @router.get("/summary")
@@ -72,16 +68,31 @@ def summary(
                         "date": "...", "uid": "...", "ts": "..."}, ...]
         }
     """
-    accounts = session.exec(select(MailAccount).where(MailAccount.user_id == user.id)).all()
+    accounts = list(session.exec(select(MailAccount).where(MailAccount.user_id == user.id)).all())
+
+    # Live: alle Konten PARALLEL abfragen (jedes durch IMAP-Timeout gebunden) ->
+    # Gesamtdauer ~ langsamstes Konto statt Summe. Threads machen NUR IMAP.
+    live_by_id: dict[int, tuple[int, int | None, str | None]] = {}
+    if live and accounts:
+        with ThreadPoolExecutor(max_workers=min(8, len(accounts))) as pool:
+            for acc, res in zip(accounts, pool.map(_live_unseen, accounts)):
+                live_by_id[acc.id] = res
+
     total = 0
     items: list[dict] = []
     recent_all: list[dict] = []
     for acc in accounts:
-        unseen, recent = _account_block(session, acc, live)
+        ms: int | None = None
+        err: str | None = None
+        if acc.id in live_by_id:
+            u, ms, err = live_by_id[acc.id]
+            unseen = u if u >= 0 else _cached_unseen(session, acc.id)  # Fehler -> Cache
+        else:
+            unseen = _cached_unseen(session, acc.id)
         total += unseen
         label = acc.label or acc.email
-        items.append({"id": acc.id, "label": label, "email": acc.email, "unseen": unseen})
-        for m in recent:
+        items.append({"id": acc.id, "label": label, "email": acc.email, "unseen": unseen, "ms": ms, "error": err})
+        for m in cache_mod.recent_unseen(session, acc.id, INBOX, limit=PER_ACCOUNT_RECENT):
             recent_all.append({
                 "account": label, "uid": m["uid"], "from": m["from"],
                 "subject": m["subject"], "date": m["date"], "ts": m["ts"],
