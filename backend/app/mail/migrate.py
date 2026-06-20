@@ -46,15 +46,22 @@ def _dest_path(source_folder: str, src_delim: str, dst_delim: str, prefix: str) 
     return dst_delim.join(segs)
 
 
-def _ensure_folder(dst: MailBox, path: str, delim: str) -> None:
-    """Legt den Pfad (inkl. fehlender Elternebenen) im Ziel an (best effort)."""
+def _ensure_folder(dst: MailBox, path: str, delim: str) -> bool:
+    """Legt den Pfad (inkl. fehlender Elternebenen) im Ziel an. Prueft per
+    exists(), um doppelte Anlage zu vermeiden, und liefert zurueck, ob der Ordner
+    am Ende existiert (sonst kann/soll man ihn ueberspringen)."""
     cur = ""
     for part in [p for p in path.split(delim) if p]:
         cur = f"{cur}{delim}{part}" if cur else part
         try:
-            dst.folder.create(cur)
-        except Exception:  # noqa: BLE001 - existiert bereits o. ae.
+            if not dst.folder.exists(cur):
+                dst.folder.create(cur)
+        except Exception:  # noqa: BLE001 - existiert bereits / Server lehnt ab
             pass
+    try:
+        return dst.folder.exists(path)
+    except Exception:  # noqa: BLE001 - im Zweifel weitermachen
+        return True
 
 
 def _existing_message_ids(dst: MailBox, folder: str) -> set[str]:
@@ -177,7 +184,10 @@ def transfer_messages(
                 pairs.append((n, dst_delim.join(base + rel_segs), None))
 
         for sf, df, fuids in pairs:
-            _ensure_folder(dst, df, dst_delim)
+            if not _ensure_folder(dst, df, dst_delim):
+                if len(errors) < 8:
+                    errors.append(f"{df}: Zielordner konnte nicht angelegt werden")
+                continue
             seen_ids = _existing_message_ids(dst, df)
             src.folder.set(sf)
             crit = AND(uid=",".join(fuids)) if fuids else AND(all=True)
