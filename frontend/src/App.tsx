@@ -41,6 +41,34 @@ const TotpSettings = lazyWithReload(() => import("./components/TotpSettings").th
 
 type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin" | "rules";
 
+// --- Theme-Anpassung: eigene Farben als CSS-Variablen-Overrides ---------------
+type ThemeCustom = { bg: string; surface: string; text: string; accent: string };
+const EMPTY_CUSTOM: ThemeCustom = { bg: "", surface: "", text: "", accent: "" };
+// Akzent-Vorschlaege (erster = Self-Teal-Standard).
+const ACCENTS = ["#33a78c", "#1db8d4", "#7c6cf0", "#3fb950", "#e0883a", "#e0588f"];
+
+function _adj(hex: string, amt: number): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return hex;
+  const ch = (i: number) => parseInt(h.slice(i, i + 2), 16);
+  const f = (c: number) => Math.max(0, Math.min(255, Math.round(c + amt * 255))).toString(16).padStart(2, "0");
+  return `#${f(ch(0))}${f(ch(2))}${f(ch(4))}`;
+}
+
+// Setzt/entfernt die Override-CSS-Variablen auf <html> anhand der eigenen Farben.
+function applyCustom(c: ThemeCustom): void {
+  const el = document.documentElement;
+  const set = (k: string, v: string) => (v ? el.style.setProperty(k, v) : el.style.removeProperty(k));
+  set("--self-bg-0", c.bg);
+  set("--self-bg-1", c.bg ? _adj(c.bg, 0.03) : "");
+  set("--self-bg-2", c.surface);
+  set("--self-bg-3", c.surface ? _adj(c.surface, 0.05) : "");
+  set("--self-text", c.text);
+  set("--self-teal", c.accent);
+  set("--self-teal-bright", c.accent ? _adj(c.accent, 0.12) : "");
+  set("--self-teal-deep", c.accent ? _adj(c.accent, -0.18) : "");
+}
+
 type AppItem = { key: View; labelKey: string; icon: string; adminOnly?: boolean };
 
 // Haupt-Apps — als Icons direkt in der Topbar (neben dem Benutzer).
@@ -97,6 +125,16 @@ export function App() {
     document.documentElement.style.fontSize = uiScale === 100 ? "" : `${uiScale}%`;
     localStorage.setItem("selfmailer.uiScale", String(uiScale));
   }, [uiScale]);
+  // Eigene Theme-Farben (Overrides). Leerer Wert = Standard des gewaehlten Modus.
+  const [themeCustom, setThemeCustom] = useState<ThemeCustom>(() => {
+    try { return { ...EMPTY_CUSTOM, ...JSON.parse(localStorage.getItem("selfmailer.themeCustom") || "{}") }; }
+    catch { return { ...EMPTY_CUSTOM }; }
+  });
+  const [designOpen, setDesignOpen] = useState(false);
+  useEffect(() => {
+    applyCustom(themeCustom);
+    localStorage.setItem("selfmailer.themeCustom", JSON.stringify(themeCustom));
+  }, [themeCustom]);
 
   function loadMe() {
     if (!auth.get()) { setUser(null); setReady(true); return; }
@@ -237,6 +275,7 @@ export function App() {
           <button onClick={() => setTheme((tm) => (tm === "dark" ? "light" : "dark"))}>
             <span>{theme === "dark" ? "☀" : "🌙"}</span> {theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}
           </button>
+          <button onClick={() => { setMenu(null); setDesignOpen(true); }}><span>🎨</span> {t("shell.design")}</button>
           <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
             <span>🔠 {t("shell.textSize")}</span>
             <select value={uiScale} onChange={(e) => setUiScale(Number(e.target.value))}>
@@ -278,6 +317,60 @@ export function App() {
           {view === "admin" && isAdmin && <Admin meId={user.id} />}
         </Suspense>
       </main>
+
+      {designOpen && (
+        <div className="modal-backdrop" onClick={() => setDesignOpen(false)}>
+          <div className="modal card stack" onClick={(e) => e.stopPropagation()}>
+            <div className="topbar">
+              <h2 style={{ margin: 0, fontSize: "1.1rem" }}>🎨 {t("design.title")}</h2>
+              <button type="button" className="ghost" onClick={() => setDesignOpen(false)}>✕</button>
+            </div>
+
+            <div className="stack">
+              <label className="label">{t("design.mode")}</label>
+              <div className="row">
+                <button className={theme === "dark" ? "primary" : "ghost"} onClick={() => setTheme("dark")}>🌙 {t("shell.themeDark")}</button>
+                <button className={theme === "light" ? "primary" : "ghost"} onClick={() => setTheme("light")}>☀ {t("shell.themeLight")}</button>
+              </div>
+            </div>
+
+            <div className="stack">
+              <label className="label">{t("design.accent")}</label>
+              <div className="design-swatches">
+                {ACCENTS.map((c) => (
+                  <button key={c} className={`design-swatch ${themeCustom.accent === c ? "on" : ""}`} style={{ background: c }}
+                    onClick={() => setThemeCustom((t0) => ({ ...t0, accent: c }))} title={c} />
+                ))}
+                <label className="design-pick" title={t("design.custom")}>
+                  🎨<input type="color" value={themeCustom.accent || "#33a78c"} onChange={(e) => setThemeCustom((t0) => ({ ...t0, accent: e.target.value }))} />
+                </label>
+              </div>
+            </div>
+
+            <div className="stack">
+              <label className="label">{t("design.ownColors")}</label>
+              {([
+                ["bg", t("design.bg"), "#080c11"],
+                ["surface", t("design.surface"), "#161b22"],
+                ["text", t("design.text"), "#d4e4de"],
+              ] as const).map(([key, label, fallback]) => (
+                <div className="design-color-row" key={key}>
+                  <span>{label}</span>
+                  <span className="grow" />
+                  {themeCustom[key] && <button className="ghost design-clear" title={t("design.resetOne")} onClick={() => setThemeCustom((t0) => ({ ...t0, [key]: "" }))}>↺</button>}
+                  <input type="color" value={themeCustom[key] || fallback} onChange={(e) => setThemeCustom((t0) => ({ ...t0, [key]: e.target.value }))} />
+                </div>
+              ))}
+            </div>
+
+            <div className="row">
+              <button className="ghost" onClick={() => { setThemeCustom({ ...EMPTY_CUSTOM }); setTheme("dark"); }}>↺ {t("design.reset")}</button>
+              <span className="grow" />
+              <button className="primary" onClick={() => setDesignOpen(false)}>{t("design.done")}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {totpOpen && (
         <Suspense fallback={null}>

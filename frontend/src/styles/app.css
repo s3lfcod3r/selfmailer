@@ -360,6 +360,26 @@ select.bulk-btn { max-width: 170px; }
 }
 .img-banner button { padding: 0.3rem 0.7rem; font-size: 0.82rem; margin-left: auto; }
 
+/* --- Design anpassen (Theme-Editor) --- */
+.design-swatches { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.design-swatch {
+  width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+  border: 2px solid var(--self-line-strong); padding: 0;
+}
+.design-swatch.on { border-color: var(--self-text); box-shadow: 0 0 0 2px var(--self-bg-2), 0 0 0 4px var(--self-teal); }
+.design-pick {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.2rem;
+  width: 30px; height: 30px; border-radius: 50%; cursor: pointer; overflow: hidden;
+  border: 1px dashed var(--self-line-strong); font-size: 0.9rem; position: relative;
+}
+.design-pick input[type="color"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.design-color-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--self-text-2); }
+.design-color-row input[type="color"] {
+  width: 40px; height: 28px; padding: 0; border: 1px solid var(--self-line); border-radius: 6px;
+  background: none; cursor: pointer; flex: 0 0 auto;
+}
+.design-clear { padding: 0.2rem 0.45rem; font-size: 0.85rem; flex: 0 0 auto; }
+
 /* Compose: Formatier-Leiste + Editor + Optionen-Menü */
 .compose-toolbar {
   display: flex; flex-wrap: wrap; gap: 0.1rem;
