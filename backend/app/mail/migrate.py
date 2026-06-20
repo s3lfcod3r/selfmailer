@@ -14,12 +14,22 @@ ein Zielkonto und erhaelt die Struktur:
 """
 from __future__ import annotations
 
+import datetime as _dt
+
 from imap_tools import AND, MailBox
 
 from ..models import MailAccount
 from .imap import _delimiter
 
 SEEN = r"\Seen"
+
+
+def _aware(d: _dt.datetime | None) -> _dt.datetime | None:
+    """IMAP APPEND verlangt eine zeitzonenbehaftete Zeit. Mails mit Datum ohne
+    Zeitzone (naiv) bekommen UTC, sonst wirft imap-tools 'date_time must be aware'."""
+    if d is not None and d.tzinfo is None:
+        return d.replace(tzinfo=_dt.timezone.utc)
+    return d
 
 
 def _open(acc: MailAccount, password: str, folder: str = "INBOX") -> MailBox:
@@ -105,7 +115,7 @@ def migrate_folders(
                         continue
                     try:
                         flags = [SEEN] if SEEN in (msg.flags or ()) else None
-                        dst.append(msg.obj.as_bytes(), df, dt=msg.date, flag_set=flags)
+                        dst.append(msg.obj.as_bytes(), df, dt=_aware(msg.date), flag_set=flags)
                         copied += 1
                         if mid:
                             seen_ids.add(mid)
@@ -163,7 +173,7 @@ def transfer_messages(
                 continue
             try:
                 flags = [SEEN] if SEEN in (msg.flags or ()) else None
-                dst.append(msg.obj.as_bytes(), dest_folder, dt=msg.date, flag_set=flags)
+                dst.append(msg.obj.as_bytes(), dest_folder, dt=_aware(msg.date), flag_set=flags)
                 copied += 1
                 if mid:
                     seen_ids.add(mid)
