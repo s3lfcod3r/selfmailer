@@ -265,7 +265,8 @@ def message(
     # Cache-first: schon einmal geoeffnet → Body kommt SOFORT aus der DB (kein IMAP).
     try:
         cached = cache_mod.read_detail(session, account_id, folder, uid)
-        if cached is not None:
+        # Alten Cache OHNE Echtheits-Analyse verwerfen -> live neu holen (mit auth).
+        if cached is not None and cached.get("auth"):
             return cached
     except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
         pass
@@ -283,6 +284,22 @@ def message(
     except Exception:  # noqa: BLE001
         pass
     return msg
+
+
+@router.get("/{account_id}/messages/{uid}/raw")
+def message_raw(
+    account_id: int,
+    uid: str,
+    folder: str = "INBOX",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> Response:
+    """Rohe RFC822-Quelle (Header + Body) — „Original anzeigen"."""
+    acc = _account(account_id, user, session)
+    raw = imap_mod.get_raw(acc, decrypt(acc.secret_enc), uid, folder=folder)
+    if raw is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nachricht nicht gefunden")
+    return Response(content=raw, media_type="text/plain; charset=utf-8")
 
 
 @router.get("/{account_id}/messages/{uid}/attachments/{index}")

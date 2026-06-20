@@ -80,8 +80,13 @@ export type MsgHeader = {
   snippet: string; has_attachments: boolean;
 };
 export type Attachment = { index: number; filename: string; content_type: string; size: number };
+export type AuthInfo = {
+  spf: string | null; dkim: string | null; dmarc: string | null;
+  verdict: string; self_spoof: boolean; from_domain: string; reasons: string[];
+};
 export type MsgDetail = MsgHeader & {
   to: string[]; message_id: string; text: string; html: string; attachments: Attachment[];
+  auth?: AuthInfo | null;
 };
 
 export type CalEvent = {

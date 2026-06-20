@@ -168,12 +168,24 @@ class AttachmentMeta(BaseModel):
     size: int = 0
 
 
+class AuthInfo(BaseModel):
+    """Echtheits-/Spoofing-Check aus den Authentifizierungs-Headern."""
+    spf: str | None = None
+    dkim: str | None = None
+    dmarc: str | None = None
+    verdict: str = "unknown"        # pass | fail | unknown
+    self_spoof: bool = False        # gibt vor, vom eigenen Konto zu kommen, ist es aber nicht
+    from_domain: str = ""
+    reasons: list[str] = []
+
+
 class MessageDetail(MessageHeader):
     to: list[str] = []
     message_id: str = ""
     text: str = ""
     html: str = ""
     attachments: list[AttachmentMeta] = []
+    auth: AuthInfo | None = None
 
 
 class AttachmentIn(BaseModel):

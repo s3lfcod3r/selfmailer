@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, download, type Account, type MsgHeader, type MsgDetail, type TransferResult } from "../lib/api";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { api, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
@@ -81,8 +81,46 @@ function loadSet(key: string): Set<number> {
   catch { return new Set(); }
 }
 
+const authBannerBase: CSSProperties = { borderRadius: 8, padding: "8px 12px", margin: "0 0 10px", lineHeight: 1.45, fontSize: "0.9rem" };
+
+// Echtheits-/Spoofing-Hinweis aus den SPF/DKIM/DMARC-Headern.
+function AuthBanner({ auth, de }: { auth: AuthInfo; de: boolean }) {
+  if (auth.self_spoof) {
+    return (
+      <div style={{ ...authBannerBase, background: "rgba(239,68,68,0.12)", border: "1px solid #ef4444", color: "#fca5a5" }}>
+        <strong style={{ color: "#ef4444" }}>⚠️ {de ? "Vorsicht: gefälschter Absender" : "Caution: forged sender"}</strong>
+        <div style={{ marginTop: 4 }}>{de
+          ? "Diese E-Mail gibt vor, von DEINER eigenen Adresse zu kommen — ist aber NICHT authentifiziert. Klassische Spoofing-/Erpressungsmasche; dein Konto wurde NICHT gehackt."
+          : "This email pretends to come from YOUR own address — but it is NOT authenticated. Classic spoofing/extortion scam; your account was NOT hacked."}</div>
+        <div style={{ opacity: 0.75, fontSize: "0.8rem", marginTop: 4 }}>{auth.reasons.join(" · ")}</div>
+      </div>
+    );
+  }
+  if (auth.verdict === "fail") {
+    return (
+      <div style={{ ...authBannerBase, background: "rgba(239,68,68,0.1)", border: "1px solid #ef4444", color: "#fca5a5" }}>
+        <strong style={{ color: "#ef4444" }}>⚠️ {de ? "Echtheit nicht bestätigt — evtl. gefälscht" : "Authenticity failed — possibly forged"}</strong>
+        <div style={{ opacity: 0.8, fontSize: "0.82rem", marginTop: 2 }}>{auth.reasons.join(" · ")}</div>
+      </div>
+    );
+  }
+  if (auth.verdict === "pass") {
+    return (
+      <div style={{ ...authBannerBase, background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e", color: "#86efac" }}>
+        ✓ {de ? "Echtheit bestätigt" : "Authenticity verified"} <span style={{ opacity: 0.75 }}>({auth.reasons.join(", ")})</span>
+      </div>
+    );
+  }
+  return (
+    <div style={{ ...authBannerBase, background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-muted)", fontSize: "0.82rem" }}>
+      🛈 {de ? "Echtheit nicht prüfbar (keine Authentifizierungs-Header)" : "Authenticity not verifiable (no auth headers)"}
+    </div>
+  );
+}
+
 export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const de = lang === "de";
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [foldersByAcc, setFoldersByAcc] = useState<Record<number, FolderCount[]>>({});
   const [sel, setSel] = useState<Sel | null>(null);
@@ -323,6 +361,15 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   const [confirmBox, setConfirmBox] = useState<{ message: string; resolve: (ok: boolean) => void } | null>(null);
   function askConfirm(message: string): Promise<boolean> {
     return new Promise((resolve) => setConfirmBox({ message, resolve }));
+  }
+
+  // „Original anzeigen": rohe RFC822-Quelle laden + im Modal zeigen.
+  const [rawText, setRawText] = useState<string | null>(null);
+  async function showRaw(uid: string) {
+    if (activeId == null) return;
+    try {
+      setRawText(await api.get<string>(`/mail/${activeId}/messages/${uid}/raw?folder=${encodeURIComponent(folder)}`));
+    } catch (e) { setErr((e as Error).message); }
   }
 
   // --- Nachrichten ---
@@ -935,6 +982,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                             </select>
                           </label>
                         )}
+                        <button onClick={() => { setReadMenu(false); showRaw(open.uid); }}>📄 {de ? "Original anzeigen" : "View source"}</button>
                         <hr />
                         <button className="read-menu-del" onClick={() => { setReadMenu(false); del(open); }}>🗑 {t("mail.delete")}</button>
                       </div>
@@ -966,6 +1014,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
               )}
             </div>
             <hr style={{ borderColor: "var(--self-line)", margin: "0.9rem 0" }} />
+            {open.auth && <AuthBanner auth={open.auth} de={de} />}
             {open.text ? (
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>
             ) : open.html ? (
@@ -1101,6 +1150,26 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                 OK
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {rawText !== null && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setRawText(null); }}
+          style={{ position: "fixed", inset: 0, zIndex: 10065, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+        >
+          <div style={{ width: "min(900px, 100%)", maxHeight: "85vh", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+              <strong style={{ fontSize: 14, color: "var(--text)" }}>{de ? "Original (Quelltext)" : "Original (source)"}</strong>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" className="ghost" onClick={() => { void navigator.clipboard?.writeText(rawText); }}>{de ? "Kopieren" : "Copy"}</button>
+                <button type="button" className="ghost" onClick={() => setRawText(null)}>{de ? "Schließen" : "Close"}</button>
+              </div>
+            </div>
+            <pre style={{ margin: 0, padding: 16, overflow: "auto", fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--text)", fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}>{rawText}</pre>
           </div>
         </div>
       )}

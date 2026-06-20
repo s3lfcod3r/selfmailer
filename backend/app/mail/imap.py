@@ -288,7 +288,49 @@ def list_messages(
     return out
 
 
-def _detail_dict(msg) -> dict:
+_AUTH_RE = r"{m}\s*=\s*(pass|fail|softfail|hardfail|neutral|none|temperror|permerror|bestguesspass)"
+
+
+def _analyze_auth(msg, account: MailAccount) -> dict:
+    """Echtheits-Check aus den Authentifizierungs-Headern, die der EMPFANGS-Server
+    setzt (Authentication-Results / Received-SPF). Erkennt Spoofing — speziell den
+    Trick „Mail kommt angeblich von DEINER eigenen Adresse".
+
+    verdict: pass (DMARC pass oder SPF+DKIM pass) | fail (eine Prüfung fehlgeschlagen)
+    | unknown (keine Header). self_spoof: From = eigene Adresse, aber NICHT pass."""
+    obj = msg.obj
+    blob = " ; ".join(
+        (obj.get_all("Authentication-Results") or []) + (obj.get_all("Received-SPF") or [])
+    ).lower()
+
+    def res(method: str) -> str | None:
+        m = re.search(_AUTH_RE.format(m=method), blob)
+        return m.group(1) if m else None
+
+    spf, dkim, dmarc = res("spf"), res("dkim"), res("dmarc")
+    from_addr = (msg.from_ or "").lower().strip()
+    from_domain = from_addr.rsplit("@", 1)[-1] if "@" in from_addr else ""
+    own = {a.lower() for a in (account.email or "", account.auth_user or "") if a}
+
+    passed = dmarc == "pass" or (spf == "pass" and dkim == "pass")
+    failed = dmarc in ("fail",) or spf in ("fail", "softfail", "hardfail") or dkim == "fail"
+    verdict = "pass" if passed else ("fail" if failed else "unknown")
+
+    reasons: list[str] = []
+    for label, val in (("SPF", spf), ("DKIM", dkim), ("DMARC", dmarc)):
+        if val:
+            reasons.append(f"{label}: {val}")
+    if not reasons:
+        reasons.append("Keine Authentifizierungs-Header vom Server")
+
+    return {
+        "spf": spf, "dkim": dkim, "dmarc": dmarc, "verdict": verdict,
+        "self_spoof": from_addr in own and verdict != "pass",
+        "from_domain": from_domain, "reasons": reasons,
+    }
+
+
+def _detail_dict(msg, account: MailAccount) -> dict:
     """Baut das Detail-Dict (Volltext) aus einer gefetchten Nachricht."""
     attachments = [
         {
@@ -311,13 +353,25 @@ def _detail_dict(msg) -> dict:
         "text": msg.text or "",
         "html": msg.html or "",
         "attachments": attachments,
+        "auth": _analyze_auth(msg, account),
     }
+
+
+def get_raw(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> str | None:
+    """Rohe RFC822-Quelle einer Mail (Header + Body) fuer „Original anzeigen"."""
+    with _mailbox(account, password, folder=folder) as box:
+        for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
+            try:
+                return msg.obj.as_string()
+            except Exception:  # noqa: BLE001 - Fallback ueber Bytes
+                return (msg.obj.as_bytes() or b"").decode("utf-8", "replace")
+    return None
 
 
 def get_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> dict | None:
     with _mailbox(account, password, folder=folder) as box:
         for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
-            return _detail_dict(msg)
+            return _detail_dict(msg, account)
     return None
 
 
@@ -333,7 +387,7 @@ def get_messages(account: MailAccount, password: str, uids: list[str], folder: s
     with _mailbox(account, password, folder=folder) as box:
         for msg in box.fetch(AND(uid=",".join(uids)), mark_seen=False, bulk=True):
             if msg.uid:
-                out.append(_detail_dict(msg))
+                out.append(_detail_dict(msg, account))
     return out
 
 
