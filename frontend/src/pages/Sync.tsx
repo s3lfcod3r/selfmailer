@@ -23,7 +23,7 @@ export function Sync() {
   const [err, setErr] = useState("");
   // Postfach-Migration (Synology → passende Zielkonten)
   const [mailAccounts, setMailAccounts] = useState<Account[]>([]);
-  const [mig, setMig] = useState({ sourceId: 0, sourceFolder: "INBOX", targetFolder: "INBOX", limit: 500 });
+  const [mig, setMig] = useState({ sourceId: 0, destId: 0, prefix: "", limit: 5000 });
   const [migResult, setMigResult] = useState<MigrateResult | null>(null);
   const [migBusy, setMigBusy] = useState(false);
 
@@ -36,13 +36,13 @@ export function Sync() {
   }
 
   async function runMigrate(dry: boolean) {
-    if (!mig.sourceId) { setErr(t("mig.needSource")); return; }
+    if (!mig.sourceId || !mig.destId) { setErr(t("mig.needAccounts")); return; }
+    if (mig.sourceId === mig.destId) { setErr(t("mig.sameAccount")); return; }
     if (!dry && !confirm(t("mig.confirm"))) return;
     setMigBusy(true); setErr(""); setNote(""); setMigResult(null);
     try {
       setMigResult(await api.post<MigrateResult>(`/mail/${mig.sourceId}/migrate`, {
-        source_folder: mig.sourceFolder || "INBOX",
-        target_folder: mig.targetFolder || "INBOX",
+        dest_account_id: mig.destId, target_prefix: mig.prefix.trim(),
         dry_run: dry, limit: mig.limit,
       }));
     } catch (e) { setErr((e as Error).message); }
@@ -101,15 +101,18 @@ export function Sync() {
         <div className="label">{t("mig.heading")}</div>
         <p className="muted" style={{ margin: 0 }}>{t("mig.hint")}</p>
         <div className="card stack" style={{ padding: "1rem" }}>
-          <div className="row">
+          <div className="row" style={{ flexWrap: "wrap" }}>
             <select value={mig.sourceId} onChange={(e) => setMig((m) => ({ ...m, sourceId: Number(e.target.value) }))}>
               <option value={0}>{t("mig.pickSource")}</option>
               {mailAccounts.map((a) => <option key={a.id} value={a.id}>{a.label || a.email}</option>)}
             </select>
-            <input style={{ maxWidth: 150 }} value={mig.sourceFolder} placeholder="INBOX"
-                   onChange={(e) => setMig((m) => ({ ...m, sourceFolder: e.target.value }))} title={t("mig.sourceFolder")} />
-            <input style={{ maxWidth: 150 }} value={mig.targetFolder} placeholder="INBOX"
-                   onChange={(e) => setMig((m) => ({ ...m, targetFolder: e.target.value }))} title={t("mig.targetFolder")} />
+            <span aria-hidden>→</span>
+            <select value={mig.destId} onChange={(e) => setMig((m) => ({ ...m, destId: Number(e.target.value) }))}>
+              <option value={0}>{t("mig.pickDest")}</option>
+              {mailAccounts.map((a) => <option key={a.id} value={a.id}>{a.label || a.email}</option>)}
+            </select>
+            <input style={{ maxWidth: 200 }} value={mig.prefix} placeholder={t("mig.prefixPlaceholder")}
+                   onChange={(e) => setMig((m) => ({ ...m, prefix: e.target.value }))} title={t("mig.prefix")} />
           </div>
           <div className="row">
             <span className="muted" style={{ fontSize: "0.8rem" }}>{t("mig.limitHint", { n: mig.limit })}</span>
@@ -120,16 +123,16 @@ export function Sync() {
             <button className="primary" disabled={migBusy} onClick={() => runMigrate(false)}>{t("mig.run")}</button>
           </div>
           {migResult && (
-            <div className="stack" style={{ gap: "0.25rem", fontSize: "0.9rem", borderTop: "1px solid var(--self-line)", paddingTop: "0.7rem" }}>
+            <div className="stack" style={{ gap: "0.2rem", fontSize: "0.86rem", borderTop: "1px solid var(--self-line)", paddingTop: "0.7rem" }}>
               <div className="label">{migResult.dry_run ? t("mig.previewResult") : t("mig.doneResult")}</div>
-              <div className="muted">{t("mig.scanned", { n: migResult.scanned })}</div>
-              {Object.entries(migResult.counts).map(([email, n]) => (
-                <div key={email}>→ {email}: <strong>{n}</strong></div>
+              {migResult.folders.filter((f) => f.count > 0).map((f) => (
+                <div key={f.source} className="row" style={{ gap: "0.5rem" }}>
+                  <span className="grow" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.source} → {f.dest}</span>
+                  <span className="muted" style={{ flex: "0 0 auto" }}>
+                    {migResult.dry_run ? t("mig.willCopy", { n: f.count }) : t("mig.copiedSkipped", { c: f.copied, s: f.skipped })}
+                  </span>
+                </div>
               ))}
-              <div className="muted">
-                {t("mig.unmatched", { n: migResult.unmatched })}
-                {!migResult.dry_run && ` · ${t("mig.moved", { n: migResult.moved })}`}
-              </div>
               {migResult.errors.length > 0 && <div className="err">{migResult.errors.join("; ")}</div>}
             </div>
           )}

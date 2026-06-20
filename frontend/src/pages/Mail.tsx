@@ -7,6 +7,8 @@ import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../co
 type FolderCount = { name: string; unseen: number; total: number };
 type Sel = { acc: number; folder: string };
 
+const PAGE_SIZE = 50;  // Mails pro Seite (Weiterblättern)
+
 function fmtSize(bytes: number): string {
   if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
@@ -44,6 +46,8 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
   const [open, setOpen] = useState<MsgDetail | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dragUids, setDragUids] = useState<string[]>([]);
@@ -220,10 +224,19 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
   function reload() {
     if (!sel) return;
     setLoading(true); setErr(""); setOpen(null); setSelected(new Set());
-    api.get<MsgHeader[]>(`/mail/${sel.acc}/messages?folder=${encodeURIComponent(sel.folder)}&limit=50`)
-      .then(setMessages)
+    api.get<MsgHeader[]>(`/mail/${sel.acc}/messages?folder=${encodeURIComponent(sel.folder)}&limit=${PAGE_SIZE}`)
+      .then((ms) => { setMessages(ms); setHasMore(ms.length === PAGE_SIZE); })
       .catch((e) => setErr((e as Error).message))
       .finally(() => setLoading(false));
+  }
+  // Weiterblättern: naechste Seite holen und anhaengen (offset = bereits geladene).
+  function loadMore() {
+    if (!sel || loadingMore) return;
+    setLoadingMore(true);
+    api.get<MsgHeader[]>(`/mail/${sel.acc}/messages?folder=${encodeURIComponent(sel.folder)}&limit=${PAGE_SIZE}&offset=${messages.length}`)
+      .then((ms) => { setMessages((cur) => [...cur, ...ms]); setHasMore(ms.length === PAGE_SIZE); })
+      .catch((e) => setErr((e as Error).message))
+      .finally(() => setLoadingMore(false));
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(reload, [sel?.acc, sel?.folder]);
@@ -524,6 +537,11 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
               </div>
             ))}
             {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
+            {hasMore && !loading && (
+              <button className="ghost" style={{ width: "100%", marginTop: "0.5rem" }} disabled={loadingMore} onClick={loadMore}>
+                {loadingMore ? "…" : t("mail.loadMore")}
+              </button>
+            )}
           </div>
         </div>
 

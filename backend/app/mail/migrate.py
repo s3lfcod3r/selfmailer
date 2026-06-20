@@ -1,23 +1,25 @@
-"""Postfach-Migration.
+"""Postfach-Migration (Konto → Konto, mit Ordnerstruktur).
 
-Kopiert Mails aus einem Quellkonto (z. B. Synology MailPlus per IMAP) in die
-"richtigen" Zielkonten: pro Mail wird anhand des Empfaengers (To/Cc bzw. der
-Delivered-To-/Envelope-To-Header, die POP3-Sammler setzen) das Zielkonto
-gewaehlt, dessen E-Mail-Adresse passt. Die Mail wird per IMAP APPEND mit
-Originaldatum und \\Seen-Flag in den Zielordner gelegt.
+Kopiert ein komplettes Quellkonto (alle Ordner + Unterordner inkl. Mails) in
+ein Zielkonto und erhaelt die Struktur:
 
-dry_run=True zaehlt nur, ohne etwas zu schreiben — fuer eine gefahrlose
-Vorschau des Routings.
+- Quelle und Ziel sind IMAP-Konten (Synology MailPlus muss als IMAP-Konto
+  eingebunden sein, nicht POP3).
+- Ordnerpfade werden auf das Trennzeichen des ZIELservers uebersetzt; optional
+  landet alles unter einem Ziel-Elternordner (``target_prefix``), damit die
+  alten Daten getrennt vom Bestand liegen.
+- Dedup ueber Message-ID: bereits im Zielordner vorhandene Mails werden
+  uebersprungen → erneutes Ausfuehren erzeugt keine Duplikate (idempotent).
+- ``dry_run=True`` zaehlt nur pro Ordner und schreibt nichts (Vorschau).
 """
 from __future__ import annotations
 
 from imap_tools import AND, MailBox
 
 from ..models import MailAccount
+from .imap import _delimiter
 
 SEEN = r"\Seen"
-# POP3-Sammler (wie Synology) hinterlegen die urspruengliche Zustelladresse hier.
-_DEST_HEADERS = ("delivered-to", "envelope-to", "x-envelope-to", "x-original-to")
 
 
 def _open(acc: MailAccount, password: str, folder: str = "INBOX") -> MailBox:
@@ -26,83 +28,99 @@ def _open(acc: MailAccount, password: str, folder: str = "INBOX") -> MailBox:
     return box
 
 
-def _recipients(msg) -> set[str]:
-    """Alle plausiblen Empfaenger-Adressen einer Mail (klein geschrieben)."""
-    out: set[str] = set()
-    for addr in list(msg.to or ()) + list(msg.cc or ()):
-        if addr:
-            out.add(addr.strip().lower())
-    headers = getattr(msg, "headers", {}) or {}
-    for key in _DEST_HEADERS:
-        for val in headers.get(key, ()):  # imap-tools: Header-Keys sind klein
-            v = val.strip().lower()
-            if v:
-                out.add(v)
-    return out
+def _dest_path(source_folder: str, src_delim: str, dst_delim: str, prefix: str) -> str:
+    """Quellpfad auf das Ziel-Trennzeichen uebersetzen, optional unter prefix."""
+    segs = [s for s in source_folder.split(src_delim) if s]
+    if prefix:
+        segs = [p for p in prefix.split(dst_delim) if p] + segs
+    return dst_delim.join(segs)
 
 
-def migrate(
-    source: MailAccount,
-    source_password: str,
-    source_folder: str,
-    dests: list[tuple[MailAccount, str]],
-    target_folder: str = "INBOX",
-    *,
-    dry_run: bool = True,
-    limit: int = 500,
-) -> dict:
-    """Routet bis zu ``limit`` Mails aus ``source_folder`` an das passende Zielkonto.
-
-    dests: Liste aus (Zielkonto, Klartext-Passwort).
-    Liefert {counts:{email:n}, unmatched, moved, scanned, errors, dry_run}.
-    """
-    by_email = {d[0].email.lower(): d for d in dests}
-    counts: dict[str, int] = {}
-    unmatched = 0
-    moved = 0
-    scanned = 0
-    errors: list[str] = []
-    dest_boxes: dict[int, MailBox] = {}
-
-    src = _open(source, source_password, source_folder)
-    try:
-        for msg in src.fetch(AND(all=True), reverse=True, limit=limit, mark_seen=False, bulk=False):
-            scanned += 1
-            match = next((by_email[e] for e in _recipients(msg) if e in by_email), None)
-            if match is None:
-                unmatched += 1
-                continue
-            dest_acc, dest_pw = match
-            counts[dest_acc.email] = counts.get(dest_acc.email, 0) + 1
-            if dry_run:
-                continue
-            try:
-                if dest_acc.id not in dest_boxes:
-                    dest_boxes[dest_acc.id] = _open(dest_acc, dest_pw)
-                flags = [SEEN] if SEEN in (msg.flags or ()) else None
-                dest_boxes[dest_acc.id].append(
-                    msg.obj.as_bytes(), target_folder, dt=msg.date, flag_set=flags
-                )
-                moved += 1
-            except Exception as exc:  # noqa: BLE001 - einzelne Mail darf scheitern
-                if len(errors) < 5:
-                    errors.append(f"{dest_acc.email}: {type(exc).__name__}: {exc}")
-    finally:
+def _ensure_folder(dst: MailBox, path: str, delim: str) -> None:
+    """Legt den Pfad (inkl. fehlender Elternebenen) im Ziel an (best effort)."""
+    cur = ""
+    for part in [p for p in path.split(delim) if p]:
+        cur = f"{cur}{delim}{part}" if cur else part
         try:
-            src.logout()
-        except Exception:  # pragma: no cover - best effort
+            dst.folder.create(cur)
+        except Exception:  # noqa: BLE001 - existiert bereits o. ae.
             pass
-        for box in dest_boxes.values():
-            try:
-                box.logout()
-            except Exception:  # pragma: no cover - best effort
-                pass
 
-    return {
-        "counts": counts,
-        "unmatched": unmatched,
-        "moved": moved,
-        "scanned": scanned,
-        "errors": errors,
-        "dry_run": dry_run,
-    }
+
+def _existing_message_ids(dst: MailBox, folder: str) -> set[str]:
+    """Message-IDs, die im Zielordner schon liegen (fuer Dedup)."""
+    ids: set[str] = set()
+    try:
+        dst.folder.set(folder)
+        for msg in dst.fetch(AND(all=True), mark_seen=False, headers_only=True, bulk=50):
+            mid = (msg.headers.get("message-id", ("",))[0] or "").strip()
+            if mid:
+                ids.add(mid)
+    except Exception:  # noqa: BLE001 - Ordner evtl. neu/leer
+        pass
+    return ids
+
+
+def migrate_folders(
+    source: MailAccount,
+    source_pw: str,
+    dest: MailAccount,
+    dest_pw: str,
+    *,
+    target_prefix: str = "",
+    dry_run: bool = True,
+    limit_per_folder: int = 5000,
+) -> dict:
+    """Kopiert alle Ordner des Quellkontos ins Zielkonto (struktur-erhaltend).
+
+    Liefert {folders:[{source,dest,count,copied,skipped}], errors, dry_run}.
+    """
+    folders_out: list[dict] = []
+    errors: list[str] = []
+    src = _open(source, source_pw)
+    dst = None if dry_run else _open(dest, dest_pw)
+    try:
+        src_delim = _delimiter(src)
+        dst_delim = _delimiter(dst) if dst else src_delim
+        names = [f.name for f in src.folder.list() if f.name]
+        names.sort(key=lambda n: (n.count(src_delim), n.lower()))  # Eltern vor Kindern
+        for sf in names:
+            df = _dest_path(sf, src_delim, dst_delim, target_prefix)
+            try:
+                src.folder.set(sf)
+                total = len(src.uids())
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{sf}: {type(exc).__name__}")
+                continue
+            entry = {"source": sf, "dest": df, "count": total, "copied": 0, "skipped": 0}
+            if not dry_run and total:
+                _ensure_folder(dst, df, dst_delim)
+                seen_ids = _existing_message_ids(dst, df)
+                src.folder.set(sf)
+                copied = skipped = 0
+                for msg in src.fetch(AND(all=True), limit=limit_per_folder, mark_seen=False, bulk=50):
+                    mid = (msg.headers.get("message-id", ("",))[0] or "").strip()
+                    if mid and mid in seen_ids:
+                        skipped += 1
+                        continue
+                    try:
+                        flags = [SEEN] if SEEN in (msg.flags or ()) else None
+                        dst.append(msg.obj.as_bytes(), df, dt=msg.date, flag_set=flags)
+                        copied += 1
+                        if mid:
+                            seen_ids.add(mid)
+                    except Exception as exc:  # noqa: BLE001 - einzelne Mail darf scheitern
+                        if len(errors) < 8:
+                            errors.append(f"{df}: {type(exc).__name__}: {exc}")
+                entry["copied"] = copied
+                entry["skipped"] = skipped
+            folders_out.append(entry)
+    finally:
+        for box in (src, dst):
+            if box is not None:
+                try:
+                    box.logout()
+                except Exception:  # pragma: no cover - best effort
+                    pass
+
+    return {"folders": folders_out, "errors": errors, "dry_run": dry_run}

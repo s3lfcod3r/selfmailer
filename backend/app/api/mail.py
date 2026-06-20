@@ -4,7 +4,7 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from ..core.crypto import decrypt
 from ..core.db import get_session
@@ -112,11 +112,12 @@ def messages(
     account_id: int,
     folder: str = "INBOX",
     limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[dict]:
     acc = _account(account_id, user, session)
-    return imap_mod.list_messages(acc, decrypt(acc.secret_enc), folder=folder, limit=limit)
+    return imap_mod.list_messages(acc, decrypt(acc.secret_enc), folder=folder, limit=limit, offset=offset)
 
 
 @router.post("/{account_id}/migrate")
@@ -130,17 +131,13 @@ def migrate_account(
     Konten des Users — pro Mail anhand des Empfaengers ins passende Postfach.
     dry_run=True (Default) zeigt nur die Vorschau, schreibt nichts."""
     source = _account(account_id, user, session)
-    dests = [
-        (a, decrypt(a.secret_enc))
-        for a in session.exec(select(MailAccount).where(MailAccount.user_id == user.id)).all()
-        if a.id != source.id
-    ]
-    if not dests:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Kein Zielkonto vorhanden")
+    dest = _account(data.dest_account_id, user, session)  # prueft Eigentuemer
+    if dest.id == source.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Quelle und Ziel sind identisch")
     try:
-        return migrate_mod.migrate(
-            source, decrypt(source.secret_enc), data.source_folder, dests,
-            data.target_folder, dry_run=data.dry_run, limit=data.limit,
+        return migrate_mod.migrate_folders(
+            source, decrypt(source.secret_enc), dest, decrypt(dest.secret_enc),
+            target_prefix=data.target_prefix, dry_run=data.dry_run, limit_per_folder=data.limit,
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Migration fehlgeschlagen: {exc}")

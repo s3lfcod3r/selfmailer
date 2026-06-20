@@ -98,15 +98,18 @@ def _snippet(text: str, html: str) -> str:
 
 
 def list_messages(
-    account: MailAccount, password: str, folder: str = "INBOX", limit: int = 50
+    account: MailAccount, password: str, folder: str = "INBOX", limit: int = 50, offset: int = 0
 ) -> list[dict]:
     out: list[dict] = []
     # bulk=True bündelt den Abruf in EINEN IMAP-FETCH statt eines pro Nachricht.
     # Auf entfernten Servern (z. B. web.de) ist die Round-Trip-Zeit der dominierende
     # Kostenfaktor: ~50 Einzel-Fetches → 1 Sammel-Fetch. headers_only bleibt aus,
     # damit Vorschau (snippet) und Anhang-Indikator erhalten bleiben.
+    # offset/limit als Slice (auf die nach Datum absteigende Liste) = Paginierung
+    # zum Weiterblättern bei grossen Postfaechern.
+    page = slice(offset, offset + limit)
     with _mailbox(account, password, folder=folder) as box:
-        for msg in box.fetch(AND(all=True), reverse=True, limit=limit, mark_seen=False, bulk=True):
+        for msg in box.fetch(AND(all=True), reverse=True, limit=page, mark_seen=False, bulk=True):
             out.append(
                 {
                     "uid": msg.uid or "",

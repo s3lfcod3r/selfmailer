@@ -206,11 +206,11 @@ class RuleCreate(BaseModel):
 
 
 class MigrateRequest(BaseModel):
-    """Postfach-Migration: aus einem Quellkonto (Synology) in die passenden Ziele."""
-    source_folder: str = "INBOX"
-    target_folder: str = "INBOX"
+    """Postfach-Migration: komplettes Quellkonto (alle Ordner) → Zielkonto."""
+    dest_account_id: int
+    target_prefix: str = ""              # optionaler Ziel-Elternordner (z. B. "Synology")
     dry_run: bool = True
-    limit: int = Field(default=500, ge=1, le=2000)
+    limit: int = Field(default=5000, ge=1, le=50000)  # max. Mails pro Ordner/Lauf
 
 
 class RuleUpdate(BaseModel):
