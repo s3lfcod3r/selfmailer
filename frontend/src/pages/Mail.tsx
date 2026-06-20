@@ -757,7 +757,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                 <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ width: "auto" }} />
                 <span className="muted" style={{ fontSize: "0.78rem" }}>{t("mail.selectAll")}</span>
               </label>
-              {selectAllFolder ? (
+              {/* Ordnerweites "Alle auswaehlen" NUR ohne Suche — bei Suche soll
+                  "Alle auswaehlen" ausschliesslich die sichtbaren Treffer markieren. */}
+              {!searchActive && (selectAllFolder ? (
                 <span className="sel-all-note">
                   {t("mail.allFolderSelected", { n: folderTotal })}
                   <button className="link-btn" onClick={() => { setSelected(new Set()); setSelectAllFolder(false); }}>{t("mail.clearSelection")}</button>
@@ -766,7 +768,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                 allSelected && folderTotal > visible.length && (
                   <button className="link-btn" onClick={selectWholeFolder}>{t("mail.selectAllFolder", { n: folderTotal })}</button>
                 )
-              )}
+              ))}
             </div>
           )}
           <div className="mail-list">
