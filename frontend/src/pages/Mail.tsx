@@ -574,22 +574,27 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
           {!loading && syncing && <div className="muted" style={{ fontSize: "0.72rem", padding: "0 0.6rem 0.3rem" }}>⟳ {t("mail.syncing")}</div>}
           {selected.size > 0 && (
-            <div className="row" style={{ marginBottom: "0.5rem", padding: "0.4rem 0.6rem", background: "var(--self-bg-2)", borderRadius: "6px", flexWrap: "wrap" }}>
-              <span className="label">{t("mail.selected", { n: selected.size })}</span>
-              <span className="grow" />
-              <button className="ghost" onClick={() => markSelectedSeen(true)}>{t("mail.markRead")}</button>
-              <button className="ghost" onClick={() => markSelectedSeen(false)}>{t("mail.markUnread")}</button>
-              {folderNames.length > 1 && (
-                <select value="" title={t("mail.moveTo")} onChange={(e) => { moveUids(e.target.value, [...selected]); e.currentTarget.value = ""; }} style={{ fontSize: "0.82rem", maxWidth: 150 }}>
-                  <option value="">📁 {t("mail.moveTo")}</option>
-                  {folderNames.filter((f) => f !== folder).map((f) => <option key={f} value={f}>{f}</option>)}
-                </select>
-              )}
-              {spamFolder && folder !== spamFolder && (
-                <button className="ghost" onClick={() => moveUids(spamFolder, [...selected])}>🚫 {t("mail.spam")}</button>
-              )}
-              <button className="ghost" onClick={() => activeId != null && openTransfer(activeId, folder, [...selected])}>↪ {t("xfer.toAccount")}</button>
-              <button className="ghost" onClick={delSelected}>🗑 {t("mail.delete")}</button>
+            <div className="bulk-bar">
+              <div className="bulk-count">
+                <span className="bulk-num">{selected.size}</span>
+                <span>{t("mail.selectedShort")}</span>
+                <button className="bulk-clear" onClick={() => setSelected(new Set())} title={t("mail.clearSelection")}>✕</button>
+              </div>
+              <div className="bulk-actions">
+                <button className="bulk-btn" onClick={() => markSelectedSeen(true)}>✓ {t("mail.markRead")}</button>
+                <button className="bulk-btn" onClick={() => markSelectedSeen(false)}>● {t("mail.markUnread")}</button>
+                {folderNames.length > 1 && (
+                  <select className="bulk-btn" value="" title={t("mail.moveTo")} onChange={(e) => { if (e.target.value) moveUids(e.target.value, [...selected]); }}>
+                    <option value="">📁 {t("mail.moveTo")}</option>
+                    {folderNames.filter((f) => f !== folder).map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                )}
+                {spamFolder && folder !== spamFolder && (
+                  <button className="bulk-btn" onClick={() => moveUids(spamFolder, [...selected])}>🚫 {t("mail.spam")}</button>
+                )}
+                <button className="bulk-btn" onClick={() => activeId != null && openTransfer(activeId, folder, [...selected])}>↪ {t("xfer.toAccount")}</button>
+                <button className="bulk-btn bulk-del" onClick={delSelected}>🗑 {t("mail.delete")}</button>
+              </div>
             </div>
           )}
           {visible.length > 0 && (

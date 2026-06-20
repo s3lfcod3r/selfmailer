@@ -323,6 +323,33 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 .read-menu-move { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem; font-size: 0.88rem; color: var(--self-text-2); cursor: pointer; }
 .read-menu-move select { flex: 1; font-size: 0.82rem; padding: 0.2rem 0.3rem; }
 
+/* --- Auswahl-Leiste (Mehrfachauswahl) --- */
+.bulk-bar {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  margin-bottom: 0.5rem; padding: 0.45rem 0.6rem;
+  background: color-mix(in srgb, var(--self-teal) 9%, var(--self-bg-2));
+  border: 1px solid color-mix(in srgb, var(--self-teal) 32%, var(--self-line));
+  border-radius: 10px;
+}
+.bulk-count { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--self-text-2); }
+.bulk-num {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px;
+  padding: 0 0.4rem; border-radius: 999px; background: var(--self-teal-deep);
+  color: var(--self-text); font-weight: 700; font-size: 0.8rem;
+}
+.bulk-clear { background: none; border: none; color: var(--self-text-3); cursor: pointer; font-size: 0.9rem; padding: 0 0.2rem; line-height: 1; }
+.bulk-clear:hover { color: var(--self-text); }
+.bulk-actions { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; margin-left: auto; }
+.bulk-btn {
+  background: var(--self-bg-3); border: 1px solid var(--self-line); color: var(--self-text-2);
+  border-radius: 8px; padding: 0.32rem 0.6rem; font: inherit; font-size: 0.82rem;
+  cursor: pointer; white-space: nowrap; width: auto;
+}
+.bulk-btn:hover { border-color: var(--self-line-strong); color: var(--self-text); }
+select.bulk-btn { max-width: 170px; }
+.bulk-del { color: var(--self-red); }
+.bulk-del:hover { border-color: var(--self-red); color: var(--self-red); }
+
 /* Compose: Formatier-Leiste + Editor + Optionen-Menü */
 .compose-toolbar {
   display: flex; flex-wrap: wrap; gap: 0.1rem;
