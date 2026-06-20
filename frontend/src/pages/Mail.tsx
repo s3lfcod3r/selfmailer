@@ -723,7 +723,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
         <div className="resize-handle" onMouseDown={startResizeFolders} title={t("mail.resizeHint")} />
 
         {/* Listen-Spalte */}
-        <div className="mail-listcol" style={{ flex: `0 0 ${listW}px` }}>
+        <div className="mail-listcol" style={{ flex: `0 0 ${listW}px`, position: "relative" }}>
           {/* Nur Mobile/Tablet sichtbar (CSS .mail-mobilebar): zurück zu den Postfächern. */}
           <div className="mail-mobilebar">
             <button className="ghost" onClick={() => setMobilePane("folders")}>☰ {t("mail.mailbox")}</button>
@@ -732,7 +732,17 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
             </span>
           </div>
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
-          {!loading && syncing && <div className="muted" style={{ fontSize: "0.72rem", padding: "0 0.6rem 0.3rem" }}>⟳ {t("mail.syncing")}</div>}
+          {!loading && syncing && (
+            <div
+              className="muted"
+              style={{
+                position: "absolute", top: 4, right: 8, zIndex: 5,
+                fontSize: "0.68rem", padding: "0.1rem 0.45rem", borderRadius: 999,
+                background: "var(--surface-2, rgba(20,24,33,0.85))",
+                backdropFilter: "blur(2px)", pointerEvents: "none",
+              }}
+            >⟳ {t("mail.syncing")}</div>
+          )}
           {!searchActive && totalPages > 1 && (
             <div className="mail-pager">
               <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(1)} title={t("mail.firstPage")}>«</button>
