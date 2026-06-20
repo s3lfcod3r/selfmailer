@@ -6,12 +6,21 @@ gegeben. Klartext nur transient beim Verbindungsaufbau.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import delete as sa_delete
 from sqlmodel import Session, select
 
 from ..core.crypto import decrypt, encrypt
 from ..core.db import get_session
 from ..mail import imap as imap_mod
-from ..models import MailAccount, Protocol, User
+from ..models import (
+    CachedFolder,
+    CachedMessage,
+    FolderSync,
+    MailAccount,
+    MailRule,
+    Protocol,
+    User,
+)
 from ..schemas import AccountCreate, AccountOut, AccountUpdate
 from .deps import get_current_user
 
@@ -103,5 +112,9 @@ def delete_account(
     session: Session = Depends(get_session),
 ) -> None:
     acc = _owned(account_id, user, session)
+    # Kinder-Zeilen zuerst per Bulk-DELETE entfernen (sonst Waisen + langsames
+    # Commit hinter laufendem Sync = "haengt"). account_id ist indiziert.
+    for model in (CachedMessage, FolderSync, CachedFolder, MailRule):
+        session.execute(sa_delete(model).where(model.account_id == account_id))
     session.delete(acc)
     session.commit()

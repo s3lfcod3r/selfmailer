@@ -30,6 +30,10 @@ FLAGGED = r"\Flagged"
 # Bedarf neu verbunden. Per Env SELFMAILER_IMAP_POOL=0 komplett abschaltbar.
 _POOL_ENABLED = os.getenv("SELFMAILER_IMAP_POOL", "1").strip().lower() not in {"0", "false", "no"}
 _IDLE_TTL = 240.0  # Sekunden Leerlauf, danach Verbindung schliessen
+# Socket-Timeout je IMAP-Operation. OHNE das blockiert ein totes/langsames
+# Postfach (z. B. ein Provider, der die Verbindung still fallen laesst) den
+# Worker-Thread UNENDLICH -> "alles haengt". Mit Timeout schlaegt es sauber fehl.
+_IMAP_TIMEOUT = float(os.getenv("SELFMAILER_IMAP_TIMEOUT", "30") or 30)
 _POOL: dict[str, "_PooledBox"] = {}
 _POOL_LOCK = threading.Lock()
 
@@ -49,8 +53,17 @@ def _pool_key(account: MailAccount, login: str) -> str:
 
 
 def _connect(account: MailAccount, login: str, password: str, folder: str) -> MailBox:
-    box = MailBox(account.imap_host, port=account.imap_port)
+    # timeout bei der Konstruktion bindet schon den TCP-Connect; faellt die
+    # imap_tools-Version ohne timeout-Param zurueck, setzen wir es danach am Socket.
+    try:
+        box = MailBox(account.imap_host, port=account.imap_port, timeout=_IMAP_TIMEOUT)
+    except TypeError:
+        box = MailBox(account.imap_host, port=account.imap_port)
     box.login(login, password, initial_folder=folder)
+    try:
+        box.client.sock.settimeout(_IMAP_TIMEOUT)
+    except Exception:  # noqa: BLE001 - best effort, falls Socket anders heisst
+        pass
     return box
 
 

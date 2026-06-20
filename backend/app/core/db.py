@@ -40,7 +40,9 @@ def _sqlite_pragmas(dbapi_conn, _record) -> None:
     cur.execute("PRAGMA busy_timeout=30000")
     cur.execute("PRAGMA temp_store=MEMORY")
     cur.execute("PRAGMA cache_size=-16000")  # ~16 MB Page-Cache je Verbindung
-    cur.execute("PRAGMA foreign_keys=ON")
+    # KEIN foreign_keys=ON: das Schema definiert keine ON DELETE CASCADE-Regeln.
+    # Mit erzwungenen FKs wuerde z. B. das Loeschen eines Kontos mit Cache-Zeilen
+    # an einer Constraint scheitern. Kinder werden im Code aufgeraeumt.
     cur.close()
 
 
