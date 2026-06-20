@@ -426,7 +426,20 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
         patchHeader(uid, { seen: true });
         bumpUnseen(activeId, folder, -1);
       }
-    } catch (e) { setErr((e as Error).message); }
+    } catch (e) {
+      const msg = (e as Error).message || "";
+      // Mail serverseitig weg (Cache war kurz veraltet): Zeile entfernen, klare
+      // Meldung statt rohem Fehler, und still neu synchronisieren (selbstheilend).
+      if (/nicht gefunden|not found|404/i.test(msg)) {
+        setMessages((ms) => ms.filter((x) => x.uid !== uid));
+        prefetchedRef.current.delete(`${activeId}:${folder}:${uid}`);
+        if (open?.uid === uid) setOpen(null);
+        setErr(t("mail.gone"));
+        if (sel) bgSync(sel.acc, sel.folder, pageRef.current);
+      } else {
+        setErr(msg);
+      }
+    }
   }
   // Body beim Drueberfahren vorladen: der erste Live-Abruf landet im DB-Cache,
   // sodass der anschliessende Klick die Mail SOFORT aus dem Cache zeigt. Pro

@@ -260,6 +260,12 @@ def message(
         pass
     msg = imap_mod.get_message(acc, decrypt(acc.secret_enc), uid, folder=folder)
     if msg is None:
+        # Die Mail ist serverseitig weg (verschoben/geloescht) — etwaigen stale
+        # Cache-Eintrag entfernen, damit die Liste sich selbst heilt.
+        try:
+            cache_mod.remove_uids(session, account_id, folder, [uid])
+        except Exception:  # noqa: BLE001
+            pass
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nachricht nicht gefunden")
     try:
         cache_mod.write_detail(session, account_id, folder, uid, msg)
