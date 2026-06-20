@@ -251,9 +251,20 @@ def message(
     session: Session = Depends(get_session),
 ) -> dict:
     acc = _account(account_id, user, session)
+    # Cache-first: schon einmal geoeffnet → Body kommt SOFORT aus der DB (kein IMAP).
+    try:
+        cached = cache_mod.read_detail(session, account_id, folder, uid)
+        if cached is not None:
+            return cached
+    except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
+        pass
     msg = imap_mod.get_message(acc, decrypt(acc.secret_enc), uid, folder=folder)
     if msg is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nachricht nicht gefunden")
+    try:
+        cache_mod.write_detail(session, account_id, folder, uid, msg)
+    except Exception:  # noqa: BLE001
+        pass
     return msg
 
 

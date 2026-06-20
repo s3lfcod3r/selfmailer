@@ -8,6 +8,7 @@ faellt der Aufrufer auf den Live-Abruf zurueck.
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 from imap_tools import AND
 from sqlmodel import Session, select
@@ -96,6 +97,45 @@ def write_folder_counts(session: Session, account_id: int, items: list[dict]) ->
             account_id=account_id, folder=name, idx=idx,
             unseen=int(it.get("unseen", 0) or 0), total=int(it.get("total", 0) or 0),
         ))
+    session.commit()
+
+
+def read_detail(session: Session, account_id: int, folder: str, uid: str) -> dict | None:
+    """Gecachten Mail-Volltext zurueckgeben (oder None, wenn noch nie geoeffnet).
+
+    seen/flagged werden aus der aktuellen Cache-Zeile uebernommen (frischer als
+    der eingefrorene JSON-Stand), damit die Anzeige stimmt.
+    """
+    row = session.exec(
+        select(CachedMessage).where(
+            CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid == uid
+        )
+    ).first()
+    if not row or not row.detail_json:
+        return None
+    try:
+        detail = json.loads(row.detail_json)
+    except (ValueError, TypeError):
+        return None
+    detail["seen"] = row.seen
+    detail["flagged"] = row.flagged
+    return detail
+
+
+def write_detail(session: Session, account_id: int, folder: str, uid: str, detail: dict) -> None:
+    """Legt den live geholten Mail-Volltext im Cache ab (fuer schnelles Wieder-Oeffnen)."""
+    row = session.exec(
+        select(CachedMessage).where(
+            CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid == uid
+        )
+    ).first()
+    if not row:
+        return
+    try:
+        row.detail_json = json.dumps(detail, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return
+    session.add(row)
     session.commit()
 
 

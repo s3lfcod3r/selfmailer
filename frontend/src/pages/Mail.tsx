@@ -427,6 +427,18 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
       }
     } catch (e) { setErr((e as Error).message); }
   }
+  // Body beim Drueberfahren vorladen: der erste Live-Abruf landet im DB-Cache,
+  // sodass der anschliessende Klick die Mail SOFORT aus dem Cache zeigt. Pro
+  // (Konto/Ordner/uid) nur einmal — kein Mehrfach-Login beim Hin- und Herfahren.
+  const prefetchedRef = useRef<Set<string>>(new Set());
+  function prefetchMsg(uid: string) {
+    if (activeId == null) return;
+    const key = `${activeId}:${folder}:${uid}`;
+    if (prefetchedRef.current.has(key)) return;
+    prefetchedRef.current.add(key);
+    api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`)
+      .catch(() => { prefetchedRef.current.delete(key); /* spaeter erneut versuchen */ });
+  }
   async function toggleSeen(m: MsgHeader) {
     if (activeId == null) return;
     const next = !m.seen;
@@ -810,7 +822,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                 <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={() => toggleFlag(m)} title={t("mail.flag")}>
                   {m.flagged ? "★" : "☆"}
                 </button>
-                <div className="grow" style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)}>
+                <div className="grow" style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)} onMouseEnter={() => prefetchMsg(m.uid)}>
                   <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
                     <span style={{ flex: 1, minWidth: 0, fontWeight: m.seen ? 400 : 700, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{m.from}</span>
                     <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(m.date)}</span>

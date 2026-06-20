@@ -208,6 +208,10 @@ class CachedMessage(SQLModel, table=True):
     flagged: bool = False
     snippet: str = ""
     has_attachments: bool = False
+    # Gecachter Volltext der Mail (JSON: text/html/to/message_id/attachments-Meta).
+    # Leer, solange die Mail noch nie geoeffnet wurde; dann beim ersten Oeffnen
+    # einmal live geholt und hier abgelegt → jedes weitere Oeffnen ohne IMAP.
+    detail_json: str = ""
 
 
 class FolderSync(SQLModel, table=True):
