@@ -20,6 +20,14 @@ function prettyDate(s: string): string {
   const d = new Date(s);
   return isNaN(d.getTime()) ? s : d.toLocaleString();
 }
+// Kompaktes Datum MIT Uhrzeit fuer die Listenzeile (z. B. "20. Jun 26, 17:24").
+function listDate(s: string): string {
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return (s || "").slice(0, 16);
+  return d.toLocaleString(undefined, {
+    day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit",
+  });
+}
 
 // CSP, die im Mail-iframe ALLE externen Ladevorgaenge (Bilder/Schriften/Medien)
 // blockiert — nur eingebettete data:/cid:-Bilder und Inline-Styles sind erlaubt.
@@ -636,7 +644,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                 <div className="grow" style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)}>
                   <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
                     <span style={{ flex: 1, minWidth: 0, fontWeight: m.seen ? 400 : 700, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{m.from}</span>
-                    <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{m.date?.slice(0, 16)}</span>
+                    <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(m.date)}</span>
                   </div>
                   <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || t("mail.noSubject")}</span>
