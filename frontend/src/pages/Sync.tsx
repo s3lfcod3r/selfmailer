@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Account, type DavAccount, type DavKind, type FeedToken, type MigrateResult, type SyncResult } from "../lib/api";
 import { useLang, dateLocale, type Lang, type TFunc } from "../lib/i18n";
+import { confirmDialog } from "../lib/dialog";
 
 const EMPTY = { kind: "caldav" as DavKind, label: "", url: "", username: "", password: "" };
 
@@ -38,7 +39,7 @@ export function Sync() {
   async function runMigrate(dry: boolean) {
     if (!mig.sourceId || !mig.destId) { setErr(t("mig.needAccounts")); return; }
     if (mig.sourceId === mig.destId) { setErr(t("mig.sameAccount")); return; }
-    if (!dry && !confirm(t("mig.confirm"))) return;
+    if (!dry && !(await confirmDialog(t("mig.confirm")))) return;
     setMigBusy(true); setErr(""); setNote(""); setMigResult(null);
     try {
       setMigResult(await api.post<MigrateResult>(`/mail/${mig.sourceId}/migrate`, {
@@ -59,7 +60,7 @@ export function Sync() {
     catch { setNote(absolute(url)); }
   }
   async function rotate() {
-    if (!confirm(t("sync.rotateConfirm"))) return;
+    if (!(await confirmDialog(t("sync.rotateConfirm")))) return;
     try { setFeed(await api.post<FeedToken>("/feeds/token/rotate")); setNote(t("sync.rotated")); }
     catch (e) { setErr((e as Error).message); }
   }
@@ -85,7 +86,7 @@ export function Sync() {
     finally { setBusy(null); }
   }
   async function remove(acc: DavAccount) {
-    if (!confirm(t("sync.removeConfirm", { label: acc.label }))) return;
+    if (!(await confirmDialog(t("sync.removeConfirm", { label: acc.label })))) return;
     try { await api.del(`/dav/accounts/${acc.id}`); load(); }
     catch (e) { setErr((e as Error).message); }
   }

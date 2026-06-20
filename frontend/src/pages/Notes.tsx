@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Note } from "../lib/api";
 import { useLang, dateLocale } from "../lib/i18n";
+import { confirmDialog } from "../lib/dialog";
 
 type Draft = { title: string; body: string };
 
@@ -50,7 +51,7 @@ export function Notes() {
   }
   async function remove() {
     if (typeof sel !== "number") { setSel(null); return; }
-    if (!confirm(t("notes.confirmDelete"))) return;
+    if (!(await confirmDialog(t("notes.confirmDelete")))) return;
     await api.del(`/notes/${sel}`); setSel(null); load();
   }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Account } from "../lib/api";
 import { useLang, type TFunc } from "../lib/i18n";
+import { promptDialog } from "../lib/dialog";
 import { RecipientField } from "./RecipientField";
 
 export type Draft = {
@@ -126,8 +127,8 @@ export function Compose({
     document.execCommand(cmd, false, arg);
     editorRef.current?.focus();
   }
-  function addLink() {
-    const url = prompt(t("compose.linkPrompt"));
+  async function addLink() {
+    const url = await promptDialog(t("compose.linkPrompt"));
     if (url) exec("createLink", url);
   }
 

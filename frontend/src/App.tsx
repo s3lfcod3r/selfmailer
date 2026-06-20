@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
 import { api, auth, type User } from "./lib/api";
 import { useLang } from "./lib/i18n";
+import { DialogHost } from "./lib/dialog";
 import { Login } from "./pages/Login";
 import { Mail } from "./pages/Mail";
 import { Wordmark } from "./components/Wordmark";
@@ -421,6 +422,8 @@ export function App() {
           </form>
         </div>
       )}
+
+      <DialogHost />
     </div>
   );
 }

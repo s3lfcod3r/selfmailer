@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Account } from "../lib/api";
 import { useLang } from "../lib/i18n";
+import { confirmDialog } from "../lib/dialog";
 import { RichEditor } from "../components/RichEditor";
 
 type Form = {
@@ -66,7 +67,7 @@ export function Accounts() {
     setMsg(r.ok ? t("accounts.testOk", { n: r.folders?.length ?? 0 }) : t("accounts.testErr", { error: r.error ?? "" }));
   }
   async function remove(a: Account) {
-    if (!confirm(t("accounts.confirmDelete", { name: a.label || a.email }))) return;
+    if (!(await confirmDialog(t("accounts.confirmDelete", { name: a.label || a.email })))) return;
     await api.del(`/accounts/${a.id}`); load();
   }
 

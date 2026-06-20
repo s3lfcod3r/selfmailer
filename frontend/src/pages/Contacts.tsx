@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Contact } from "../lib/api";
 import { useLang, dateLocale, type TFunc } from "../lib/i18n";
+import { confirmDialog } from "../lib/dialog";
 
 const EMPTY = {
   first_name: "", last_name: "", email: "", phone: "", mobile: "", work_phone: "",
@@ -106,7 +107,7 @@ export function Contacts() {
   }
   async function remove() {
     if (typeof sel !== "number") { setSel(null); return; }
-    if (!confirm(t("contacts.confirmDelete"))) return;
+    if (!(await confirmDialog(t("contacts.confirmDelete")))) return;
     try { await api.del(`/contacts/${sel}`); setSel(null); load(); }
     catch (e) { setErr((e as Error).message); }
   }

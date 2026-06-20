@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type User } from "../lib/api";
 import { useLang } from "../lib/i18n";
+import { confirmDialog, promptDialog } from "../lib/dialog";
 import { UserAccounts } from "../components/UserAccounts";
 
 const EMPTY = { username: "", password: "", display_name: "", role: "user" };
@@ -40,14 +41,14 @@ export function Admin({ meId }: { meId: number }) {
     catch (e) { setErr((e as Error).message); }
   }
   async function resetPw(u: User) {
-    const pw = prompt(t("admin.resetPrompt", { name: u.username }));
+    const pw = await promptDialog(t("admin.resetPrompt", { name: u.username }));
     if (!pw) return;
     setErr(""); setMsg("");
     try { await api.patch(`/admin/users/${u.id}/password`, { new_password: pw }); setMsg(t("admin.pwSet")); }
     catch (e) { setErr((e as Error).message); }
   }
   async function remove(u: User) {
-    if (!confirm(t("admin.deleteConfirm", { name: u.username }))) return;
+    if (!(await confirmDialog(t("admin.deleteConfirm", { name: u.username })))) return;
     setErr("");
     try { await api.del(`/admin/users/${u.id}`); load(); }
     catch (e) { setErr((e as Error).message); }

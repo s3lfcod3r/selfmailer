@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, download, type Account, type MsgHeader, type MsgDetail, type TransferResult } from "../lib/api";
 import { useLang } from "../lib/i18n";
+import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
 
@@ -288,13 +289,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     // Konto-＋ legt einen Ordner auf der OBERSTEN Ebene an (neben Posteingang),
     // nicht mehr zwingend unter INBOX. Unterordner gehen weiter per Rechtsklick
     // auf einen Ordner → „Unterordner erstellen".
-    const name = prompt(t("folder.newTopPrompt"));
+    const name = await promptDialog(t("folder.newTopPrompt"));
     if (!name || !name.trim()) return;
     try { await api.post(`/mail/${accId}/folders?name=${encodeURIComponent(name.trim())}`); loadAccountFolders(accountById(accId)); }
     catch (e) { setErr((e as Error).message); }
   }
   async function newSubfolder(accId: number, node: FolderNode) {
-    const name = prompt(t("folder.newPrompt", { parent: node.special ? t(`folder.${node.special}`) : node.label }));
+    const name = await promptDialog(t("folder.newPrompt", { parent: node.special ? t(`folder.${node.special}`) : node.label }));
     if (!name || !name.trim()) return;
     try {
       await api.post(`/mail/${accId}/folders?name=${encodeURIComponent(name.trim())}&parent=${encodeURIComponent(node.path)}`);
@@ -303,7 +304,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     } catch (e) { setErr((e as Error).message); }
   }
   async function renameFolder(accId: number, node: FolderNode) {
-    const newName = prompt(t("folder.renamePrompt"), node.label);
+    const newName = await promptDialog(t("folder.renamePrompt"), node.label);
     if (!newName || !newName.trim() || newName.trim() === node.label) return;
     try { await api.post(`/mail/${accId}/folders/rename?name=${encodeURIComponent(node.path)}&new_name=${encodeURIComponent(newName.trim())}`); loadAccountFolders(accountById(accId)); }
     catch (e) { setErr((e as Error).message); }
