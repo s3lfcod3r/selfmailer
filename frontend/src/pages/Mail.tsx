@@ -9,6 +9,18 @@ type Sel = { acc: number; folder: string };
 
 const PAGE_SIZE = 50;  // Mails pro Seite (Weiterblättern)
 
+// Absender "Name <mail@x.de>" in Anzeigename + Adresse zerlegen.
+function parseAddr(s: string): { name: string; email: string } {
+  const m = /^\s*"?(.*?)"?\s*<([^>]+)>\s*$/.exec(s || "");
+  if (m && m[2]) return { name: (m[1] || m[2]).trim(), email: m[2].trim() };
+  return { name: s || "", email: s || "" };
+}
+// Server-Datumsstring hübsch lokalisiert; faellt bei Parse-Fehler auf Rohtext zurueck.
+function prettyDate(s: string): string {
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? s : d.toLocaleString();
+}
+
 function fmtSize(bytes: number): string {
   if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
@@ -49,6 +61,9 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // Lese-Kopf: Mehr-Menü (⋯) und ausklappbare Detailzeilen (Von/An/Datum/Betreff).
+  const [readMenu, setReadMenu] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dragUids, setDragUids] = useState<string[]>([]);
@@ -305,6 +320,8 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
       }
       setOpen(msg);
       setMobilePane("read");
+      setDetailsOpen(false);
+      setReadMenu(false);
       if (!msg.seen) {
         api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=true`).catch(() => {});
         patchHeader(uid, { seen: true });
@@ -619,29 +636,62 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
         {/* Lese-Spalte */}
         {open ? (
           <div className="mail-readcol">
-            <div className="row" style={{ marginBottom: "0.6rem", flexWrap: "wrap" }}>
-              <button onClick={() => setDraft(replyDraft(open, t))}>{t("mail.reply")}</button>
-              <button onClick={() => setDraft(forwardDraft(open, t))}>{t("mail.forward")}</button>
-              <button className="ghost" onClick={() => toggleFlag(open)} title={t("mail.flag")}>
-                {(messages.find((m) => m.uid === open.uid)?.flagged ?? open.flagged) ? "★" : "☆"}
-              </button>
-              <button className="ghost" onClick={() => markUnread(open.uid)}>{t("mail.markUnread")}</button>
-              {folderNames.length > 1 && (
-                <select value="" title={t("mail.moveTo")} onChange={(e) => { moveMsg(open.uid, e.target.value); e.currentTarget.value = ""; }} style={{ fontSize: "0.82rem", maxWidth: 160 }}>
-                  <option value="">📁 {t("mail.moveTo")}</option>
-                  {folderNames.filter((f) => f !== folder).map((f) => <option key={f} value={f}>{f}</option>)}
-                </select>
+            <div className="mail-head">
+              <div className="mail-head-top">
+                <h2 className="mail-head-subject">{open.subject || t("mail.noSubject")}</h2>
+                <div className="mail-head-actions">
+                  <button className="icon-btn" onClick={() => setDraft(replyDraft(open, t))} title={t("mail.reply")}>↩</button>
+                  <button className="icon-btn" onClick={() => setDraft(forwardDraft(open, t))} title={t("mail.forward")}>↪</button>
+                  <button className={`icon-btn ${readMenu ? "on" : ""}`} onClick={() => setReadMenu((v) => !v)} title={t("mail.more")}>⋯</button>
+                  <button className="icon-btn" onClick={() => { setOpen(null); setMobilePane("list"); }} title={t("mail.back")}>✕</button>
+                  {readMenu && (
+                    <>
+                      <div className="menu-backdrop" onClick={() => setReadMenu(false)} />
+                      <div className="read-menu">
+                        <button onClick={() => { markUnread(open.uid); setReadMenu(false); }}>● {t("mail.markUnread")}</button>
+                        {spamFolder && folder !== spamFolder && (
+                          <button onClick={() => { moveMsg(open.uid, spamFolder); setReadMenu(false); }}>🚫 {t("mail.spam")}</button>
+                        )}
+                        <button onClick={() => { setReadMenu(false); if (activeId != null) openTransfer(activeId, folder, [open.uid]); }}>↪ {t("xfer.toAccount")}</button>
+                        {folderNames.length > 1 && (
+                          <label className="read-menu-move">
+                            <span>📁 {t("mail.moveTo")}</span>
+                            <select value="" onChange={(e) => { if (e.target.value) { moveMsg(open.uid, e.target.value); setReadMenu(false); } }}>
+                              <option value="">…</option>
+                              {folderNames.filter((f) => f !== folder).map((f) => <option key={f} value={f}>{f}</option>)}
+                            </select>
+                          </label>
+                        )}
+                        <hr />
+                        <button className="read-menu-del" onClick={() => { setReadMenu(false); del(open); }}>🗑 {t("mail.delete")}</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="mail-head-meta">
+                <button className="mail-star" onClick={() => toggleFlag(open)} title={t("mail.flag")}>
+                  {(messages.find((m) => m.uid === open.uid)?.flagged ?? open.flagged) ? "★" : "☆"}
+                </button>
+                <div className="mail-head-from">
+                  <span className="mail-head-name">{parseAddr(open.from).name}</span>
+                  <span className="mail-head-addr">&lt;{parseAddr(open.from).email}&gt;</span>
+                </div>
+                <button className="mail-head-toexp" onClick={() => setDetailsOpen((v) => !v)} title={t("mail.details")}>
+                  {t("mail.hdrTo")}: {open.to[0] || "—"} <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>
+                </button>
+                <span className="grow" />
+                <span className="mail-head-date">{prettyDate(open.date)}</span>
+              </div>
+              {detailsOpen && (
+                <div className="mail-head-details">
+                  <div><span className="label">{t("mail.hdrFrom")}</span><span>{open.from}</span></div>
+                  <div><span className="label">{t("mail.hdrTo")}</span><span>{open.to.join(", ") || "—"}</span></div>
+                  <div><span className="label">{t("mail.hdrDate")}</span><span>{open.date}</span></div>
+                  <div><span className="label">{t("mail.hdrSubject")}</span><span>{open.subject || t("mail.noSubject")}</span></div>
+                </div>
               )}
-              {spamFolder && folder !== spamFolder && (
-                <button className="ghost" onClick={() => moveMsg(open.uid, spamFolder)} title={t("mail.spam")}>🚫 {t("mail.spam")}</button>
-              )}
-              <button className="ghost" onClick={() => activeId != null && openTransfer(activeId, folder, [open.uid])} title={t("xfer.toAccount")}>↪ {t("xfer.toAccount")}</button>
-              <button className="ghost" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
-              <span className="grow" />
-              <button className="ghost" onClick={() => { setOpen(null); setMobilePane("list"); }} title={t("mail.back")}>✕</button>
             </div>
-            <h2 style={{ marginBottom: "0.2rem", fontSize: "1.2rem" }}>{open.subject || t("mail.noSubject")}</h2>
-            <div className="mail-from">{open.from} · {open.date}</div>
             <hr style={{ borderColor: "var(--self-line)", margin: "0.9rem 0" }} />
             {open.text ? (
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>

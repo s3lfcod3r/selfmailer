@@ -281,6 +281,48 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 }
 .ctx-menu button:hover { background: var(--self-bg-3); color: var(--self-text); }
 
+/* --- Kompakter Lese-Kopf (Synology-Stil) --- */
+.mail-head { margin-bottom: 0.4rem; }
+.mail-head-top { display: flex; align-items: flex-start; gap: 0.6rem; }
+.mail-head-subject { flex: 1; min-width: 0; margin: 0; font-size: 1.15rem; font-weight: 700; line-height: 1.3; }
+.mail-head-actions { position: relative; display: flex; gap: 0.25rem; flex: 0 0 auto; }
+.mail-head-actions .icon-btn { font-size: 1.05rem; padding: 0.3rem 0.5rem; }
+.mail-head-meta { display: flex; align-items: center; gap: 0.55rem; margin-top: 0.5rem; font-size: 0.88rem; color: var(--self-text-2); }
+.mail-star { background: none; border: none; cursor: pointer; padding: 0; flex: 0 0 auto; font-size: 1.1rem; color: var(--self-cyan, #00e5c8); }
+.mail-head-from { display: flex; align-items: baseline; gap: 0.4rem; min-width: 0; flex-shrink: 1; overflow: hidden; }
+.mail-head-name { font-weight: 600; color: var(--self-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mail-head-addr { color: var(--self-text-3); font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mail-head-toexp {
+  background: none; border: 1px solid var(--self-line); border-radius: 999px;
+  color: var(--self-text-2); cursor: pointer; padding: 0.12rem 0.55rem; font: inherit; font-size: 0.8rem;
+  flex: 0 0 auto; white-space: nowrap; max-width: 42%; overflow: hidden; text-overflow: ellipsis;
+}
+.mail-head-toexp:hover { border-color: var(--self-line-strong); color: var(--self-text); }
+.mail-head-date { color: var(--self-text-3); font-size: 0.8rem; white-space: nowrap; flex: 0 0 auto; }
+.mail-head-details {
+  margin-top: 0.5rem; padding: 0.6rem 0.8rem; background: var(--self-bg-2);
+  border: 1px solid var(--self-line); border-radius: 8px;
+  display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.8rem; font-size: 0.84rem;
+}
+.mail-head-details > div { display: contents; }
+.mail-head-details > div > span:last-child { color: var(--self-text); word-break: break-word; }
+.read-menu {
+  position: absolute; right: 0; top: 112%; z-index: 50; min-width: 215px;
+  background: var(--self-bg-2); border: 1px solid var(--self-line-strong);
+  border-radius: 10px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45); padding: 0.4rem;
+  display: flex; flex-direction: column; gap: 0.1rem;
+}
+.read-menu button {
+  display: flex; align-items: center; gap: 0.5rem; text-align: left;
+  background: none; border: none; color: var(--self-text-2);
+  padding: 0.5rem 0.6rem; border-radius: 7px; cursor: pointer; font: inherit; font-size: 0.88rem;
+}
+.read-menu button:hover { background: var(--self-bg-3); color: var(--self-text); }
+.read-menu hr { border: none; border-top: 1px solid var(--self-line); margin: 0.3rem 0; }
+.read-menu-del { color: var(--self-red); }
+.read-menu-move { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem; font-size: 0.88rem; color: var(--self-text-2); cursor: pointer; }
+.read-menu-move select { flex: 1; font-size: 0.82rem; padding: 0.2rem 0.3rem; }
+
 /* Compose: Formatier-Leiste + Editor + Optionen-Menü */
 .compose-toolbar {
   display: flex; flex-wrap: wrap; gap: 0.1rem;
