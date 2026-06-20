@@ -176,9 +176,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
       .catch(() => { /* Cache/INBOX bleibt stehen */ });
   }
 
-  async function loadAccountFolders(a: Account) {
+  async function loadAccountFolders(a: Account, liveRefresh = true) {
     // Cache-first: ist die Ordnerliste schon gecacht, erscheint die Seitenleiste
-    // SOFORT (kein IMAP). Danach wird im Hintergrund still live aufgefrischt.
+    // SOFORT (kein IMAP). Live-Auffrischung NUR fuers aktive Konto (liveRefresh),
+    // damit nicht 8 langsame IMAP-Abrufe gleichzeitig die App blockieren.
     let hadCache = false;
     try {
       const cached = await api.get<FolderCount[]>(`/mail/${a.id}/folders/counts`);
@@ -186,22 +187,22 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     } catch { /* egal — unten Fallback */ }
 
     if (!hadCache) {
-      // Noch kein Cache: SOFORT INBOX zeigen und NICHT auf IMAP warten. Standard-
-      // Ordner sicherstellen + Live-Zaehler laufen im HINTERGRUND und fuellen dann
-      // den Cache. So friert die Seite nie ein, egal wie langsam das Konto ist.
+      // Noch kein Cache: SOFORT INBOX zeigen, nie auf IMAP warten. Live nur, wenn
+      // das aktive Konto — sonst erst beim Anklicken (kein 8-fach-IMAP-Sturm).
       setFoldersByAcc((m) => ({ ...m, [a.id]: m[a.id]?.length ? m[a.id] : [{ name: "INBOX", unseen: 0, total: 0 }] }));
-      api.post(`/mail/${a.id}/folders/defaults`).catch(() => {}).then(() => refreshFoldersLive(a));
+      if (liveRefresh) api.post(`/mail/${a.id}/folders/defaults`).catch(() => {}).then(() => refreshFoldersLive(a));
       return;
     }
 
-    // Folge-Laden (F5): Live-Abgleich nur im Hintergrund, ohne zu blockieren.
-    refreshFoldersLive(a);
+    if (liveRefresh) refreshFoldersLive(a);
   }
   useEffect(() => {
     api.get<Account[]>("/accounts").then((list) => {
       setAccounts(list);
-      if (list.length) setSel((s) => s ?? { acc: list[0].id, folder: "INBOX" });
-      list.forEach(loadAccountFolders);
+      const firstId = list.length ? list[0].id : null;
+      if (firstId != null) setSel((s) => s ?? { acc: firstId, folder: "INBOX" });
+      // Cache-first fuer ALLE (instant); Live nur fuers aktive Konto.
+      list.forEach((a) => loadAccountFolders(a, a.id === firstId));
     }).catch((e) => setErr((e as Error).message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -384,6 +385,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel?.acc, sel?.folder, searchActive]);
 
+  // Beim Wechsel auf ein Konto dessen Ordnerzaehler EINMAL live auffrischen.
+  // Inaktive Konten bleiben bis dahin auf dem Cache -> kein 8-fach-IMAP-Sturm.
+  useEffect(() => {
+    if (sel?.acc != null) refreshCounts(sel.acc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel?.acc]);
+
   // Mobile: schließt sich die Lese-Ansicht (Löschen/Verschieben/✕), zurück zur Liste.
   useEffect(() => {
     if (!open && mobilePane === "read") setMobilePane("list");
@@ -395,10 +403,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   useEffect(() => {
     if (!pollMin || accounts.length === 0) return;
     const id = window.setInterval(() => {
-      accounts.forEach((a) => refreshCounts(a.id));
-      // Still aktualisieren: nur Delta-Sync + leise Liste — KEIN reload (kein
-      // Spinner, offene Mail bleibt offen, bereits geladene Seiten bleiben).
-      if (selRef.current) bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
+      // NUR das aktive Konto live auffrischen (nicht alle 8 gleichzeitig — das
+      // hat bei langsamen Konten die App blockiert).
+      if (selRef.current) {
+        refreshCounts(selRef.current.acc);
+        bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
+      }
     }, pollMin * 60000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps

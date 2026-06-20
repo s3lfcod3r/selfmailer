@@ -81,7 +81,7 @@ app.include_router(dashboard.router)
 
 # Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
-APP_BUILD = "2026-06-20-selectall-live"
+APP_BUILD = "2026-06-20-active-only-imap"
 
 
 @app.get("/api/health")
