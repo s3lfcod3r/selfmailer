@@ -479,10 +479,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     if (activeId == null || selected.size === 0) return;
     if (!confirm(t("mail.confirmDelete"))) return;
     const ids = selected, wasAll = selectAllFolder;
-    for (const uid of [...ids]) {
-      try { await api.del(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`); }
-      catch (e) { setErr((e as Error).message); }
-    }
+    // EIN Request statt N: alle UIDs in einer IMAP-Session loeschen (ein Login).
+    try {
+      await api.post(`/mail/${activeId}/messages/batch/delete`, { folder, uids: [...ids] });
+    } catch (e) { setErr((e as Error).message); }
     if (open && ids.has(open.uid)) setOpen(null);
     setSelected(new Set()); setSelectAllFolder(false);
     refreshCounts(activeId);
@@ -505,10 +505,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     if (activeId == null || !dest || uids.length === 0) return;
     setErr("");
     const wasAll = selectAllFolder;
-    for (const uid of uids) {
-      try { await api.post(`/mail/${activeId}/messages/${uid}/move?folder=${encodeURIComponent(folder)}&dest=${encodeURIComponent(dest)}`); }
-      catch (e) { setErr((e as Error).message); }
-    }
+    // EIN Request statt N: alle UIDs in einer IMAP-Session verschieben (ein Login).
+    try {
+      await api.post(`/mail/${activeId}/messages/batch/move`, { folder, uids, dest });
+    } catch (e) { setErr((e as Error).message); }
     if (open && uids.includes(open.uid)) setOpen(null);
     setSelected(new Set()); setSelectAllFolder(false);
     refreshCounts(activeId);

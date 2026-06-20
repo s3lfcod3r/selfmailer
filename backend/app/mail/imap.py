@@ -225,6 +225,33 @@ def move_message(account: MailAccount, password: str, uid: str, dest: str, folde
         box.move(uid, dest)
 
 
+def delete_messages(account: MailAccount, password: str, uids: list[str], folder: str = "INBOX") -> dict:
+    """Mehrere Mails in EINER IMAP-Session loeschen (Papierkorb oder hart).
+
+    Statt pro Mail eine eigene Verbindung (N Logins) ein einziger Login + EIN
+    MOVE/DELETE ueber die ganze UID-Liste — auf entfernten Servern (web.de) ist
+    der Login-/Round-Trip der dominierende Kostenfaktor.
+    """
+    if not uids:
+        return {"result": "none", "count": 0}
+    with _mailbox(account, password, folder=folder) as box:
+        trash = _trash_folder(box, folder)
+        if trash and trash != folder:
+            box.move(uids, trash)
+            return {"result": "moved", "count": len(uids)}
+        box.delete(uids)
+        return {"result": "deleted", "count": len(uids)}
+
+
+def move_messages(account: MailAccount, password: str, uids: list[str], dest: str, folder: str = "INBOX") -> dict:
+    """Mehrere Mails in EINER IMAP-Session verschieben (ein Login + EIN MOVE)."""
+    if not uids:
+        return {"count": 0}
+    with _mailbox(account, password, folder=folder) as box:
+        box.move(uids, dest)
+        return {"count": len(uids)}
+
+
 def _delimiter(box: MailBox) -> str:
     """Server-Hierarchie-Trennzeichen (z. B. "/" oder ".") aus der Ordnerliste."""
     for f in box.folder.list():

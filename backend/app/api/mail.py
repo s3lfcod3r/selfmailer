@@ -13,7 +13,7 @@ from ..mail import imap as imap_mod
 from ..mail import migrate as migrate_mod
 from ..mail import smtp as smtp_mod
 from ..models import MailAccount, User
-from ..schemas import MessageDetail, MessageHeader, MigrateRequest, SendRequest, TransferRequest
+from ..schemas import BatchRequest, MessageDetail, MessageHeader, MigrateRequest, SendRequest, TransferRequest
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
@@ -316,6 +316,48 @@ def move_message(
     except Exception:  # noqa: BLE001
         pass
     return {"ok": True}
+
+
+@router.post("/{account_id}/messages/batch/delete")
+def delete_messages_batch(
+    account_id: int,
+    data: BatchRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Loescht mehrere Mails in EINER IMAP-Session (statt N Einzel-Requests/Logins)."""
+    acc = _account(account_id, user, session)
+    try:
+        result = imap_mod.delete_messages(acc, decrypt(acc.secret_enc), data.uids, folder=data.folder)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Loeschen fehlgeschlagen: {exc}")
+    try:
+        cache_mod.remove_uids(session, account_id, data.folder, data.uids)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "result": result}
+
+
+@router.post("/{account_id}/messages/batch/move")
+def move_messages_batch(
+    account_id: int,
+    data: BatchRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Verschiebt mehrere Mails in EINER IMAP-Session (statt N Einzel-Requests/Logins)."""
+    if not data.dest:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zielordner fehlt")
+    acc = _account(account_id, user, session)
+    try:
+        result = imap_mod.move_messages(acc, decrypt(acc.secret_enc), data.uids, data.dest, folder=data.folder)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Verschieben fehlgeschlagen: {exc}")
+    try:
+        cache_mod.remove_uids(session, account_id, data.folder, data.uids)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "result": result}
 
 
 @router.delete("/{account_id}/messages/{uid}")

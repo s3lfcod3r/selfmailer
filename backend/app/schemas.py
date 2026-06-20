@@ -224,6 +224,13 @@ class TransferRequest(BaseModel):
     limit: int = Field(default=2000, ge=1, le=50000)
 
 
+class BatchRequest(BaseModel):
+    """Mehrere Mails desselben Ordners in einem Rutsch loeschen/verschieben."""
+    folder: str = "INBOX"
+    uids: list[str]
+    dest: str | None = None              # Zielordner (nur beim Verschieben)
+
+
 class RuleUpdate(BaseModel):
     """Teil-Update einer Regel (Bearbeiten). Nur gesetzte Felder werden geaendert."""
     field: str | None = None
