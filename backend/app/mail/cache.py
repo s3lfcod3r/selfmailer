@@ -22,7 +22,18 @@ from .imap import FLAGGED, SEEN, _mailbox, _snippet
 _SYNC_CAP = 1000
 _COMMIT_EVERY = 200
 # Flag-Abgleich nur fuer die neuesten N UIDs (dort aendern sich Flags am ehesten).
-_FLAG_WINDOW = 500
+_FLAG_WINDOW = 120
+# Der Flag-Abgleich (Header-Fetch vieler Mails) ist der teuerste Teil eines Syncs
+# und aendert sich selten. Darum hoechstens alle N Sekunden — haeufige Ordner-
+# wechsel/Polls laufen dann nur noch billig (Status + UID-Diff).
+_FLAG_REFRESH_SECS = 25
+
+
+def _as_utc(value: dt.datetime | None) -> dt.datetime | None:
+    """Naive (aus SQLite gelesene) Zeit als UTC interpretieren, sonst unveraendert."""
+    if value is None:
+        return None
+    return value.replace(tzinfo=dt.timezone.utc) if value.tzinfo is None else value
 
 
 def _to_dict(r: CachedMessage) -> dict:
@@ -269,22 +280,28 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                 if added % _COMMIT_EVERY == 0:  # Teilfortschritt sichern
                     session.commit()
 
-        # Flags der neuesten bereits gecachten Mails abgleichen (leicht, kein Body).
-        recent = [u for u in server_uids[-_FLAG_WINDOW:] if u in cached_by_uid]
-        if recent:
-            for msg in box.fetch(AND(uid=",".join(recent)), mark_seen=False, headers_only=True, bulk=100):
-                row = cached_by_uid.get(msg.uid or "")
-                if row:
-                    row.seen = SEEN in msg.flags
-                    row.flagged = FLAGGED in msg.flags
-                    session.add(row)
+        # Flags der neuesten gecachten Mails abgleichen — TEUERSTER Teil (Header-
+        # Fetch vieler Mails). Gedrosselt: nur, wenn der letzte Sync laenger als
+        # _FLAG_REFRESH_SECS her ist. Neue/geloeschte Mails oben laufen immer.
+        now = dt.datetime.now(dt.timezone.utc)
+        prev_sync = _as_utc(fs.last_sync) if fs else None
+        do_flags = prev_sync is None or (now - prev_sync).total_seconds() >= _FLAG_REFRESH_SECS
+        if do_flags:
+            recent = [u for u in server_uids[-_FLAG_WINDOW:] if u in cached_by_uid]
+            if recent:
+                for msg in box.fetch(AND(uid=",".join(recent)), mark_seen=False, headers_only=True, bulk=100):
+                    row = cached_by_uid.get(msg.uid or "")
+                    if row:
+                        row.seen = SEEN in msg.flags
+                        row.flagged = FLAGGED in msg.flags
+                        session.add(row)
 
         if not fs:
             fs = FolderSync(account_id=account.id, folder=folder)
         fs.uidvalidity = uidvalidity
         fs.total = total
         fs.unseen = unseen
-        fs.last_sync = dt.datetime.now(dt.timezone.utc)
+        fs.last_sync = now
         session.add(fs)
         session.commit()
 
