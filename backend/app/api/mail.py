@@ -8,6 +8,7 @@ from sqlmodel import Session
 
 from ..core.crypto import decrypt
 from ..core.db import get_session
+from ..mail import cache as cache_mod
 from ..mail import imap as imap_mod
 from ..mail import migrate as migrate_mod
 from ..mail import smtp as smtp_mod
@@ -135,7 +136,31 @@ def messages(
     session: Session = Depends(get_session),
 ) -> list[dict]:
     acc = _account(account_id, user, session)
-    return imap_mod.list_messages(acc, decrypt(acc.secret_enc), folder=folder, limit=limit, offset=offset)
+    # Cache-first: ist der Ordner schon gecacht, kommt die Liste SOFORT aus der DB.
+    # Beim ersten Mal wird nur die erste Seite live nachgeladen (schnell), den Rest
+    # holt der Hintergrund-Sync (/sync). Faellt der Cache aus → ganz normal live.
+    try:
+        if not cache_mod.has_cache(session, account_id, folder):
+            cache_mod.sync_folder(session, acc, decrypt(acc.secret_enc), folder, cap=max(limit, 50))
+        return cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset)
+    except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
+        return imap_mod.list_messages(acc, decrypt(acc.secret_enc), folder=folder, limit=limit, offset=offset)
+
+
+@router.post("/{account_id}/sync")
+def sync_messages(
+    account_id: int,
+    folder: str = "INBOX",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Delta-Sync: holt neue Mails in den Cache, entfernt geloeschte, gleicht Flags
+    ab. Das Frontend ruft das im Hintergrund auf, nachdem es den Cache gezeigt hat."""
+    acc = _account(account_id, user, session)
+    try:
+        return cache_mod.sync_folder(session, acc, decrypt(acc.secret_enc), folder)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Sync fehlgeschlagen: {exc}")
 
 
 @router.post("/{account_id}/migrate")
@@ -230,6 +255,10 @@ def set_flags(
         imap_mod.set_flags(acc, decrypt(acc.secret_enc), uid, folder=folder, seen=seen, flagged=flagged)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Aktion fehlgeschlagen: {exc}")
+    try:
+        cache_mod.update_flags(session, account_id, folder, uid, seen=seen, flagged=flagged)
+    except Exception:  # noqa: BLE001 - Cache-Pflege darf nie die Aktion kippen
+        pass
     return {"ok": True}
 
 
@@ -247,6 +276,10 @@ def move_message(
         imap_mod.move_message(acc, decrypt(acc.secret_enc), uid, dest, folder=folder)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Verschieben fehlgeschlagen: {exc}")
+    try:
+        cache_mod.remove_uids(session, account_id, folder, [uid])
+    except Exception:  # noqa: BLE001
+        pass
     return {"ok": True}
 
 
@@ -263,6 +296,10 @@ def delete_message(
         result = imap_mod.delete_message(acc, decrypt(acc.secret_enc), uid, folder=folder)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Loeschen fehlgeschlagen: {exc}")
+    try:
+        cache_mod.remove_uids(session, account_id, folder, [uid])
+    except Exception:  # noqa: BLE001
+        pass
     return {"ok": True, "result": result}
 
 

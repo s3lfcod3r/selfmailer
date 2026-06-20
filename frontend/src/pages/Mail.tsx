@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, download, type Account, type MsgHeader, type MsgDetail, type TransferResult } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
@@ -48,6 +48,7 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dragUids, setDragUids] = useState<string[]>([]);
@@ -230,13 +231,34 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
   function accountById(id: number): Account { return accounts.find((a) => a.id === id)!; }
 
   // --- Nachrichten ---
+  // Aktuelle Auswahl als Ref, damit ein verspaeteter Hintergrund-Sync nur dann
+  // die Liste aktualisiert, wenn der Nutzer noch im selben Ordner ist.
+  const selRef = useRef(sel);
+  useEffect(() => { selRef.current = sel; }, [sel]);
+
   function reload() {
     if (!sel) return;
+    const acc = sel.acc, folder = sel.folder;
     setLoading(true); setErr(""); setOpen(null); setSelected(new Set());
-    api.get<MsgHeader[]>(`/mail/${sel.acc}/messages?folder=${encodeURIComponent(sel.folder)}&limit=${PAGE_SIZE}`)
+    // 1) Cache: kommt sofort aus der DB (oder beim ersten Mal live).
+    api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(folder)}&limit=${PAGE_SIZE}`)
       .then((ms) => { setMessages(ms); setHasMore(ms.length === PAGE_SIZE); })
       .catch((e) => setErr((e as Error).message))
-      .finally(() => setLoading(false));
+      .finally(() => { setLoading(false); bgSync(acc, folder); });
+  }
+  // 2) Hintergrund-Sync: neue Mails/Flags nachziehen, dann still aktualisieren.
+  function bgSync(acc: number, folder: string) {
+    setSyncing(true);
+    api.post(`/mail/${acc}/sync?folder=${encodeURIComponent(folder)}`)
+      .then(() => api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(folder)}&limit=${PAGE_SIZE}`))
+      .then((ms) => {
+        if (selRef.current?.acc === acc && selRef.current?.folder === folder) {
+          setMessages(ms); setHasMore(ms.length === PAGE_SIZE);
+        }
+        refreshCounts(acc);
+      })
+      .catch(() => { /* Sync ist best-effort */ })
+      .finally(() => setSyncing(false));
   }
   // Weiterblättern: naechste Seite holen und anhaengen (offset = bereits geladene).
   function loadMore() {
@@ -533,6 +555,7 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
             </span>
           </div>
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
+          {!loading && syncing && <div className="muted" style={{ fontSize: "0.72rem", padding: "0 0.6rem 0.3rem" }}>⟳ {t("mail.syncing")}</div>}
           {selected.size > 0 && (
             <div className="row" style={{ marginBottom: "0.5rem", padding: "0.4rem 0.6rem", background: "var(--self-bg-2)", borderRadius: "6px", flexWrap: "wrap" }}>
               <span className="label">{t("mail.selected", { n: selected.size })}</span>

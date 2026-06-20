@@ -188,6 +188,44 @@ class MailRule(SQLModel, table=True):
     created_at: dt.datetime = Field(default_factory=_now)
 
 
+class CachedMessage(SQLModel, table=True):
+    """Lokaler Cache eines Mail-Kopfs (fuer die schnelle Listenanzeige).
+
+    Pro (account_id, folder, uid) eine Zeile. Inhalt/Anhaenge werden NICHT
+    gespeichert — nur was die Liste braucht. Der Body wird beim Oeffnen weiterhin
+    live geholt. Der Cache ist reine Beschleunigung; bei Zweifel wird live geladen.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    account_id: int = Field(index=True, foreign_key="mailaccount.id")
+    folder: str = Field(index=True)
+    uid: str = ""                         # IMAP-UID (stabil je UIDVALIDITY)
+    subject: str = ""
+    from_addr: str = ""
+    date_str: str = ""                    # Anzeige-Datum (wie vom Server)
+    sort_date: dt.datetime | None = Field(default=None, index=True)  # zum Sortieren
+    seen: bool = False
+    flagged: bool = False
+    snippet: str = ""
+    has_attachments: bool = False
+
+
+class FolderSync(SQLModel, table=True):
+    """Sync-Zustand eines Ordners: ob/was schon im Cache liegt.
+
+    UIDVALIDITY-Wechsel = Server hat die UID-Nummerierung neu vergeben → Cache des
+    Ordners verwerfen und neu aufbauen.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    account_id: int = Field(index=True, foreign_key="mailaccount.id")
+    folder: str = Field(index=True)
+    uidvalidity: int = 0
+    total: int = 0
+    unseen: int = 0
+    last_sync: dt.datetime | None = None
+
+
 class FeedToken(SQLModel, table=True):
     """Geheimer Token fuer abonnierbare Export-Feeds (ICS/vCard).
 
