@@ -198,7 +198,7 @@ export function Compose({
               <span className="label" style={{ minWidth: 44 }}>{t("compose.from")}</span>
               <select value={fromId} onChange={(e) => setFromId(Number(e.target.value))} style={{ flex: 1 }} disabled={accounts.length === 1}>
                 {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>{a.label ? `${a.label} — ${a.email}` : a.email}</option>
+                  <option key={a.id} value={a.id}>{a.label && a.label !== a.email ? `${a.label} — ${a.email}` : a.email}</option>
                 ))}
               </select>
             </div>
