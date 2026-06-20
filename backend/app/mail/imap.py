@@ -290,6 +290,19 @@ def save_draft(
         return True
 
 
+def move_folder(account: MailAccount, password: str, name: str, new_parent: str) -> str:
+    """Verschiebt einen Ordner unter new_parent (leer = oberste Ebene) per IMAP-
+    RENAME. Der Blattname bleibt; nur der Eltern-Pfad aendert sich."""
+    with _mailbox(account, password) as box:
+        delim = _delimiter(box)
+        leaf = name.rsplit(delim, 1)[-1] if delim in name else name
+        new_path = f"{new_parent}{delim}{leaf}" if new_parent else leaf
+        if new_path == name:
+            return name
+        box.folder.rename(name, new_path)
+        return new_path
+
+
 def rename_folder(account: MailAccount, password: str, old: str, new_name: str) -> str:
     """Benennt einen Ordner um (gleicher Eltern-Pfad, nur Anzeigename neu)."""
     with _mailbox(account, password) as box:

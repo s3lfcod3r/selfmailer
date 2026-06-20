@@ -92,6 +92,24 @@ def rename_folder(
     return {"ok": True, "folder": new_path}
 
 
+@router.post("/{account_id}/folders/move")
+def move_folder(
+    account_id: int,
+    name: str,
+    parent: str = "",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Verschiebt einen Ordner unter einen anderen Eltern-Ordner (parent leer =
+    oberste Ebene) — Reorganisation der Ordnerhierarchie im selben Konto."""
+    acc = _account(account_id, user, session)
+    try:
+        new_path = imap_mod.move_folder(acc, decrypt(acc.secret_enc), name, parent)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Ordner verschieben fehlgeschlagen: {exc}")
+    return {"ok": True, "folder": new_path}
+
+
 @router.delete("/{account_id}/folders")
 def delete_folder(
     account_id: int,
