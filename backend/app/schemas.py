@@ -418,3 +418,4 @@ class FeedTokenOut(BaseModel):
     token: str
     calendar_url: str
     contacts_url: str
+    dashboard_url: str = ""   # gebuendelte Mail-Uebersicht fuer ein externes Dashboard

@@ -21,6 +21,7 @@ from .api import (
     auth,
     calendar,
     contacts,
+    dashboard,
     dav,
     feeds,
     mail,
@@ -75,6 +76,7 @@ app.include_router(calendar.router)
 app.include_router(contacts.router)
 app.include_router(feeds.router)
 app.include_router(dav.router)
+app.include_router(dashboard.router)
 
 
 @app.get("/api/health")

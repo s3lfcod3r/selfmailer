@@ -329,6 +329,32 @@ def move_message(
     return {"ok": True}
 
 
+@router.post("/{account_id}/messages/prefetch")
+def prefetch_bodies(
+    account_id: int,
+    data: BatchRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Waermt den Body-Cache fuer eine Liste von UIDs in EINER IMAP-Session vor.
+
+    Holt nur die noch nicht gecachten Bodies (ein Login + ein Sammel-Fetch) und
+    legt sie ab. Danach kommt jedes Oeffnen dieser Mails sofort aus der DB.
+    Best-effort: Fehler werden geschluckt (Cache ist reine Beschleunigung).
+    """
+    acc = _account(account_id, user, session)
+    try:
+        missing = cache_mod.uncached_detail_uids(session, account_id, data.folder, data.uids)
+        if not missing:
+            return {"ok": True, "cached": 0}
+        details = imap_mod.get_messages(acc, decrypt(acc.secret_enc), missing, folder=data.folder)
+        for d in details:
+            cache_mod.write_detail(session, account_id, data.folder, d.get("uid", ""), d)
+        return {"ok": True, "cached": len(details)}
+    except Exception:  # noqa: BLE001 - Vorwaermen darf nie eine Anfrage kippen
+        return {"ok": False, "cached": 0}
+
+
 @router.post("/{account_id}/messages/batch/delete")
 def delete_messages_batch(
     account_id: int,

@@ -132,32 +132,53 @@ def list_messages(
     return out
 
 
+def _detail_dict(msg) -> dict:
+    """Baut das Detail-Dict (Volltext) aus einer gefetchten Nachricht."""
+    attachments = [
+        {
+            "index": i,
+            "filename": att.filename or f"anhang-{i + 1}",
+            "content_type": att.content_type or "",
+            "size": att.size or len(att.payload or b""),
+        }
+        for i, att in enumerate(msg.attachments)
+    ]
+    return {
+        "uid": msg.uid or "",
+        "subject": msg.subject,
+        "from": msg.from_,
+        "to": list(msg.to),
+        "message_id": msg.obj.get("Message-ID", "") or "",
+        "date": msg.date_str,
+        "seen": SEEN in msg.flags,
+        "flagged": FLAGGED in msg.flags,
+        "text": msg.text or "",
+        "html": msg.html or "",
+        "attachments": attachments,
+    }
+
+
 def get_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> dict | None:
     with _mailbox(account, password, folder=folder) as box:
         for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
-            attachments = [
-                {
-                    "index": i,
-                    "filename": att.filename or f"anhang-{i + 1}",
-                    "content_type": att.content_type or "",
-                    "size": att.size or len(att.payload or b""),
-                }
-                for i, att in enumerate(msg.attachments)
-            ]
-            return {
-                "uid": msg.uid or "",
-                "subject": msg.subject,
-                "from": msg.from_,
-                "to": list(msg.to),
-                "message_id": msg.obj.get("Message-ID", "") or "",
-                "date": msg.date_str,
-                "seen": SEEN in msg.flags,
-                "flagged": FLAGGED in msg.flags,
-                "text": msg.text or "",
-                "html": msg.html or "",
-                "attachments": attachments,
-            }
+            return _detail_dict(msg)
     return None
+
+
+def get_messages(account: MailAccount, password: str, uids: list[str], folder: str = "INBOX") -> list[dict]:
+    """Volltext MEHRERER Mails in EINER IMAP-Session (ein Login + ein Sammel-Fetch).
+
+    Fuer das Vorwaermen des Body-Caches einer ganzen Listenseite, damit jeder
+    Klick danach sofort aus der DB kommt.
+    """
+    if not uids:
+        return []
+    out: list[dict] = []
+    with _mailbox(account, password, folder=folder) as box:
+        for msg in box.fetch(AND(uid=",".join(uids)), mark_seen=False, bulk=True):
+            if msg.uid:
+                out.append(_detail_dict(msg))
+    return out
 
 
 def get_attachment(

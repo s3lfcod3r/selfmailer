@@ -71,7 +71,8 @@ def _payload(token: str) -> FeedTokenOut:
     base = get_settings().base_url.rstrip("/")
     cal = f"{base}/api/v1/calendar/export.ics?token={token}"
     con = f"{base}/api/v1/contacts/export.vcf?token={token}"
-    return FeedTokenOut(token=token, calendar_url=cal, contacts_url=con)
+    dash = f"{base}/api/v1/dashboard/summary?token={token}"
+    return FeedTokenOut(token=token, calendar_url=cal, contacts_url=con, dashboard_url=dash)
 
 
 @router.get("/token", response_model=FeedTokenOut)

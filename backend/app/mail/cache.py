@@ -49,6 +49,31 @@ def read_messages(session: Session, account_id: int, folder: str, limit: int = 5
     return [_to_dict(r) for r in rows]
 
 
+def recent_unseen(session: Session, account_id: int, folder: str = "INBOX", limit: int = 5) -> list[dict]:
+    """Neueste UNGELESENE Koepfe eines Ordners (fuer eine Badge-Vorschau).
+
+    Reiner Cache-Lesezugriff; enthaelt zusaetzlich `ts` (ISO-Sortierdatum), damit
+    der Aufrufer Mails mehrerer Konten zeitlich mischen kann.
+    """
+    rows = session.exec(
+        select(CachedMessage)
+        .where(
+            CachedMessage.account_id == account_id,
+            CachedMessage.folder == folder,
+            CachedMessage.seen == False,  # noqa: E712 - SQL-Vergleich, nicht `is False`
+        )
+        .order_by(CachedMessage.sort_date.desc(), CachedMessage.id.desc())
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "uid": r.uid, "subject": r.subject, "from": r.from_addr,
+            "date": r.date_str, "ts": r.sort_date.isoformat() if r.sort_date else "",
+        }
+        for r in rows
+    ]
+
+
 def folder_uids(session: Session, account_id: int, folder: str) -> list[str]:
     """Alle gecachten UIDs eines Ordners (neueste zuerst) — fuer "Alle auswaehlen".
 
@@ -120,6 +145,25 @@ def read_detail(session: Session, account_id: int, folder: str, uid: str) -> dic
     detail["seen"] = row.seen
     detail["flagged"] = row.flagged
     return detail
+
+
+def uncached_detail_uids(session: Session, account_id: int, folder: str, uids: list[str]) -> list[str]:
+    """Von uids diejenigen, die noch KEINEN gecachten Volltext haben.
+
+    Damit das Vorwaermen nur fehlende Bodies holt (kein erneuter Server-Abruf
+    fuer schon gecachte Mails).
+    """
+    if not uids:
+        return []
+    rows = session.exec(
+        select(CachedMessage.uid, CachedMessage.detail_json).where(
+            CachedMessage.account_id == account_id,
+            CachedMessage.folder == folder,
+            CachedMessage.uid.in_(uids),
+        )
+    ).all()
+    have = {uid for uid, dj in rows if dj}
+    return [u for u in uids if u not in have]
 
 
 def write_detail(session: Session, account_id: int, folder: str, uid: str, detail: dict) -> None:

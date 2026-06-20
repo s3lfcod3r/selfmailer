@@ -335,7 +335,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     const acc = sel.acc, fol = sel.folder;
     setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false); setPage(1);
     fetchPage(acc, fol, 1)
-      .then((ms) => setMessages(ms))
+      .then((ms) => { setMessages(ms); warmBodies(acc, fol, ms); })
       .catch((e) => setErr((e as Error).message))
       .finally(() => { setLoading(false); bgSync(acc, fol, 1); });
   }
@@ -346,6 +346,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
       .then(() => fetchPage(acc, fol, p))
       .then((ms) => {
         if (selRef.current?.acc === acc && selRef.current?.folder === fol) setMessages(ms);
+        warmBodies(acc, fol, ms);
         refreshCounts(acc);
       })
       .catch(() => { /* Sync ist best-effort */ })
@@ -358,7 +359,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     if (clamped === page) return;
     setPage(clamped); setOpen(null); setLoadingMore(true);
     fetchPage(sel.acc, sel.folder, clamped)
-      .then((ms) => setMessages(ms))
+      .then((ms) => { setMessages(ms); warmBodies(sel.acc, sel.folder, ms); })
       .catch((e) => setErr((e as Error).message))
       .finally(() => setLoadingMore(false));
   }
@@ -370,7 +371,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     const acc = sel.acc, fol = sel.folder;
     setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false);
     api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=1000`)
-      .then((ms) => setMessages(ms))
+      .then((ms) => { setMessages(ms); warmBodies(acc, fol, ms); })
       .catch((e) => setErr((e as Error).message))
       .finally(() => setLoading(false));
   }
@@ -430,6 +431,16 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   // Body beim Drueberfahren vorladen: der erste Live-Abruf landet im DB-Cache,
   // sodass der anschliessende Klick die Mail SOFORT aus dem Cache zeigt. Pro
   // (Konto/Ordner/uid) nur einmal — kein Mehrfach-Login beim Hin- und Herfahren.
+  // Ganze Listenseite in EINEM Request vorwaermen: das Backend holt die noch
+  // nicht gecachten Bodies in einer IMAP-Session und legt sie in der DB ab.
+  // Danach kommt JEDER Klick sofort aus dem Cache — kein Gedenkzeit-Login mehr.
+  function warmBodies(acc: number, fol: string, msgs: MsgHeader[]) {
+    const uids = msgs.map((m) => m.uid).filter(Boolean);
+    if (uids.length === 0) return;
+    api.post(`/mail/${acc}/messages/prefetch`, { folder: fol, uids })
+      .then(() => { uids.forEach((u) => prefetchedRef.current.add(`${acc}:${fol}:${u}`)); })
+      .catch(() => { /* Vorwaermen ist best-effort */ });
+  }
   const prefetchedRef = useRef<Set<string>>(new Set());
   function prefetchMsg(uid: string) {
     if (activeId == null) return;
