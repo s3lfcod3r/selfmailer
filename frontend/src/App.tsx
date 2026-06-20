@@ -46,6 +46,11 @@ type ThemeCustom = { bg: string; surface: string; text: string; accent: string }
 const EMPTY_CUSTOM: ThemeCustom = { bg: "", surface: "", text: "", accent: "" };
 // Akzent-Vorschlaege (erster = Self-Teal-Standard).
 const ACCENTS = ["#33a78c", "#1db8d4", "#7c6cf0", "#3fb950", "#e0883a", "#e0588f"];
+// Standard-Farben je Modus (Vorschau-Default der Farbwaehler, wenn nichts eigenes gesetzt ist).
+const THEME_DEFAULTS: Record<string, ThemeCustom> = {
+  dark: { bg: "#080c11", surface: "#161b22", text: "#d4e4de", accent: "#33a78c" },
+  light: { bg: "#eef1f6", surface: "#ffffff", text: "#1a2230", accent: "#0a9d8c" },
+};
 
 function _adj(hex: string, amt: number): string {
   const h = hex.replace("#", "");
@@ -126,15 +131,26 @@ export function App() {
     localStorage.setItem("selfmailer.uiScale", String(uiScale));
   }, [uiScale]);
   // Eigene Theme-Farben (Overrides). Leerer Wert = Standard des gewaehlten Modus.
-  const [themeCustom, setThemeCustom] = useState<ThemeCustom>(() => {
-    try { return { ...EMPTY_CUSTOM, ...JSON.parse(localStorage.getItem("selfmailer.themeCustom") || "{}") }; }
-    catch { return { ...EMPTY_CUSTOM }; }
+  // Eigene Farben GETRENNT pro Modus (dunkel/hell haben jeweils eigene Werte).
+  const [themeCustomAll, setThemeCustomAll] = useState<{ dark: ThemeCustom; light: ThemeCustom }>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem("selfmailer.themeCustom") || "{}");
+      // Migration: alte (modus-uebergreifende) Werte dem Dunkel-Modus zuordnen.
+      if (raw && ("bg" in raw || "accent" in raw || "text" in raw || "surface" in raw)) {
+        return { dark: { ...EMPTY_CUSTOM, ...raw }, light: { ...EMPTY_CUSTOM } };
+      }
+      return { dark: { ...EMPTY_CUSTOM, ...(raw.dark || {}) }, light: { ...EMPTY_CUSTOM, ...(raw.light || {}) } };
+    } catch { return { dark: { ...EMPTY_CUSTOM }, light: { ...EMPTY_CUSTOM } }; }
   });
   const [designOpen, setDesignOpen] = useState(false);
+  const tmode: "dark" | "light" = theme === "light" ? "light" : "dark";
+  const themeCustom = themeCustomAll[tmode];
+  const setThemeCustom = (updater: (c: ThemeCustom) => ThemeCustom) =>
+    setThemeCustomAll((all) => ({ ...all, [tmode]: updater(all[tmode]) }));
   useEffect(() => {
-    applyCustom(themeCustom);
-    localStorage.setItem("selfmailer.themeCustom", JSON.stringify(themeCustom));
-  }, [themeCustom]);
+    applyCustom(themeCustomAll[tmode]);
+    localStorage.setItem("selfmailer.themeCustom", JSON.stringify(themeCustomAll));
+  }, [themeCustomAll, tmode]);
 
   function loadMe() {
     if (!auth.get()) { setUser(null); setReady(true); return; }
@@ -342,7 +358,7 @@ export function App() {
                     onClick={() => setThemeCustom((t0) => ({ ...t0, accent: c }))} title={c} />
                 ))}
                 <label className="design-pick" title={t("design.custom")}>
-                  🎨<input type="color" value={themeCustom.accent || "#33a78c"} onChange={(e) => setThemeCustom((t0) => ({ ...t0, accent: e.target.value }))} />
+                  🎨<input type="color" value={themeCustom.accent || THEME_DEFAULTS[tmode].accent} onChange={(e) => setThemeCustom((t0) => ({ ...t0, accent: e.target.value }))} />
                 </label>
               </div>
             </div>
@@ -350,21 +366,21 @@ export function App() {
             <div className="stack">
               <label className="label">{t("design.ownColors")}</label>
               {([
-                ["bg", t("design.bg"), "#080c11"],
-                ["surface", t("design.surface"), "#161b22"],
-                ["text", t("design.text"), "#d4e4de"],
-              ] as const).map(([key, label, fallback]) => (
+                ["bg", t("design.bg")],
+                ["surface", t("design.surface")],
+                ["text", t("design.text")],
+              ] as const).map(([key, label]) => (
                 <div className="design-color-row" key={key}>
                   <span>{label}</span>
                   <span className="grow" />
                   {themeCustom[key] && <button className="ghost design-clear" title={t("design.resetOne")} onClick={() => setThemeCustom((t0) => ({ ...t0, [key]: "" }))}>↺</button>}
-                  <input type="color" value={themeCustom[key] || fallback} onChange={(e) => setThemeCustom((t0) => ({ ...t0, [key]: e.target.value }))} />
+                  <input type="color" value={themeCustom[key] || THEME_DEFAULTS[tmode][key]} onChange={(e) => setThemeCustom((t0) => ({ ...t0, [key]: e.target.value }))} />
                 </div>
               ))}
             </div>
 
             <div className="row">
-              <button className="ghost" onClick={() => { setThemeCustom({ ...EMPTY_CUSTOM }); setTheme("dark"); }}>↺ {t("design.reset")}</button>
+              <button className="ghost" onClick={() => setThemeCustom(() => ({ ...EMPTY_CUSTOM }))}>↺ {t("design.reset")}</button>
               <span className="grow" />
               <button className="primary" onClick={() => setDesignOpen(false)}>{t("design.done")}</button>
             </div>
