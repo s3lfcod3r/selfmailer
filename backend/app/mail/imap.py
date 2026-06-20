@@ -3,7 +3,10 @@ Threadpool). Verbindungen sind kurzlebig: oeffnen, lesen, schliessen.
 """
 from __future__ import annotations
 
+import os
 import re
+import threading
+import time
 from contextlib import contextmanager
 from collections.abc import Iterator
 from email.message import EmailMessage
@@ -16,19 +19,129 @@ from ..models import MailAccount
 SEEN = r"\Seen"
 FLAGGED = r"\Flagged"
 
+# --- Verbindungs-Pool -------------------------------------------------------
+# IMAP-LOGIN (TCP+TLS+AUTH) kostet je Provider 0,5-3 s. Frueher wurde pro
+# Aktion neu eingeloggt -> Ordnerwechsel/Mail-Oeffnen fuehlten sich zaeh an.
+# Jetzt: pro Konto EINE Verbindung offen halten und wiederverwenden.
+#
+# imap_tools/imaplib sind NICHT thread-safe -> ein Lock je Konto serialisiert
+# die Nutzung (ein Konto kann ohnehin nur eine IMAP-Operation gleichzeitig).
+# Nach Leerlauf wird geschlossen; vor Wiederverwendung per NOOP geprueft und bei
+# Bedarf neu verbunden. Per Env SELFMAILER_IMAP_POOL=0 komplett abschaltbar.
+_POOL_ENABLED = os.getenv("SELFMAILER_IMAP_POOL", "1").strip().lower() not in {"0", "false", "no"}
+_IDLE_TTL = 240.0  # Sekunden Leerlauf, danach Verbindung schliessen
+_POOL: dict[str, "_PooledBox"] = {}
+_POOL_LOCK = threading.Lock()
+
+
+class _PooledBox:
+    __slots__ = ("box", "lock", "last_used", "folder")
+
+    def __init__(self) -> None:
+        self.box: MailBox | None = None
+        self.lock = threading.RLock()
+        self.last_used = 0.0
+        self.folder: str | None = None
+
+
+def _pool_key(account: MailAccount, login: str) -> str:
+    return f"{account.id}:{login}@{account.imap_host}:{account.imap_port}"
+
+
+def _connect(account: MailAccount, login: str, password: str, folder: str) -> MailBox:
+    box = MailBox(account.imap_host, port=account.imap_port)
+    box.login(login, password, initial_folder=folder)
+    return box
+
+
+def _close(box: MailBox | None) -> None:
+    if box is None:
+        return
+    try:
+        box.logout()
+    except Exception:  # pragma: no cover - best effort
+        pass
+
+
+def _reap_idle() -> None:
+    """Schliesst Verbindungen, die laenger als _IDLE_TTL ungenutzt sind.
+
+    Nur Eintraege, deren Lock gerade frei ist (non-blocking), damit das Aufraeumen
+    nie eine laufende Operation stoert."""
+    now = time.monotonic()
+    with _POOL_LOCK:
+        keys = list(_POOL)
+    for key in keys:
+        entry = _POOL.get(key)
+        if entry is None or now - entry.last_used <= _IDLE_TTL:
+            continue
+        if entry.lock.acquire(blocking=False):
+            try:
+                if entry.box is not None and now - entry.last_used > _IDLE_TTL:
+                    _close(entry.box)
+                    entry.box = None
+                    entry.folder = None
+            finally:
+                entry.lock.release()
+
+
+def _ensure_box(entry: _PooledBox, account: MailAccount, login: str, password: str, folder: str) -> MailBox:
+    box = entry.box
+    if box is not None:
+        if time.monotonic() - entry.last_used > _IDLE_TTL:
+            _close(box)
+            box = entry.box = None
+        else:
+            try:
+                box.client.noop()  # lebt die Verbindung noch?
+            except Exception:  # noqa: BLE001 - tote Verbindung -> neu aufbauen
+                _close(box)
+                box = entry.box = None
+    if box is None:
+        box = _connect(account, login, password, folder)
+        entry.box = box
+        entry.folder = folder
+        return box
+    if folder and entry.folder != folder:
+        box.folder.set(folder)
+        entry.folder = folder
+    return box
+
 
 @contextmanager
 def _mailbox(account: MailAccount, password: str, folder: str = "INBOX") -> Iterator[MailBox]:
     login = account.auth_user or account.email
-    box = MailBox(account.imap_host, port=account.imap_port)
-    box.login(login, password, initial_folder=folder)
-    try:
-        yield box
-    finally:
+
+    # Pool aus (oder Konto ohne id) -> altes Verhalten: oeffnen, nutzen, schliessen.
+    if not _POOL_ENABLED or account.id is None:
+        box = _connect(account, login, password, folder)
         try:
-            box.logout()
-        except Exception:  # pragma: no cover - best effort
-            pass
+            yield box
+        finally:
+            _close(box)
+        return
+
+    key = _pool_key(account, login)
+    with _POOL_LOCK:
+        entry = _POOL.get(key)
+        if entry is None:
+            entry = _POOL[key] = _PooledBox()
+
+    entry.lock.acquire()
+    try:
+        box = _ensure_box(entry, account, login, password, folder)
+        try:
+            yield box
+            entry.last_used = time.monotonic()
+        except Exception:
+            # Verbindung koennte nach einem Fehler in unklarem Zustand sein -> verwerfen.
+            _close(entry.box)
+            entry.box = None
+            entry.folder = None
+            raise
+    finally:
+        entry.lock.release()
+        _reap_idle()
 
 
 def list_folders(account: MailAccount, password: str) -> list[str]:
