@@ -309,7 +309,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     catch (e) { setErr((e as Error).message); }
   }
   async function delFolder(accId: number, path: string) {
-    if (!confirm(t("folder.deleteConfirm", { name: path }))) return;
+    if (!(await askConfirm(t("folder.deleteConfirm", { name: path })))) return;
     try {
       await api.del(`/mail/${accId}/folders?name=${encodeURIComponent(path)}`);
       if (activeId === accId && folder === path) setSel({ acc: accId, folder: "INBOX" });
@@ -317,6 +317,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     } catch (e) { setErr((e as Error).message); }
   }
   function accountById(id: number): Account { return accounts.find((a) => a.id === id)!; }
+
+  // Eigener Bestaetigungs-Dialog statt window.confirm (mittig, im App-Design).
+  const [confirmBox, setConfirmBox] = useState<{ message: string; resolve: (ok: boolean) => void } | null>(null);
+  function askConfirm(message: string): Promise<boolean> {
+    return new Promise((resolve) => setConfirmBox({ message, resolve }));
+  }
 
   // --- Nachrichten ---
   // Aktuelle Auswahl als Ref, damit ein verspaeteter Hintergrund-Sync nur dann
@@ -517,7 +523,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   }
   async function del(m: MsgHeader) {
     if (activeId == null) return;
-    if (!confirm(t("mail.confirmDelete"))) return;
+    if (!(await askConfirm(t("mail.confirmDelete")))) return;
     setErr("");
     try {
       await api.del(`/mail/${activeId}/messages/${m.uid}?folder=${encodeURIComponent(folder)}`);
@@ -532,7 +538,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   }
   async function delSelected() {
     if (activeId == null || selected.size === 0) return;
-    if (!confirm(t("mail.confirmDelete"))) return;
+    if (!(await askConfirm(t("mail.confirmDelete")))) return;
     const ids = new Set(selected), wasAll = selectAllFolder, acc = activeId, fol = folder;
     // SOFORT reagieren: Zeilen weg + Auswahl leeren — NICHT auf den Server warten.
     if (open && ids.has(open.uid)) setOpen(null);
@@ -1072,6 +1078,27 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
 
       {draft && activeId != null && (
         <Compose accountId={activeId} draft={draft} onClose={() => { setDraft(null); }} />
+      )}
+
+      {confirmBox && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) { confirmBox.resolve(false); setConfirmBox(null); } }}
+          style={{ position: "fixed", inset: 0, zIndex: 10060, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+        >
+          <div style={{ width: "min(420px, 100%)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 14, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", padding: 20 }}>
+            <p style={{ margin: 0, fontSize: 14, color: "var(--text)", lineHeight: 1.55 }}>{confirmBox.message}</p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+              <button type="button" className="ghost" onClick={() => { confirmBox.resolve(false); setConfirmBox(null); }}>
+                {t("common.cancel")}
+              </button>
+              <button type="button" className="primary" autoFocus onClick={() => { confirmBox.resolve(true); setConfirmBox(null); }}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
