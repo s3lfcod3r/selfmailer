@@ -213,6 +213,17 @@ class MigrateRequest(BaseModel):
     limit: int = Field(default=5000, ge=1, le=50000)  # max. Mails pro Ordner/Lauf
 
 
+class TransferRequest(BaseModel):
+    """Einzelne Mails (uids) oder ganzen Ordner (uids=None) in ein ANDERES Konto
+    kopieren/verschieben."""
+    source_folder: str = "INBOX"
+    uids: list[str] | None = None        # None = ganzer Ordner
+    dest_account_id: int
+    dest_folder: str
+    move: bool = False                   # True = nach Kopie aus Quelle löschen
+    limit: int = Field(default=2000, ge=1, le=50000)
+
+
 class RuleUpdate(BaseModel):
     """Teil-Update einer Regel (Bearbeiten). Nur gesetzte Felder werden geaendert."""
     field: str | None = None

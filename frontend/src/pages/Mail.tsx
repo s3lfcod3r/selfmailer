@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, download, type Account, type MsgHeader, type MsgDetail } from "../lib/api";
+import { api, download, type Account, type MsgHeader, type MsgDetail, type TransferResult } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
@@ -70,6 +70,12 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
   // Mobile/Tablet: nur eine Spalte zur Zeit (Drill-down Ordner → Liste → Lesen).
   // Auf Desktop (>900px) ignoriert das CSS das Attribut und zeigt alle 3 Spalten.
   const [mobilePane, setMobilePane] = useState<"folders" | "list" | "read">("list");
+  // Konto-Transfer: ausgewaehlte Mails ODER ganzer Ordner (uids=null) in ein
+  // ANDERES Konto kopieren/verschieben.
+  const [transfer, setTransfer] = useState<{ sourceAcc: number; sourceFolder: string; uids: string[] | null } | null>(null);
+  const [xferAcc, setXferAcc] = useState<number>(0);
+  const [xferFolder, setXferFolder] = useState<string>("");
+  const [xferBusy, setXferBusy] = useState(false);
 
   function makeResize(current: number, setW: (n: number) => void, key: string, min: number, max: number) {
     return (e: React.MouseEvent) => {
@@ -365,6 +371,29 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
     refreshCounts(activeId);
   }
 
+  function openTransfer(sourceAcc: number, sourceFolder: string, uids: string[] | null) {
+    setTransfer({ sourceAcc, sourceFolder, uids });
+    const first = accounts.find((a) => a.id !== sourceAcc);
+    setXferAcc(first?.id ?? 0);
+    setXferFolder("");
+    setCtxMenu(null);
+  }
+  async function submitTransfer(move: boolean) {
+    if (!transfer || !xferAcc || !xferFolder) return;
+    setXferBusy(true); setErr("");
+    try {
+      const r = await api.post<TransferResult>(`/mail/${transfer.sourceAcc}/transfer`, {
+        source_folder: transfer.sourceFolder, uids: transfer.uids,
+        dest_account_id: xferAcc, dest_folder: xferFolder, move,
+      });
+      refreshCounts(transfer.sourceAcc); refreshCounts(xferAcc);
+      if (move && transfer.sourceAcc === activeId) { setSelected(new Set()); setOpen(null); reload(); }
+      setTransfer(null);
+      if (r.errors.length) setErr(r.errors.join("; "));
+    } catch (e) { setErr((e as Error).message); }
+    finally { setXferBusy(false); }
+  }
+
   function renderNode(accId: number, node: FolderNode, depth: number): ReactNode {
     const hasKids = node.children.length > 0;
     const isOpen = expanded.has(expKey(accId, node.path));
@@ -503,6 +532,7 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
               {spamFolder && folder !== spamFolder && (
                 <button className="ghost" onClick={() => moveUids(spamFolder, [...selected])}>🚫 {t("mail.spam")}</button>
               )}
+              <button className="ghost" onClick={() => activeId != null && openTransfer(activeId, folder, [...selected])}>↪ {t("xfer.toAccount")}</button>
               <button className="ghost" onClick={delSelected}>🗑 {t("mail.delete")}</button>
             </div>
           )}
@@ -566,6 +596,7 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
               {spamFolder && folder !== spamFolder && (
                 <button className="ghost" onClick={() => moveMsg(open.uid, spamFolder)} title={t("mail.spam")}>🚫 {t("mail.spam")}</button>
               )}
+              <button className="ghost" onClick={() => activeId != null && openTransfer(activeId, folder, [open.uid])} title={t("xfer.toAccount")}>↪ {t("xfer.toAccount")}</button>
               <button className="ghost" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
               <span className="grow" />
               <button className="ghost" onClick={() => { setOpen(null); setMobilePane("list"); }} title={t("mail.back")}>✕</button>
@@ -605,10 +636,46 @@ export function Mail({ search = "", filter, pollMin = 5 }: { search?: string; fi
           <div className="menu-backdrop" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
           <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
             <button onClick={() => { newSubfolder(ctxMenu.acc, ctxMenu.node); setCtxMenu(null); }}>📁 {t("folder.newSub")}</button>
+            <button onClick={() => openTransfer(ctxMenu.acc, ctxMenu.node.path, null)}>↪ {t("xfer.folderToAccount")}</button>
             {!ctxMenu.node.special && <button onClick={() => { renameFolder(ctxMenu.acc, ctxMenu.node); setCtxMenu(null); }}>✏ {t("folder.rename")}</button>}
             {!ctxMenu.node.special && <button onClick={() => { delFolder(ctxMenu.acc, ctxMenu.node.path); setCtxMenu(null); }}>🗑 {t("common.delete")}</button>}
           </div>
         </>
+      )}
+
+      {transfer && (
+        <div className="modal-backdrop" onClick={() => setTransfer(null)}>
+          <div className="modal card stack" onClick={(e) => e.stopPropagation()}>
+            <div className="topbar">
+              <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{t("xfer.title")}</h2>
+              <button type="button" className="ghost" onClick={() => setTransfer(null)}>✕</button>
+            </div>
+            <div className="muted" style={{ fontSize: "0.85rem" }}>
+              {transfer.uids ? t("xfer.subjMails", { n: transfer.uids.length }) : t("xfer.subjFolder", { folder: transfer.sourceFolder })}
+            </div>
+            <div className="stack">
+              <label className="label">{t("xfer.account")}</label>
+              <select value={xferAcc} onChange={(e) => { setXferAcc(Number(e.target.value)); setXferFolder(""); }}>
+                <option value={0}>{t("xfer.pickAccount")}</option>
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.label || a.email}</option>)}
+              </select>
+            </div>
+            <div className="stack">
+              <label className="label">{t("xfer.folder")}</label>
+              <select value={xferFolder} onChange={(e) => setXferFolder(e.target.value)}>
+                <option value="">{t("xfer.pickFolder")}</option>
+                {(foldersByAcc[xferAcc] || []).map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
+              </select>
+            </div>
+            {err && <div className="err">{err}</div>}
+            <div className="row">
+              <span className="grow" />
+              <button type="button" className="ghost" onClick={() => setTransfer(null)}>{t("common.cancel")}</button>
+              <button className="ghost" disabled={xferBusy || !xferAcc || !xferFolder} onClick={() => submitTransfer(false)}>{t("xfer.copy")}</button>
+              <button className="primary" disabled={xferBusy || !xferAcc || !xferFolder} onClick={() => submitTransfer(true)}>{xferBusy ? "…" : t("xfer.move")}</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {draft && activeId != null && (

@@ -115,3 +115,4 @@ export type SyncResult = {
 };
 export type MigrateFolder = { source: string; dest: string; count: number; copied: number; skipped: number };
 export type MigrateResult = { folders: MigrateFolder[]; errors: string[]; dry_run: boolean };
+export type TransferResult = { copied: number; skipped: number; deleted: number; errors: string[] };

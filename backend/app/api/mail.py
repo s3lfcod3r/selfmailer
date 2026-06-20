@@ -12,7 +12,7 @@ from ..mail import imap as imap_mod
 from ..mail import migrate as migrate_mod
 from ..mail import smtp as smtp_mod
 from ..models import MailAccount, User
-from ..schemas import MessageDetail, MessageHeader, MigrateRequest, SendRequest
+from ..schemas import MessageDetail, MessageHeader, MigrateRequest, SendRequest, TransferRequest
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
@@ -141,6 +141,27 @@ def migrate_account(
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Migration fehlgeschlagen: {exc}")
+
+
+@router.post("/{account_id}/transfer")
+def transfer(
+    account_id: int,
+    data: TransferRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Kopiert/verschiebt einzelne Mails oder einen ganzen Ordner aus diesem Konto
+    in den Ordner eines ANDEREN Kontos des Users."""
+    source = _account(account_id, user, session)
+    dest = _account(data.dest_account_id, user, session)
+    try:
+        return migrate_mod.transfer_messages(
+            source, decrypt(source.secret_enc), data.source_folder, data.uids,
+            dest, decrypt(dest.secret_enc), data.dest_folder,
+            move=data.move, limit=data.limit,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Übertragen fehlgeschlagen: {exc}")
 
 
 @router.get("/{account_id}/messages/{uid}", response_model=MessageDetail)

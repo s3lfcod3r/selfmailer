@@ -124,3 +124,65 @@ def migrate_folders(
                     pass
 
     return {"folders": folders_out, "errors": errors, "dry_run": dry_run}
+
+
+def transfer_messages(
+    source: MailAccount,
+    source_pw: str,
+    source_folder: str,
+    uids: list[str] | None,
+    dest: MailAccount,
+    dest_pw: str,
+    dest_folder: str,
+    *,
+    move: bool = False,
+    limit: int = 2000,
+) -> dict:
+    """Kopiert/verschiebt einzelne Mails (uids) oder einen ganzen Ordner
+    (uids=None) aus dem Quell- in ein ANDERES Konto.
+
+    move=True löscht die Quellmails nach erfolgreicher Ablage. Dedup per
+    Message-ID verhindert Duplikate. Liefert {copied, skipped, deleted, errors}.
+    """
+    copied = skipped = deleted = 0
+    errors: list[str] = []
+    src = _open(source, source_pw, source_folder)
+    dst = _open(dest, dest_pw)
+    try:
+        _ensure_folder(dst, dest_folder, _delimiter(dst))
+        seen_ids = _existing_message_ids(dst, dest_folder)
+        src.folder.set(source_folder)
+        criteria = AND(uid=",".join(uids)) if uids else AND(all=True)
+        done: list[str] = []
+        for msg in src.fetch(criteria, limit=limit, mark_seen=False, bulk=50):
+            mid = (msg.headers.get("message-id", ("",))[0] or "").strip()
+            if mid and mid in seen_ids:
+                skipped += 1
+                if msg.uid:
+                    done.append(msg.uid)  # liegt schon im Ziel → bei move trotzdem aus Quelle weg
+                continue
+            try:
+                flags = [SEEN] if SEEN in (msg.flags or ()) else None
+                dst.append(msg.obj.as_bytes(), dest_folder, dt=msg.date, flag_set=flags)
+                copied += 1
+                if mid:
+                    seen_ids.add(mid)
+                if msg.uid:
+                    done.append(msg.uid)
+            except Exception as exc:  # noqa: BLE001
+                if len(errors) < 8:
+                    errors.append(f"{dest_folder}: {type(exc).__name__}: {exc}")
+        if move and done:
+            try:
+                src.delete(done)
+                deleted = len(done)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"delete: {type(exc).__name__}: {exc}")
+    finally:
+        for box in (src, dst):
+            try:
+                box.logout()
+            except Exception:  # pragma: no cover - best effort
+                pass
+
+    return {"copied": copied, "skipped": skipped, "deleted": deleted, "errors": errors}
