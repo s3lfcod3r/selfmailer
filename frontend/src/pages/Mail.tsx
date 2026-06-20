@@ -163,6 +163,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
 
   const activeId = sel?.acc ?? null;
   const folder = sel?.folder ?? "INBOX";
+  // Suche aktiv? Dann den ganzen Ordner laden und Treffer in EINER Liste zeigen
+  // (kein Seiten-Pager, der sich auf alle Ordner-Mails bezieht).
+  const searchActive = (search ?? "").trim().length > 0;
 
   // --- Konten + Ordner (mit Zaehlern) laden ---
   async function loadAccountFolders(a: Account) {
@@ -340,7 +343,23 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
       .finally(() => setLoadingMore(false));
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(reload, [sel?.acc, sel?.folder]);
+  // Suche: ganzen Ordner laden (bis Cache-Tiefe), damit Treffer ueber alle Seiten
+  // gefunden und in einer Liste angezeigt werden.
+  function loadAllForSearch() {
+    if (!sel) return;
+    const acc = sel.acc, fol = sel.folder;
+    setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false);
+    api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=1000`)
+      .then((ms) => setMessages(ms))
+      .catch((e) => setErr((e as Error).message))
+      .finally(() => setLoading(false));
+  }
+  // Bei Ordnerwechsel ODER Wechsel Suche an/aus passend laden.
+  useEffect(() => {
+    if (!sel) return;
+    if (searchActive) loadAllForSearch(); else reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel?.acc, sel?.folder, searchActive]);
 
   // Mobile: schließt sich die Lese-Ansicht (Löschen/Verschieben/✕), zurück zur Liste.
   useEffect(() => {
@@ -694,7 +713,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
           </div>
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
           {!loading && syncing && <div className="muted" style={{ fontSize: "0.72rem", padding: "0 0.6rem 0.3rem" }}>⟳ {t("mail.syncing")}</div>}
-          {totalPages > 1 && (
+          {!searchActive && totalPages > 1 && (
             <div className="mail-pager">
               <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(1)} title={t("mail.firstPage")}>«</button>
               <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(page - 1)} title={t("mail.prevPage")}>‹</button>
@@ -775,7 +794,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
               </div>
             ))}
             {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
-            {totalPages > 1 && !loading && (
+            {!searchActive && totalPages > 1 && !loading && (
               <div className="mail-pager mail-pager-bottom">
                 <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(page - 1)} title={t("mail.prevPage")}>‹</button>
                 <span className="pg-info">{t("mail.pageOf", { p: page, n: totalPages })}</span>

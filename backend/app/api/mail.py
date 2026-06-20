@@ -130,7 +130,7 @@ def delete_folder(
 def messages(
     account_id: int,
     folder: str = "INBOX",
-    limit: int = Query(default=50, ge=1, le=500),
+    limit: int = Query(default=50, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
