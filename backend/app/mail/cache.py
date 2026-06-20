@@ -48,6 +48,20 @@ def read_messages(session: Session, account_id: int, folder: str, limit: int = 5
     return [_to_dict(r) for r in rows]
 
 
+def folder_uids(session: Session, account_id: int, folder: str) -> list[str]:
+    """Alle gecachten UIDs eines Ordners (neueste zuerst) — fuer "Alle auswaehlen".
+
+    Bewusst nur die UIDs (kein Body/Snippet), damit das Selektieren ueber alle
+    Seiten hinweg billig bleibt. Begrenzt durch die Cache-Tiefe (sync cap).
+    """
+    rows = session.exec(
+        select(CachedMessage.uid)
+        .where(CachedMessage.account_id == account_id, CachedMessage.folder == folder)
+        .order_by(CachedMessage.sort_date.desc(), CachedMessage.id.desc())
+    ).all()
+    return [u for u in rows if u]
+
+
 def read_counts(session: Session, account_id: int) -> dict[str, FolderSync]:
     rows = session.exec(select(FolderSync).where(FolderSync.account_id == account_id)).all()
     return {r.folder: r for r in rows}

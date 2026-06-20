@@ -7,7 +7,20 @@ import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../co
 type FolderCount = { name: string; unseen: number; total: number };
 type Sel = { acc: number; folder: string };
 
-const PAGE_SIZE = 50;  // Mails pro Seite (Weiterblättern)
+const PAGE_SIZE = 50;  // Mails pro Seite
+
+// Sichtbare Seitenzahlen mit Auslassung: 1 … (cur-1) cur (cur+1) … last.
+function pageNumbers(cur: number, total: number): (number | "…")[] {
+  if (total <= 1) return [1];
+  const out: (number | "…")[] = [1];
+  const from = Math.max(2, cur - 1);
+  const to = Math.min(total - 1, cur + 1);
+  if (from > 2) out.push("…");
+  for (let p = from; p <= to; p++) out.push(p);
+  if (to < total - 1) out.push("…");
+  out.push(total);
+  return out;
+}
 
 // Absender "Name <mail@x.de>" in Anzeigename + Adresse zerlegen.
 function parseAddr(s: string): { name: string; email: string } {
@@ -79,7 +92,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
+  const [page, setPage] = useState(1);
+  // "Alle im Ordner" (ueber alle Seiten) aktiv? Dann enthaelt `selected` alle UIDs.
+  const [selectAllFolder, setSelectAllFolder] = useState(false);
   const [syncing, setSyncing] = useState(false);
   // Lese-Kopf: Mehr-Menü (⋯) und ausklappbare Detailzeilen (Von/An/Datum/Betreff).
   const [readMenu, setReadMenu] = useState(false);
@@ -272,41 +287,45 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   // die Liste aktualisiert, wenn der Nutzer noch im selben Ordner ist.
   const selRef = useRef(sel);
   useEffect(() => { selRef.current = sel; }, [sel]);
-  // Anzahl aktuell geladener Mails (fuer den stillen Auto-Refresh, damit bereits
-  // nachgeladene Seiten erhalten bleiben).
-  const loadedRef = useRef(0);
-  useEffect(() => { loadedRef.current = messages.length; }, [messages]);
+  // Aktuelle Seite als Ref, damit der periodische Auto-Sync genau die gerade
+  // sichtbare Seite auffrischt (ohne den Effekt bei jedem Seitenwechsel neu zu setzen).
+  const pageRef = useRef(1);
+  useEffect(() => { pageRef.current = page; }, [page]);
 
+  // Holt genau eine Seite (offset = (p-1)*PAGE_SIZE). Cache-first im Backend.
+  function fetchPage(acc: number, fol: string, p: number) {
+    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${PAGE_SIZE}&offset=${(p - 1) * PAGE_SIZE}`);
+  }
+  // Ordnerwechsel/Neuladen: immer auf Seite 1, Auswahl zuruecksetzen.
   function reload() {
     if (!sel) return;
-    const acc = sel.acc, folder = sel.folder;
-    setLoading(true); setErr(""); setOpen(null); setSelected(new Set());
-    // 1) Cache: kommt sofort aus der DB (oder beim ersten Mal live).
-    api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(folder)}&limit=${PAGE_SIZE}`)
-      .then((ms) => { setMessages(ms); setHasMore(ms.length === PAGE_SIZE); })
+    const acc = sel.acc, fol = sel.folder;
+    setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false); setPage(1);
+    fetchPage(acc, fol, 1)
+      .then((ms) => setMessages(ms))
       .catch((e) => setErr((e as Error).message))
-      .finally(() => { setLoading(false); bgSync(acc, folder); });
+      .finally(() => { setLoading(false); bgSync(acc, fol, 1); });
   }
-  // 2) Hintergrund-Sync: neue Mails/Flags nachziehen, dann still aktualisieren.
-  function bgSync(acc: number, folder: string, count: number = PAGE_SIZE) {
+  // Hintergrund-Sync: neue Mails/Flags nachziehen, dann die Seite p still auffrischen.
+  function bgSync(acc: number, fol: string, p: number = 1) {
     setSyncing(true);
-    api.post(`/mail/${acc}/sync?folder=${encodeURIComponent(folder)}`)
-      .then(() => api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(folder)}&limit=${count}`))
+    api.post(`/mail/${acc}/sync?folder=${encodeURIComponent(fol)}`)
+      .then(() => fetchPage(acc, fol, p))
       .then((ms) => {
-        if (selRef.current?.acc === acc && selRef.current?.folder === folder) {
-          setMessages(ms); setHasMore(ms.length === count);
-        }
+        if (selRef.current?.acc === acc && selRef.current?.folder === fol) setMessages(ms);
         refreshCounts(acc);
       })
       .catch(() => { /* Sync ist best-effort */ })
       .finally(() => setSyncing(false));
   }
-  // Weiterblättern: naechste Seite holen und anhaengen (offset = bereits geladene).
-  function loadMore() {
-    if (!sel || loadingMore) return;
-    setLoadingMore(true);
-    api.get<MsgHeader[]>(`/mail/${sel.acc}/messages?folder=${encodeURIComponent(sel.folder)}&limit=${PAGE_SIZE}&offset=${messages.length}`)
-      .then((ms) => { setMessages((cur) => [...cur, ...ms]); setHasMore(ms.length === PAGE_SIZE); })
+  // Zu Seite p springen: ersetzt die Liste. Auswahl bleibt erhalten (seitenuebergreifend).
+  function goPage(p: number) {
+    if (!sel) return;
+    const clamped = Math.max(1, Math.min(totalPages, p));
+    if (clamped === page) return;
+    setPage(clamped); setOpen(null); setLoadingMore(true);
+    fetchPage(sel.acc, sel.folder, clamped)
+      .then((ms) => setMessages(ms))
       .catch((e) => setErr((e as Error).message))
       .finally(() => setLoadingMore(false));
   }
@@ -326,7 +345,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
       accounts.forEach((a) => refreshCounts(a.id));
       // Still aktualisieren: nur Delta-Sync + leise Liste — KEIN reload (kein
       // Spinner, offene Mail bleibt offen, bereits geladene Seiten bleiben).
-      if (selRef.current) bgSync(selRef.current.acc, selRef.current.folder, Math.max(PAGE_SIZE, loadedRef.current));
+      if (selRef.current) bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
     }, pollMin * 60000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -409,37 +428,41 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   async function delSelected() {
     if (activeId == null || selected.size === 0) return;
     if (!confirm(t("mail.confirmDelete"))) return;
-    for (const uid of [...selected]) {
+    const ids = selected, wasAll = selectAllFolder;
+    for (const uid of [...ids]) {
       try { await api.del(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`); }
       catch (e) { setErr((e as Error).message); }
     }
-    setMessages((ms) => ms.filter((m) => !selected.has(m.uid)));
-    if (open && selected.has(open.uid)) setOpen(null);
-    setSelected(new Set());
+    if (open && ids.has(open.uid)) setOpen(null);
+    setSelected(new Set()); setSelectAllFolder(false);
     refreshCounts(activeId);
+    // Ganzer Ordner: viele Seiten betroffen → frisch laden; sonst optimistisch filtern.
+    if (wasAll) reload(); else setMessages((ms) => ms.filter((m) => !ids.has(m.uid)));
   }
   async function markSelectedSeen(seen: boolean) {
     if (activeId == null || selected.size === 0) return;
-    for (const uid of [...selected]) {
+    const ids = selected;
+    for (const uid of [...ids]) {
       try { await api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=${seen}`); }
       catch { /* egal */ }
     }
-    setMessages((ms) => ms.map((m) => (selected.has(m.uid) ? { ...m, seen } : m)));
-    setSelected(new Set());
+    setMessages((ms) => ms.map((m) => (ids.has(m.uid) ? { ...m, seen } : m)));
+    setSelected(new Set()); setSelectAllFolder(false);
     refreshCounts(activeId);
   }
   // Mehrere Nachrichten verschieben (Auswahl-Leiste ODER Drag&Drop).
   async function moveUids(dest: string, uids: string[]) {
     if (activeId == null || !dest || uids.length === 0) return;
     setErr("");
+    const wasAll = selectAllFolder;
     for (const uid of uids) {
       try { await api.post(`/mail/${activeId}/messages/${uid}/move?folder=${encodeURIComponent(folder)}&dest=${encodeURIComponent(dest)}`); }
       catch (e) { setErr((e as Error).message); }
     }
-    setMessages((ms) => ms.filter((m) => !uids.includes(m.uid)));
     if (open && uids.includes(open.uid)) setOpen(null);
-    setSelected(new Set());
+    setSelected(new Set()); setSelectAllFolder(false);
     refreshCounts(activeId);
+    if (wasAll) reload(); else setMessages((ms) => ms.filter((m) => !uids.includes(m.uid)));
   }
 
   function openTransfer(sourceAcc: number, sourceFolder: string, uids: string[] | null) {
@@ -532,9 +555,22 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     .filter((m) => !filter?.starred || m.flagged)
     .filter((m) => !filter?.attachments || m.has_attachments)
     .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo));
+  // Gesamtzahl/Seitenzahl des aktiven Ordners aus den Zaehlern (IMAP STATUS).
+  const folderTotal = (foldersByAcc[activeId ?? -1] || []).find((f) => f.name === folder)?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(folderTotal / PAGE_SIZE));
   const allSelected = visible.length > 0 && visible.every((m) => selected.has(m.uid));
   function toggleSelectAll() {
+    setSelectAllFolder(false);
     setSelected(allSelected ? new Set() : new Set(visible.map((m) => m.uid)));
+  }
+  // "Alle im Ordner": holt alle UIDs (auch anderer Seiten) und markiert sie.
+  async function selectWholeFolder() {
+    if (!sel) return;
+    try {
+      const uids = await api.get<string[]>(`/mail/${sel.acc}/folder-uids?folder=${encodeURIComponent(sel.folder)}`);
+      setSelected(new Set(uids));
+      setSelectAllFolder(true);
+    } catch (e) { setErr((e as Error).message); }
   }
   function startDrag(uid: string) {
     setDragUids(selected.has(uid) && selected.size > 0 ? [...selected] : [uid]);
@@ -602,6 +638,20 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
           </div>
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
           {!loading && syncing && <div className="muted" style={{ fontSize: "0.72rem", padding: "0 0.6rem 0.3rem" }}>⟳ {t("mail.syncing")}</div>}
+          {totalPages > 1 && (
+            <div className="mail-pager">
+              <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(1)} title={t("mail.firstPage")}>«</button>
+              <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(page - 1)} title={t("mail.prevPage")}>‹</button>
+              {pageNumbers(page, totalPages).map((p, i) =>
+                p === "…"
+                  ? <span key={`e${i}`} className="pg-gap">…</span>
+                  : <button key={p} className={`pgbtn ${p === page ? "active" : ""}`} disabled={loadingMore} onClick={() => goPage(p)}>{p}</button>,
+              )}
+              <button className="pgbtn" disabled={page >= totalPages || loadingMore} onClick={() => goPage(page + 1)} title={t("mail.nextPage")}>›</button>
+              <button className="pgbtn" disabled={page >= totalPages || loadingMore} onClick={() => goPage(totalPages)} title={t("mail.lastPage")}>»</button>
+              <span className="pg-info">{t("mail.pageOf", { p: page, n: totalPages })}</span>
+            </div>
+          )}
           {selected.size > 0 && (
             <div className="bulk-bar">
               <div className="bulk-count">
@@ -627,10 +677,22 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
             </div>
           )}
           {visible.length > 0 && (
-            <label className="row" style={{ padding: "0.1rem 0.6rem 0.4rem", gap: "0.5rem", cursor: "pointer" }}>
-              <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ width: "auto" }} />
-              <span className="muted" style={{ fontSize: "0.78rem" }}>{t("mail.selectAll")}</span>
-            </label>
+            <div className="mail-selbar">
+              <label className="row" style={{ gap: "0.5rem", cursor: "pointer", margin: 0 }}>
+                <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ width: "auto" }} />
+                <span className="muted" style={{ fontSize: "0.78rem" }}>{t("mail.selectAll")}</span>
+              </label>
+              {selectAllFolder ? (
+                <span className="sel-all-note">
+                  {t("mail.allFolderSelected", { n: folderTotal })}
+                  <button className="link-btn" onClick={() => { setSelected(new Set()); setSelectAllFolder(false); }}>{t("mail.clearSelection")}</button>
+                </span>
+              ) : (
+                allSelected && folderTotal > visible.length && (
+                  <button className="link-btn" onClick={selectWholeFolder}>{t("mail.selectAllFolder", { n: folderTotal })}</button>
+                )
+              )}
+            </div>
           )}
           <div className="mail-list">
             {visible.map((m) => (
@@ -657,10 +719,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
               </div>
             ))}
             {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
-            {hasMore && !loading && (
-              <button className="ghost" style={{ width: "100%", marginTop: "0.5rem" }} disabled={loadingMore} onClick={loadMore}>
-                {loadingMore ? "…" : t("mail.loadMore")}
-              </button>
+            {totalPages > 1 && !loading && (
+              <div className="mail-pager mail-pager-bottom">
+                <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(page - 1)} title={t("mail.prevPage")}>‹</button>
+                <span className="pg-info">{t("mail.pageOf", { p: page, n: totalPages })}</span>
+                <button className="pgbtn" disabled={page >= totalPages || loadingMore} onClick={() => goPage(page + 1)} title={t("mail.nextPage")}>›</button>
+              </div>
             )}
           </div>
         </div>

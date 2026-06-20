@@ -147,6 +147,25 @@ def messages(
         return imap_mod.list_messages(acc, decrypt(acc.secret_enc), folder=folder, limit=limit, offset=offset)
 
 
+@router.get("/{account_id}/folder-uids", response_model=list[str])
+def folder_uids(
+    account_id: int,
+    folder: str = "INBOX",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[str]:
+    """Alle UIDs eines Ordners (neueste zuerst) — fuer "Alle im Ordner auswaehlen"
+    ueber Seitengrenzen hinweg. Cache-first wie /messages; faellt der Cache aus,
+    direkt live per IMAP."""
+    acc = _account(account_id, user, session)
+    try:
+        if not cache_mod.has_cache(session, account_id, folder):
+            cache_mod.sync_folder(session, acc, decrypt(acc.secret_enc), folder)
+        return cache_mod.folder_uids(session, account_id, folder)
+    except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
+        return imap_mod.list_uids(acc, decrypt(acc.secret_enc), folder)
+
+
 @router.post("/{account_id}/sync")
 def sync_messages(
     account_id: int,

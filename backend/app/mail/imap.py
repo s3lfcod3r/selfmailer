@@ -56,6 +56,13 @@ def list_folders(account: MailAccount, password: str) -> list[str]:
     return names
 
 
+def list_uids(account: MailAccount, password: str, folder: str = "INBOX") -> list[str]:
+    """Alle UIDs eines Ordners (neueste zuerst). Live-Fallback fuer "Alle
+    auswaehlen", wenn der Cache nicht greift. Nur UIDs, kein Body."""
+    with _mailbox(account, password, folder=folder) as box:
+        return list(reversed([u for u in box.uids() if u]))
+
+
 def folder_counts(account: MailAccount, password: str) -> list[dict]:
     """Wie list_folders, aber mit Ungelesen-/Gesamt-Zaehlern je Ordner (IMAP STATUS).
 
