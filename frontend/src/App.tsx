@@ -42,14 +42,14 @@ const TotpSettings = lazyWithReload(() => import("./components/TotpSettings").th
 type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin" | "rules";
 
 // --- Theme-Anpassung: eigene Farben als CSS-Variablen-Overrides ---------------
-type ThemeCustom = { bg: string; surface: string; text: string; accent: string };
-const EMPTY_CUSTOM: ThemeCustom = { bg: "", surface: "", text: "", accent: "" };
+type ThemeCustom = { bg: string; surface: string; text: string; accent: string; unread: string };
+const EMPTY_CUSTOM: ThemeCustom = { bg: "", surface: "", text: "", accent: "", unread: "" };
 // Akzent-Vorschlaege (erster = Self-Teal-Standard).
 const ACCENTS = ["#33a78c", "#1db8d4", "#7c6cf0", "#3fb950", "#e0883a", "#e0588f"];
 // Standard-Farben je Modus (Vorschau-Default der Farbwaehler, wenn nichts eigenes gesetzt ist).
 const THEME_DEFAULTS: Record<string, ThemeCustom> = {
-  dark: { bg: "#080c11", surface: "#161b22", text: "#d4e4de", accent: "#33a78c" },
-  light: { bg: "#eef1f6", surface: "#ffffff", text: "#1a2230", accent: "#0a9d8c" },
+  dark: { bg: "#080c11", surface: "#161b22", text: "#d4e4de", accent: "#33a78c", unread: "#33a78c" },
+  light: { bg: "#eef1f6", surface: "#ffffff", text: "#1a2230", accent: "#0a9d8c", unread: "#0a9d8c" },
 };
 
 function _adj(hex: string, amt: number): string {
@@ -72,6 +72,7 @@ function applyCustom(c: ThemeCustom): void {
   set("--self-teal", c.accent);
   set("--self-teal-bright", c.accent ? _adj(c.accent, 0.12) : "");
   set("--self-teal-deep", c.accent ? _adj(c.accent, -0.18) : "");
+  set("--self-unread", c.unread);
 }
 
 type AppItem = { key: View; labelKey: string; icon: string; adminOnly?: boolean };
@@ -369,6 +370,7 @@ export function App() {
                 ["bg", t("design.bg")],
                 ["surface", t("design.surface")],
                 ["text", t("design.text")],
+                ["unread", t("design.unread")],
               ] as const).map(([key, label]) => (
                 <div className="design-color-row" key={key}>
                   <span>{label}</span>

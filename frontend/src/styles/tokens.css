@@ -20,6 +20,7 @@
   --self-teal-bright: #43d3ad; /* Hover / Highlights                    */
   --self-teal-deep: #1f7763;   /* Tiefen / Verläufe                     */
   --self-cyan: #00e5c8;        /* "Live"/Signal-Akzent (Selfstream)     */
+  --self-unread: var(--self-teal); /* Markierung neuer/ungelesener Mails (anpassbar) */
 
   /* --- Akzente ------------------------------------------- */
   --self-ice: #9dbdd0;
