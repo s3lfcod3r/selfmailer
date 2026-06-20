@@ -80,6 +80,12 @@ export function App() {
   });
   // Externe Bilder (Tracking-Pixel) standardmaessig blockieren — Datenschutz/Sicherheit.
   const [blockImages, setBlockImages] = useState<boolean>(() => localStorage.getItem("selfmailer.blockImages") !== "0");
+  // App-eigene Textgroesse (skaliert alle rem-Einheiten ueber die Wurzel-Schrift),
+  // damit Lesbarkeit OHNE Browser-Zoom (der die Layout-Breite schrumpft) moeglich ist.
+  const [uiScale, setUiScale] = useState<number>(() => {
+    const v = Number(localStorage.getItem("selfmailer.uiScale"));
+    return [100, 110, 125, 150].includes(v) ? v : 100;
+  });
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -87,6 +93,10 @@ export function App() {
   }, [theme]);
   useEffect(() => { localStorage.setItem("selfmailer.pollMin", String(pollMin)); }, [pollMin]);
   useEffect(() => { localStorage.setItem("selfmailer.blockImages", blockImages ? "1" : "0"); }, [blockImages]);
+  useEffect(() => {
+    document.documentElement.style.fontSize = uiScale === 100 ? "" : `${uiScale}%`;
+    localStorage.setItem("selfmailer.uiScale", String(uiScale));
+  }, [uiScale]);
 
   function loadMe() {
     if (!auth.get()) { setUser(null); setReady(true); return; }
@@ -227,6 +237,15 @@ export function App() {
           <button onClick={() => setTheme((tm) => (tm === "dark" ? "light" : "dark"))}>
             <span>{theme === "dark" ? "☀" : "🌙"}</span> {theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}
           </button>
+          <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
+            <span>🔠 {t("shell.textSize")}</span>
+            <select value={uiScale} onChange={(e) => setUiScale(Number(e.target.value))}>
+              <option value={100}>100%</option>
+              <option value={110}>110%</option>
+              <option value={125}>125%</option>
+              <option value={150}>150%</option>
+            </select>
+          </div>
           <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
             <span>🔄 {t("shell.autoRefresh")}</span>
             <select value={pollMin} onChange={(e) => setPollMin(Number(e.target.value))}>
