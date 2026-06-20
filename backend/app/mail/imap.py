@@ -33,7 +33,7 @@ _IDLE_TTL = 240.0  # Sekunden Leerlauf, danach Verbindung schliessen
 # Socket-Timeout je IMAP-Operation. OHNE das blockiert ein totes/langsames
 # Postfach (z. B. ein Provider, der die Verbindung still fallen laesst) den
 # Worker-Thread UNENDLICH -> "alles haengt". Mit Timeout schlaegt es sauber fehl.
-_IMAP_TIMEOUT = float(os.getenv("SELFMAILER_IMAP_TIMEOUT", "30") or 30)
+_IMAP_TIMEOUT = float(os.getenv("SELFMAILER_IMAP_TIMEOUT", "15") or 15)
 _POOL: dict[str, "_PooledBox"] = {}
 _POOL_LOCK = threading.Lock()
 
