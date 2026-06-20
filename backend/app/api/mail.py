@@ -171,15 +171,17 @@ def folder_uids(
     session: Session = Depends(get_session),
 ) -> list[str]:
     """Alle UIDs eines Ordners (neueste zuerst) — fuer "Alle im Ordner auswaehlen"
-    ueber Seitengrenzen hinweg. Cache-first wie /messages; faellt der Cache aus,
-    direkt live per IMAP."""
+    ueber Seitengrenzen hinweg.
+
+    LIVE-first: hier zaehlt VOLLSTAENDIGKEIT (wirklich ALLE Mails auswaehlen, z. B.
+    um 614 Mails zu loeschen). Der Cache ist oft nur teilweise gefuellt und wuerde
+    zu wenige UIDs liefern. ``box.uids()`` ist billig (nur UIDs, keine Inhalte) und
+    durch das IMAP-Timeout gebunden. Faellt der Live-Abruf aus -> Cache als Fallback."""
     acc = _account(account_id, user, session)
     try:
-        if not cache_mod.has_cache(session, account_id, folder):
-            cache_mod.sync_folder(session, acc, decrypt(acc.secret_enc), folder)
-        return cache_mod.folder_uids(session, account_id, folder)
-    except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
         return imap_mod.list_uids(acc, decrypt(acc.secret_enc), folder)
+    except Exception:  # noqa: BLE001 - Live fehlgeschlagen -> wenigstens den Cache
+        return cache_mod.folder_uids(session, account_id, folder)
 
 
 @router.post("/{account_id}/sync")
