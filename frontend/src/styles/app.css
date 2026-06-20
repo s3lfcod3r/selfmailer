@@ -503,7 +503,7 @@ select.bulk-btn { max-width: 170px; }
 .modal textarea { resize: vertical; }
 
 /* --- Kalender: Monatsgitter + Agenda-Umschalter --- */
-.cal-wrap { display: flex; flex-direction: column; gap: 0.9rem; }
+.cal-wrap { display: flex; flex-direction: column; gap: 0.9rem; height: 100%; min-height: 0; }
 .cal-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem; }
 .cal-nav { display: flex; align-items: center; gap: 0.3rem; }
 .cal-month-title {
@@ -515,7 +515,7 @@ select.bulk-btn { max-width: 170px; }
 .cal-switch button { padding: 0.35rem 0.8rem; background: transparent; border: none; color: var(--self-text-2); cursor: pointer; }
 .cal-switch button.on { background: var(--self-teal); color: #04130f; font-weight: 600; }
 
-.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--self-line); border: 1px solid var(--self-line); border-radius: var(--self-radius); overflow: hidden; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-template-rows: auto repeat(6, 1fr); gap: 1px; background: var(--self-line); border: 1px solid var(--self-line); border-radius: var(--self-radius); overflow: hidden; flex: 1 1 auto; min-height: 0; }
 .cal-wd { background: var(--self-bg-2); padding: 0.45rem 0.5rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--self-text-3); text-align: center; }
 .cal-cell { background: var(--self-bg-1); min-height: 96px; padding: 0.3rem 0.35rem; cursor: pointer; transition: background var(--self-dur-fast) var(--self-ease); display: flex; flex-direction: column; gap: 0.2rem; }
 .cal-cell:hover { background: var(--self-bg-3); }
@@ -542,8 +542,8 @@ select.bulk-btn { max-width: 170px; }
 }
 
 /* --- Kalender: 2-spaltiges Layout mit Seitenpanel --- */
-.cal-body { display: grid; grid-template-columns: 1fr 300px; gap: 1rem; align-items: start; }
-.cal-main { min-width: 0; }
+.cal-body { display: grid; grid-template-columns: 1fr 300px; grid-template-rows: 1fr; gap: 1rem; align-items: start; flex: 1 1 auto; min-height: 0; }
+.cal-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; align-self: stretch; }
 .cal-aside { display: flex; flex-direction: column; gap: 1rem; }
 .cal-panel { background: var(--self-bg-2); border: 1px solid var(--self-line); border-radius: var(--self-radius); padding: 0.7rem 0.8rem; }
 .cal-panel-head { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--self-text-3); margin-bottom: 0.5rem; }
@@ -572,7 +572,12 @@ select.bulk-btn { max-width: 170px; }
 .cal-task-del { padding: 0 0.3rem; opacity: 0; }
 .cal-task:hover .cal-task-del { opacity: 1; }
 .cal-done-head { font-size: 0.74rem; color: var(--self-text-3); margin-top: 0.6rem; padding-top: 0.3rem; }
-@media (max-width: 900px) { .cal-body { grid-template-columns: 1fr; } }
+@media (max-width: 900px) {
+  .cal-body { grid-template-columns: 1fr; grid-template-rows: auto; flex: 0 0 auto; }
+  .cal-wrap { height: auto; }
+  .cal-grid { flex: 0 0 auto; }
+  .cal-cell { min-height: 64px; }
+}
 
 /* --- Empfänger-Autocomplete (Compose) --- */
 .recipient-field { position: relative; }
