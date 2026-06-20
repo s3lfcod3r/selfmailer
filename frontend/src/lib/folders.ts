@@ -33,6 +33,38 @@ export function specialKind(lastPart: string): SpecialKind | null {
   return null;
 }
 
+// Kanonischer (Provider-Standard-)Name je Sonderordner-Art. Manche Server haben
+// mehrere Ordner derselben Art — z. B. web.de bringt sowohl "Entwürfe" (echter
+// Drafts-Ordner) als auch einen leeren "Entwurf" mit. Ohne Dedup würden BEIDE als
+// lokalisiertes "Entwürfe" erscheinen (verwirrendes Doppel). Es gilt nur der
+// kanonische als Sonderordner; die übrigen behalten ihren echten Namen.
+const CANONICAL_NAMES: Record<SpecialKind, RegExp> = {
+  inbox: /^inbox$/i,
+  drafts: /^(drafts|entw[uü]rfe)$/i,
+  sent: /^(sent|sent items|gesendet|gesendete objekte)$/i,
+  spam: /^(spam|junk|junk[- ]?e-?mail)$/i,
+  trash: /^(trash|deleted items|papierkorb)$/i,
+  archive: /^(archive|archiv)$/i,
+};
+
+// Behält je Sonderordner-Art nur EINEN als special; weitere werden zu normalen
+// Ordnern (mit echtem Namen + Lösch-/Umbenennen-Optionen). Kanonischer Ordner =
+// exakter Standardname, sonst der erste.
+function dedupeSpecialKinds(roots: FolderNode[]): void {
+  const byKind = new Map<SpecialKind, FolderNode[]>();
+  for (const r of roots) {
+    if (!r.special) continue;
+    const arr = byKind.get(r.special);
+    if (arr) arr.push(r);
+    else byKind.set(r.special, [r]);
+  }
+  for (const [kind, nodes] of byKind) {
+    if (nodes.length < 2) continue;
+    const canon = nodes.find((n) => CANONICAL_NAMES[kind].test(n.label)) ?? nodes[0];
+    for (const n of nodes) if (n !== canon) n.special = null;
+  }
+}
+
 // Erkennt das Hierarchie-Trennzeichen: "/" (Gmail/Dovecot) oder "." (INBOX.Sent bei vielen Servern).
 function detectDelimiter(names: string[]): string {
   if (names.some((n) => n.includes("/"))) return "/";
@@ -83,6 +115,9 @@ export function buildFolderTree(names: string[]): FolderNode[] {
       roots.push(...promoted);
     }
   }
+
+  // Mehrfache Sonderordner derselben Art entdoppeln (nur einer bleibt special).
+  dedupeSpecialKinds(roots);
 
   roots.sort((a, b) => {
     const oa = a.special ? SPECIAL_ORDER[a.special] : 100;
