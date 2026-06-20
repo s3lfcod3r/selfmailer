@@ -183,6 +183,7 @@ def transfer_messages(
                 rel_segs = [s for s in n[len(source_folder):].split(src_delim) if s]
                 pairs.append((n, dst_delim.join(base + rel_segs), None))
 
+        aborted = False
         for sf, df, fuids in pairs:
             if not _ensure_folder(dst, df, dst_delim):
                 # Echte Ursache einfangen (z. B. "quota exceeded" = Zielpostfach voll).
@@ -191,6 +192,11 @@ def transfer_messages(
                     dst.folder.create(df)
                 except Exception as exc:  # noqa: BLE001
                     reason = str(exc).split("Data:")[-1].strip() or reason
+                # Bei vollem Zielpostfach hat Weitermachen keinen Sinn → sofort sauber
+                # abbrechen (sonst Fehler-Flut bis "Broken pipe").
+                if "quota" in reason.lower() or "voll" in reason.lower():
+                    errors.append("Zielpostfach VOLL (Quota überschritten) — Übertragung abgebrochen. Bitte erst Speicher freigeben.")
+                    break
                 if len(errors) < 8:
                     errors.append(f"{df}: {reason}")
                 continue
@@ -214,8 +220,14 @@ def transfer_messages(
                     if msg.uid:
                         done.append(msg.uid)
                 except Exception as exc:  # noqa: BLE001
+                    if "quota" in str(exc).lower():
+                        errors.append("Zielpostfach VOLL (Quota überschritten) — Übertragung abgebrochen. Bitte erst Speicher freigeben.")
+                        aborted = True
+                        break
                     if len(errors) < 8:
                         errors.append(f"{df}: {type(exc).__name__}: {exc}")
+            if aborted:
+                break
             if move and done:
                 src.folder.set(sf)
                 try:
