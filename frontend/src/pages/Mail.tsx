@@ -521,16 +521,16 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   async function delSelected() {
     if (activeId == null || selected.size === 0) return;
     if (!confirm(t("mail.confirmDelete"))) return;
-    const ids = selected, wasAll = selectAllFolder;
-    // EIN Request statt N: alle UIDs in einer IMAP-Session loeschen (ein Login).
-    try {
-      await api.post(`/mail/${activeId}/messages/batch/delete`, { folder, uids: [...ids] });
-    } catch (e) { setErr((e as Error).message); }
+    const ids = new Set(selected), wasAll = selectAllFolder, acc = activeId, fol = folder;
+    // SOFORT reagieren: Zeilen weg + Auswahl leeren — NICHT auf den Server warten.
     if (open && ids.has(open.uid)) setOpen(null);
+    setMessages((ms) => ms.filter((m) => !ids.has(m.uid)));
     setSelected(new Set()); setSelectAllFolder(false);
-    refreshCounts(activeId);
-    // Ganzer Ordner: viele Seiten betroffen → frisch laden; sonst optimistisch filtern.
-    if (wasAll) reload(); else setMessages((ms) => ms.filter((m) => !ids.has(m.uid)));
+    // EIN Request statt N: alle UIDs in einer IMAP-Session loeschen (ein Login).
+    // Im Hintergrund; bei Fehler echte Liste wiederherstellen.
+    api.post(`/mail/${acc}/messages/batch/delete`, { folder: fol, uids: [...ids] })
+      .then(() => { refreshCounts(acc); if (wasAll && selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); })
+      .catch((e) => { setErr((e as Error).message); if (selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); });
   }
   async function markSelectedSeen(seen: boolean) {
     if (activeId == null || selected.size === 0) return;
@@ -547,15 +547,15 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   async function moveUids(dest: string, uids: string[]) {
     if (activeId == null || !dest || uids.length === 0) return;
     setErr("");
-    const wasAll = selectAllFolder;
-    // EIN Request statt N: alle UIDs in einer IMAP-Session verschieben (ein Login).
-    try {
-      await api.post(`/mail/${activeId}/messages/batch/move`, { folder, uids, dest });
-    } catch (e) { setErr((e as Error).message); }
-    if (open && uids.includes(open.uid)) setOpen(null);
+    const ids = [...uids], wasAll = selectAllFolder, acc = activeId, fol = folder;
+    // SOFORT reagieren: Zeilen weg + Auswahl leeren — NICHT auf den Server warten.
+    if (open && ids.includes(open.uid)) setOpen(null);
+    setMessages((ms) => ms.filter((m) => !ids.includes(m.uid)));
     setSelected(new Set()); setSelectAllFolder(false);
-    refreshCounts(activeId);
-    if (wasAll) reload(); else setMessages((ms) => ms.filter((m) => !uids.includes(m.uid)));
+    // EIN Request statt N: alle UIDs in einer IMAP-Session verschieben (ein Login).
+    api.post(`/mail/${acc}/messages/batch/move`, { folder: fol, uids: ids, dest })
+      .then(() => { refreshCounts(acc); if (wasAll && selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); })
+      .catch((e) => { setErr((e as Error).message); if (selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); });
   }
 
   function openTransfer(sourceAcc: number, sourceFolder: string, uids: string[] | null) {
