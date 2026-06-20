@@ -459,9 +459,16 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     if (activeId == null) return;
     const key = `${activeId}:${folder}:${uid}`;
     if (prefetchedRef.current.has(key)) return;
-    prefetchedRef.current.add(key);
+    prefetchedRef.current.add(key);  // genau EIN Versuch je Mail — KEIN Retry-Sturm
     api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`)
-      .catch(() => { prefetchedRef.current.delete(key); /* spaeter erneut versuchen */ });
+      .catch((e) => {
+        // Geister-Mail (serverseitig weg) beim Hover: still aus der Liste nehmen,
+        // NICHT erneut versuchen (Key bleibt gesetzt). Verhindert 404-Endlosschleife.
+        if (/nicht gefunden|not found|404/i.test((e as Error).message || "")) {
+          setMessages((ms) => ms.filter((x) => x.uid !== uid));
+          if (open?.uid === uid) setOpen(null);
+        }
+      });
   }
   async function toggleSeen(m: MsgHeader) {
     if (activeId == null) return;
