@@ -20,6 +20,7 @@ from sqlmodel import Session, select
 from ..core.crypto import decrypt
 from ..core.db import get_session
 from ..mail import cache as cache_mod
+from ..mail import imap as imap_mod
 from ..models import MailAccount, User
 from .feeds import feed_or_bearer_user
 
@@ -37,11 +38,15 @@ def _cached_unseen(session: Session, account_id: int) -> int:
 
 
 def _account_block(session: Session, acc: MailAccount, live: bool) -> tuple[int, list[dict]]:
-    """(ungelesen, neueste Ungelesene) eines Kontos — cache-first, optional live."""
+    """(ungelesen, neueste Ungelesene) eines Kontos.
+
+    live=1: NUR schneller IMAP-STATUS der INBOX (1 Login, kein Header-Download) →
+    aktuelle Ungelesen-Zahl ohne Timeout-Risiko grosser Postfaecher. Die Vorschau
+    (recent) kommt weiter aus dem Cache (wird beim Nutzen der WebUI aufgefrischt).
+    """
     if live:
         try:
-            res = cache_mod.sync_folder(session, acc, decrypt(acc.secret_enc), INBOX)
-            unseen = int(res.get("unseen", 0) or 0)
+            unseen = imap_mod.inbox_unseen(acc, decrypt(acc.secret_enc), INBOX)
         except Exception:  # noqa: BLE001 - ein defektes Konto darf die Uebersicht nicht kippen
             unseen = _cached_unseen(session, acc.id)
     else:

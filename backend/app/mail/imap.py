@@ -98,6 +98,15 @@ def folder_counts(account: MailAccount, password: str) -> list[dict]:
     return out
 
 
+def inbox_unseen(account: MailAccount, password: str, folder: str = "INBOX") -> int:
+    """Nur die Ungelesen-Zahl EINES Ordners via IMAP STATUS — schnell (1 Login,
+    1 STATUS, KEIN Header-Download). Fuer die Dashboard-Uebersicht, damit der
+    Live-Abruf nicht in einen vollen Sync grosser Postfaecher laeuft (Timeout)."""
+    with _mailbox(account, password) as box:
+        st = box.folder.status(folder, ["UNSEEN"])
+        return int(st.get("UNSEEN", 0) or 0)
+
+
 def _snippet(text: str, html: str) -> str:
     """Kurze 1-Zeilen-Vorschau aus Text- oder HTML-Body (Tags grob entfernt)."""
     src = text or re.sub(r"<[^>]+>", " ", html)
