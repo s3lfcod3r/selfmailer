@@ -45,15 +45,15 @@ export function DialogHost() {
       onClick={(e) => { if (e.target === e.currentTarget) done(isPrompt ? null : false); }}
       style={{ position: "fixed", inset: 0, zIndex: 10070, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
     >
-      <div style={{ width: "min(440px, 100%)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 14, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", padding: 20 }}>
-        <p style={{ margin: 0, fontSize: 14, color: "var(--text)", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{req.message}</p>
+      <div style={{ width: "min(440px, 100%)", background: "var(--self-bg-2)", border: "1px solid var(--self-line)", borderRadius: 14, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", padding: 20 }}>
+        <p style={{ margin: 0, fontSize: 14, color: "var(--self-text)", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{req.message}</p>
         {isPrompt && (
           <input
             autoFocus
             value={val}
             onChange={(e) => setVal(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") done(val); if (e.key === "Escape") done(null); }}
-            style={{ width: "100%", marginTop: 12, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text)", fontSize: 14, boxSizing: "border-box", outline: "none" }}
+            style={{ width: "100%", marginTop: 12, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--self-line)", background: "var(--self-bg-3)", color: "var(--self-text)", fontSize: 14, boxSizing: "border-box", outline: "none" }}
           />
         )}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>

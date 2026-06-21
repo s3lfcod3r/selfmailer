@@ -84,7 +84,7 @@ function loadSet(key: string): Set<number> {
 // Info-Leiste über der Mail: links Echtheits-Status (SPF/DKIM/DMARC), rechts
 // optionaler Slot (z. B. „Bilder anzeigen") — alles in EINER Zeile.
 function AuthBanner({ auth, de, right }: { auth: AuthInfo | null; de: boolean; right?: ReactNode }) {
-  let border = "var(--border)", color = "var(--text-muted)", bg = "var(--surface-2)";
+  let border = "var(--self-line)", color = "var(--self-text-2)", bg = "var(--self-bg-3)";
   let icon = "🛈", text = de ? "Echtheit nicht prüfbar" : "Not verifiable", tip = "", chips = "";
   if (auth) {
     chips = ([["SPF", auth.spf], ["DKIM", auth.dkim], ["DMARC", auth.dmarc]] as const)
@@ -149,6 +149,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   const [contactSaved, setContactSaved] = useState(false);
   // Pro geoeffneter Mail: hat der Nutzer externe Bilder freigegeben?
   const [showImages, setShowImages] = useState(false);
+  // Doppelklick auf eine Mail oeffnet sie zusaetzlich in einem eigenen Popup-Fenster.
+  const [popup, setPopup] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dragUids, setDragUids] = useState<string[]>([]);
@@ -479,7 +481,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
   }
 
-  async function openMsg(uid: string) {
+  async function openMsg(uid: string, asPopup = false) {
     if (activeId == null) return;
     setErr("");
     try {
@@ -490,6 +492,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
         return;
       }
       setOpen(msg);
+      setPopup(asPopup);
       setMobilePane("read");
       setDetailsOpen(false);
       setReadMenu(false);
@@ -929,7 +932,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                 <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={() => toggleFlag(m)} title={t("mail.flag")}>
                   {m.flagged ? "★" : "☆"}
                 </button>
-                <div className="grow" style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)} onMouseEnter={() => prefetchMsg(m.uid)}>
+                <div className="grow" style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)} onDoubleClick={() => openMsg(m.uid, true)} onMouseEnter={() => prefetchMsg(m.uid)}>
                   <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
                     <span style={{ flex: 1, minWidth: 0, fontWeight: m.seen ? 400 : 700, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{m.from}</span>
                     <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(m.date)}</span>
@@ -1156,8 +1159,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
           onClick={(e) => { if (e.target === e.currentTarget) { confirmBox.resolve(false); setConfirmBox(null); } }}
           style={{ position: "fixed", inset: 0, zIndex: 10060, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
         >
-          <div style={{ width: "min(420px, 100%)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 14, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", padding: 20 }}>
-            <p style={{ margin: 0, fontSize: 14, color: "var(--text)", lineHeight: 1.55 }}>{confirmBox.message}</p>
+          <div style={{ width: "min(420px, 100%)", background: "var(--self-bg-2)", border: "1px solid var(--self-line)", borderRadius: 14, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", padding: 20 }}>
+            <p style={{ margin: 0, fontSize: 14, color: "var(--self-text)", lineHeight: 1.55 }}>{confirmBox.message}</p>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
               <button type="button" className="ghost" onClick={() => { confirmBox.resolve(false); setConfirmBox(null); }}>
                 {t("common.cancel")}
@@ -1177,15 +1180,65 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
           onClick={(e) => { if (e.target === e.currentTarget) setRawText(null); }}
           style={{ position: "fixed", inset: 0, zIndex: 10065, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
         >
-          <div style={{ width: "min(900px, 100%)", maxHeight: "85vh", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
-              <strong style={{ fontSize: 14, color: "var(--text)" }}>{de ? "Original (Quelltext)" : "Original (source)"}</strong>
+          <div style={{ width: "min(900px, 100%)", maxHeight: "85vh", background: "var(--self-bg-2)", border: "1px solid var(--self-line)", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--self-line)" }}>
+              <strong style={{ fontSize: 14, color: "var(--self-text)" }}>{de ? "Original (Quelltext)" : "Original (source)"}</strong>
               <div style={{ display: "flex", gap: 8 }}>
                 <button type="button" className="ghost" onClick={() => { void navigator.clipboard?.writeText(rawText); }}>{de ? "Kopieren" : "Copy"}</button>
                 <button type="button" className="ghost" onClick={() => setRawText(null)}>{de ? "Schließen" : "Close"}</button>
               </div>
             </div>
-            <pre style={{ margin: 0, padding: 16, overflow: "auto", fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--text)", fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}>{rawText}</pre>
+            <pre style={{ margin: 0, padding: 16, overflow: "auto", fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--self-text)", fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}>{rawText}</pre>
+          </div>
+        </div>
+      )}
+
+      {/* Doppelklick-Popup: dieselbe Mail in einem eigenen, zentrierten Fenster. */}
+      {popup && open && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setPopup(false); }}
+          style={{ position: "fixed", inset: 0, zIndex: 10068, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+        >
+          <div style={{ width: "min(900px, 100%)", maxHeight: "88vh", background: "var(--self-bg-2)", border: "1px solid var(--self-line)", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--self-line)" }}>
+              <h2 style={{ flex: 1, minWidth: 0, margin: 0, fontSize: "1.1rem", fontWeight: 700, lineHeight: 1.3, color: "var(--self-text)" }}>{open.subject || t("mail.noSubject")}</h2>
+              <div style={{ display: "flex", gap: 6, flex: "0 0 auto" }}>
+                <button className="icon-btn" onClick={() => { setDraft(replyDraft(open, t)); setPopup(false); }} title={t("mail.reply")}>↩</button>
+                <button className="icon-btn" onClick={() => { setDraft(forwardDraft(open, t)); setPopup(false); }} title={t("mail.forward")}>↪</button>
+                <button className="icon-btn" onClick={() => setPopup(false)} title={t("mail.back")}>✕</button>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "8px 16px", borderBottom: "1px solid var(--self-line)", fontSize: "0.85rem", color: "var(--self-text-2)" }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--self-text)" }}>{open.from}</span>
+              <span className="grow" style={{ flex: 1 }} />
+              <span style={{ flex: "0 0 auto", color: "var(--self-text-3)" }}>{prettyDate(open.date)}</span>
+            </div>
+            <div style={{ overflow: "auto", padding: 16 }}>
+              {open.text ? (
+                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{open.text}</div>
+              ) : open.html ? (
+                <iframe title="mail-body-popup" sandbox=""
+                  srcDoc={buildSrcDoc(open.html, blockImages && !showImages)}
+                  style={{ width: "100%", height: "64vh", border: "none", background: "#fff", borderRadius: 6 }} />
+              ) : (
+                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{t("mail.emptyBody")}</div>
+              )}
+              {open.attachments?.length > 0 && (
+                <div style={{ marginTop: "1.2rem", borderTop: "1px solid var(--self-line)", paddingTop: "0.8rem" }}>
+                  <div className="label" style={{ marginBottom: "0.5rem" }}>📎 {t("mail.attachments")}</div>
+                  <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
+                    {open.attachments.map((att) => (
+                      <button key={att.index} className="ghost" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
+                        onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(folder)}`).catch((e) => setErr((e as Error).message))}>
+                        {att.filename || `att-${att.index}`}{att.size ? <span className="muted" style={{ fontSize: "0.75rem" }}>({fmtSize(att.size)})</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
