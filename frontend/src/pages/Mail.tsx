@@ -1001,10 +1001,18 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                 <button className="mail-star" onClick={() => toggleFlag(open)} title={t("mail.flag")}>
                   {(messages.find((m) => m.uid === open.uid)?.flagged ?? open.flagged) ? "★" : "☆"}
                 </button>
-                <div className="mail-head-from">
-                  <span className="mail-head-name">{parseAddr(open.from).name}</span>
-                  <span className="mail-head-addr">&lt;{parseAddr(open.from).email}&gt;</span>
-                </div>
+                {(() => {
+                  const f = parseAddr(open.from);
+                  // Hat der Absender keinen echten Anzeigenamen, liefert parseAddr Name == Adresse.
+                  // Dann nur EINMAL die Adresse zeigen statt „mail@x <mail@x>".
+                  const sameAddr = f.name.trim().toLowerCase() === f.email.trim().toLowerCase();
+                  return (
+                    <div className="mail-head-from">
+                      <span className="mail-head-name">{f.name}</span>
+                      {!sameAddr && <span className="mail-head-addr">&lt;{f.email}&gt;</span>}
+                    </div>
+                  );
+                })()}
                 <button className="mail-head-toexp" onClick={() => setDetailsOpen((v) => !v)} title={t("mail.details")}>
                   {t("mail.hdrTo")}: {open.to[0] || "—"} <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>
                 </button>
@@ -1020,7 +1028,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                 </div>
               )}
             </div>
-            <hr style={{ borderColor: "var(--self-line)", margin: "0.9rem 0" }} />
+            <hr style={{ borderColor: "var(--self-line)", margin: "0.5rem 0 0.55rem" }} />
             {(() => {
               // Eine Leiste: links Echtheit, rechts „Bilder anzeigen" (Volltext im Tooltip).
               const imagesBlocked = !!open.html && blockImages && !showImages && hasRemoteContent(open.html);
