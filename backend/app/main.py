@@ -88,7 +88,7 @@ app.include_router(push.router)
 
 # Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
-APP_BUILD = "2026-06-21-ntfy-push"
+APP_BUILD = "2026-06-21-push-folders"
 
 
 @app.get("/api/health")
