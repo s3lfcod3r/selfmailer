@@ -5,6 +5,8 @@ gegeben. Klartext nur transient beim Verbindungsaufbau.
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete as sa_delete
 from sqlmodel import Session, select
@@ -25,6 +27,8 @@ from ..schemas import AccountCreate, AccountOut, AccountUpdate
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
+
+logger = logging.getLogger(__name__)
 
 
 def _owned(account_id: int, user: User, session: Session) -> MailAccount:
@@ -101,8 +105,9 @@ def test_account(
     try:
         folders = imap_mod.list_folders(acc, decrypt(acc.secret_enc))
         return {"ok": True, "folders": folders}
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": str(exc)}
+    except Exception:  # noqa: BLE001
+        logger.warning("IMAP-Login-Test fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        return {"ok": False, "error": "Login fehlgeschlagen"}
 
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)

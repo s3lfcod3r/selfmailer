@@ -5,6 +5,7 @@ Wichtig: Response-Schemas geben NIE secret_enc oder Passwoerter aus.
 from __future__ import annotations
 
 import datetime as dt
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -209,8 +210,11 @@ class SendRequest(BaseModel):
 
 
 # ---- Filterregeln --------------------------------------------------------
+RuleField = Literal["from", "from_domain", "to", "subject"]
+
+
 class RuleCreate(BaseModel):
-    field: str = "from"            # from | from_domain | to | subject
+    field: RuleField = "from"
     value: str
     target_folder: str = ""
     mark_read: bool = False
@@ -245,7 +249,7 @@ class BatchRequest(BaseModel):
 
 class RuleUpdate(BaseModel):
     """Teil-Update einer Regel (Bearbeiten). Nur gesetzte Felder werden geaendert."""
-    field: str | None = None
+    field: RuleField | None = None
     value: str | None = None
     target_folder: str | None = None
     mark_read: bool | None = None

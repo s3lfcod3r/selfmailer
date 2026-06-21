@@ -1,6 +1,8 @@
 """Filterregeln pro Mailkonto: CRUD + Anwenden auf den Posteingang (Modus A)."""
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
@@ -12,6 +14,8 @@ from ..schemas import RuleCreate, RuleOut, RuleUpdate
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/mail", tags=["rules"])
+
+logger = logging.getLogger(__name__)
 
 
 def _account(account_id: int, user: User, session: Session) -> MailAccount:
@@ -111,6 +115,7 @@ def apply_rules_endpoint(
         return {"ok": True, "affected": 0}
     try:
         result = imap_mod.apply_rules(acc, decrypt(acc.secret_enc), rules)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Regeln anwenden fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Regeln anwenden fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Regeln anwenden fehlgeschlagen")
     return {"ok": True, **result}

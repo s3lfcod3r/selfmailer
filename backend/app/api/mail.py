@@ -1,6 +1,7 @@
 """Mail lesen/senden ueber ein hinterlegtes Konto des Users."""
 from __future__ import annotations
 
+import logging
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -17,6 +18,8 @@ from ..schemas import BatchRequest, MessageDetail, MessageHeader, MigrateRequest
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
+
+logger = logging.getLogger(__name__)
 
 
 def _account(account_id: int, user: User, session: Session) -> MailAccount:
@@ -74,8 +77,9 @@ def create_folder(
     acc = _account(account_id, user, session)
     try:
         full = imap_mod.create_folder(acc, decrypt(acc.secret_enc), name, parent=parent)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Ordner anlegen fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Ordner anlegen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Ordner anlegen fehlgeschlagen")
     return {"ok": True, "folder": full}
 
 
@@ -88,8 +92,9 @@ def ensure_default_folders(
     acc = _account(account_id, user, session)
     try:
         imap_mod.ensure_default_folders(acc, decrypt(acc.secret_enc))
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Standard-Ordner anlegen fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Standard-Ordner anlegen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Standard-Ordner anlegen fehlgeschlagen")
     return {"ok": True}
 
 
@@ -104,8 +109,9 @@ def rename_folder(
     acc = _account(account_id, user, session)
     try:
         new_path = imap_mod.rename_folder(acc, decrypt(acc.secret_enc), name, new_name)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Umbenennen fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Ordner umbenennen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Umbenennen fehlgeschlagen")
     return {"ok": True, "folder": new_path}
 
 
@@ -122,8 +128,9 @@ def move_folder(
     acc = _account(account_id, user, session)
     try:
         new_path = imap_mod.move_folder(acc, decrypt(acc.secret_enc), name, parent)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Ordner verschieben fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Ordner verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Ordner verschieben fehlgeschlagen")
     return {"ok": True, "folder": new_path}
 
 
@@ -137,8 +144,9 @@ def delete_folder(
     acc = _account(account_id, user, session)
     try:
         imap_mod.delete_folder(acc, decrypt(acc.secret_enc), name)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Ordner löschen fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Ordner loeschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Ordner löschen fehlgeschlagen")
     return {"ok": True}
 
 
@@ -205,8 +213,9 @@ def sync_messages(
     acc = _account(account_id, user, session)
     try:
         return cache_mod.sync_folder(session, acc, decrypt(acc.secret_enc), folder)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Sync fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Sync fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Sync fehlgeschlagen")
 
 
 @router.post("/{account_id}/migrate")
@@ -228,8 +237,9 @@ def migrate_account(
             source, decrypt(source.secret_enc), dest, decrypt(dest.secret_enc),
             target_prefix=data.target_prefix, dry_run=data.dry_run, limit_per_folder=data.limit,
         )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Migration fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Migration fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Migration fehlgeschlagen")
 
 
 @router.post("/{account_id}/transfer")
@@ -249,8 +259,9 @@ def transfer(
             dest, decrypt(dest.secret_enc), data.dest_folder,
             move=data.move, limit=data.limit,
         )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Übertragen fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Uebertragen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Übertragen fehlgeschlagen")
 
 
 @router.get("/{account_id}/messages/{uid}", response_model=MessageDetail)
@@ -333,8 +344,9 @@ def set_flags(
     acc = _account(account_id, user, session)
     try:
         imap_mod.set_flags(acc, decrypt(acc.secret_enc), uid, folder=folder, seen=seen, flagged=flagged)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Aktion fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Flags setzen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Aktion fehlgeschlagen")
     try:
         cache_mod.update_flags(session, account_id, folder, uid, seen=seen, flagged=flagged)
     except Exception:  # noqa: BLE001 - Cache-Pflege darf nie die Aktion kippen
@@ -354,8 +366,9 @@ def move_message(
     acc = _account(account_id, user, session)
     try:
         imap_mod.move_message(acc, decrypt(acc.secret_enc), uid, dest, folder=folder)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Verschieben fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Nachricht verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Verschieben fehlgeschlagen")
     try:
         cache_mod.remove_uids(session, account_id, folder, [uid])
     except Exception:  # noqa: BLE001
@@ -400,8 +413,9 @@ def delete_messages_batch(
     acc = _account(account_id, user, session)
     try:
         result = imap_mod.delete_messages(acc, decrypt(acc.secret_enc), data.uids, folder=data.folder)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Loeschen fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Batch-Loeschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Loeschen fehlgeschlagen")
     try:
         cache_mod.remove_uids(session, account_id, data.folder, data.uids)
     except Exception:  # noqa: BLE001
@@ -425,8 +439,9 @@ def set_flags_batch(
         n = imap_mod.set_flags_many(
             acc, decrypt(acc.secret_enc), data.uids, folder=data.folder, seen=seen, flagged=flagged,
         )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Markieren fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Batch-Markieren fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Markieren fehlgeschlagen")
     try:
         cache_mod.set_flags_bulk(session, account_id, data.folder, data.uids, seen=seen, flagged=flagged)
     except Exception:  # noqa: BLE001 - Cache-Pflege darf die Aktion nie kippen
@@ -447,8 +462,9 @@ def move_messages_batch(
     acc = _account(account_id, user, session)
     try:
         result = imap_mod.move_messages(acc, decrypt(acc.secret_enc), data.uids, data.dest, folder=data.folder)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Verschieben fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Batch-Verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Verschieben fehlgeschlagen")
     try:
         cache_mod.remove_uids(session, account_id, data.folder, data.uids)
     except Exception:  # noqa: BLE001
@@ -467,8 +483,9 @@ def delete_message(
     acc = _account(account_id, user, session)
     try:
         result = imap_mod.delete_message(acc, decrypt(acc.secret_enc), uid, folder=folder)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Loeschen fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Nachricht loeschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Loeschen fehlgeschlagen")
     try:
         cache_mod.remove_uids(session, account_id, folder, [uid])
     except Exception:  # noqa: BLE001
@@ -494,8 +511,9 @@ def save_draft(
             body=data.body,
             html=data.html,
         )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Entwurf speichern fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Entwurf speichern fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Entwurf speichern fehlgeschlagen")
     return {"ok": ok}
 
 
@@ -522,6 +540,7 @@ async def send(
             read_receipt=data.read_receipt,
             delivery_receipt=data.delivery_receipt,
         )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Versand fehlgeschlagen: {exc}")
+    except Exception:  # noqa: BLE001
+        logger.warning("Versand fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Versand fehlgeschlagen")
     return {"sent": True}

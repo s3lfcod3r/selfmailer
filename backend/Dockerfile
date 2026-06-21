@@ -14,6 +14,15 @@ COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./
 COPY --from=frontend /fe/dist ./frontend/dist
+
+# Non-Root-Betrieb: Unraid-freundliche IDs (nobody:users = 99:100). /data und
+# /app gehoeren dem Laufzeit-User, damit die SQLite-DB im gemounteten Volume
+# beschreibbar bleibt. Gruppe 100 ("users") existiert im Debian-Basisimage.
+RUN useradd -u 99 -g 100 -M -s /usr/sbin/nologin appuser \
+    && mkdir -p /data \
+    && chown -R 99:100 /data /app
+USER appuser
+
 VOLUME ["/data"]
 EXPOSE 8090
 

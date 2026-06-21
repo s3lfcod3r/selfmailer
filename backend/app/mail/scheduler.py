@@ -12,6 +12,7 @@ Env steuerbar:
 """
 from __future__ import annotations
 
+import logging
 import os
 import threading
 
@@ -19,9 +20,11 @@ from sqlmodel import Session, select
 
 from ..core.crypto import decrypt
 from ..core.db import engine
-from ..models import MailAccount
+from ..models import MailAccount, User
 from . import cache as cache_mod
 from . import imap as imap_mod
+
+logger = logging.getLogger(__name__)
 
 _INTERVAL = max(60, int(os.getenv("SELFMAILER_SYNC_INTERVAL", "300") or 300))
 _WARM_FOLDERS = ["INBOX"]          # Ordner, deren NACHRICHTEN warmgehalten werden
@@ -37,6 +40,7 @@ def _sync_account(acc: MailAccount) -> None:
     try:
         pw = decrypt(acc.secret_enc)
     except Exception:  # noqa: BLE001 - z. B. Schluessel-Mismatch -> Konto ueberspringen
+        logger.warning("Sync uebersprungen: Entschluesselung fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
         return
 
     # 1) Nachrichten der wichtigen Ordner (Delta-Sync fuellt CachedMessage + Counts)
@@ -47,7 +51,9 @@ def _sync_account(acc: MailAccount) -> None:
             with Session(engine) as s:
                 cache_mod.sync_folder(s, acc, pw, folder)
         except Exception:  # noqa: BLE001 - ein Ordner/Konto darf den Lauf nie kippen
-            pass
+            logger.warning(
+                "Hintergrund-Sync fehlgeschlagen (account_id=%s, folder=%s)", acc.id, folder, exc_info=True
+            )
 
     # 2) Ordnerliste + Zaehler fuer die Seitenleiste (CachedFolder)
     if _stop.is_set():
@@ -57,14 +63,20 @@ def _sync_account(acc: MailAccount) -> None:
         with Session(engine) as s:
             cache_mod.write_folder_counts(s, acc.id, counts)
     except Exception:  # noqa: BLE001
-        pass
+        logger.warning("Ordnerzaehler-Sync fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
 
 def _sync_once() -> None:
     try:
         with Session(engine) as s:
-            accounts = list(s.exec(select(MailAccount)).all())
+            # Nur Konten AKTIVER User warmhalten — gesperrte User nicht weiter cachen.
+            accounts = list(
+                s.exec(
+                    select(MailAccount).join(User, MailAccount.user_id == User.id).where(User.is_active == True)  # noqa: E712
+                ).all()
+            )
     except Exception:  # noqa: BLE001
+        logger.warning("Konten fuer Hintergrund-Sync laden fehlgeschlagen", exc_info=True)
         return
     for acc in accounts:
         if _stop.is_set():
