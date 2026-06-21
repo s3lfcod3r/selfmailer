@@ -263,7 +263,10 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 .mail-readcol {
   flex: 1.7 1 0; min-width: 0; min-height: 0; overflow-y: auto;
   padding-left: 0.8rem;  /* Trenner kommt vom Resize-Griff — kein zweiter Rand (sonst Doppellinie) */
+  display: flex; flex-direction: column;  /* Body-iframe soll die Resthoehe fuellen */
 }
+/* Mail-Body (HTML-iframe) nutzt den verfuegbaren Platz statt fester Hoehe. */
+.mail-body-frame { flex: 1 1 auto; min-height: 320px; width: 100%; border: none; background: #fff; border-radius: 6px; }
 .mail-folder.drop { background: color-mix(in srgb, var(--self-teal) 22%, transparent); }
 .resize-handle {
   flex: 0 0 7px; align-self: stretch; cursor: col-resize;
