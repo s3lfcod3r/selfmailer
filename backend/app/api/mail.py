@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 from urllib.parse import quote
 
+from aiosmtplib.errors import SMTPRecipientsRefused
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlmodel import Session
 
@@ -547,6 +549,15 @@ async def send(
             read_receipt=data.read_receipt,
             delivery_receipt=data.delivery_receipt,
         )
+    except SMTPRecipientsRefused as exc:
+        # Zielserver hat Empfänger abgelehnt (z. B. Tippfehler / unbekannte Domain).
+        try:
+            addrs = ", ".join(str(a) for a in exc.recipients)
+        except Exception:  # noqa: BLE001
+            addrs = ""
+        logger.warning("Versand: Empfaenger abgelehnt (account_id=%s): %s", account_id, addrs)
+        detail = "Empfänger abgelehnt" + (f": {addrs}" if addrs else "")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail + " — Adresse prüfen (unbekannt oder ungültige Domain?).")
     except Exception:  # noqa: BLE001
         logger.warning("Versand fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Versand fehlgeschlagen")
