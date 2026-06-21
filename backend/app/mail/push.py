@@ -17,18 +17,21 @@ from ..models import CachedMessage, MailAccount, PushConfig
 logger = logging.getLogger(__name__)
 
 
-def push_new_mail(session: Session, account: MailAccount, count: int) -> None:
+def push_new_mail(session: Session, account: MailAccount, folder: str, count: int) -> None:
     cfg = session.exec(select(PushConfig).where(PushConfig.user_id == account.user_id)).first()
     if cfg is None or not cfg.enabled or not cfg.ntfy_url or not cfg.topic:
         return
 
     label = account.label or account.email
-    # Neueste ungelesene Mail im INBOX als Vorschau (aus dem frisch gesyncten Cache).
+    leaf = folder.rsplit("/", 1)[-1].rsplit(".", 1)[-1]
+    is_inbox = folder.upper().endswith("INBOX")
+
+    # Vorschau (Absender/Betreff) nur fuer gecachte Ordner (i. d. R. INBOX).
     msg = session.exec(
         select(CachedMessage)
         .where(
             CachedMessage.account_id == account.id,
-            CachedMessage.folder == "INBOX",
+            CachedMessage.folder == folder,
             CachedMessage.seen == False,  # noqa: E712
         )
         .order_by(CachedMessage.sort_date.desc())
@@ -39,6 +42,8 @@ def push_new_mail(session: Session, account: MailAccount, count: int) -> None:
         message = f"{sender}: {msg.subject or '(kein Betreff)'}"
     else:
         message = f"{count} neue E-Mails"
+    if not is_inbox:
+        message = f"{message} · {leaf}"
 
     payload = {"topic": cfg.topic, "title": label, "message": message, "tags": ["email"]}
     try:

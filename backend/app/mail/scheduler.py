@@ -20,7 +20,7 @@ from sqlmodel import Session, select
 
 from ..core.crypto import decrypt
 from ..core.db import engine
-from ..models import MailAccount, User
+from ..models import FolderNotify, MailAccount, User
 from . import cache as cache_mod
 from . import imap as imap_mod
 from . import push as push_mod
@@ -67,27 +67,30 @@ def _sync_account(acc: MailAccount) -> None:
     except Exception:  # noqa: BLE001
         logger.warning("Ordnerzaehler-Sync fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
-    # 3) Push bei neuer Mail: INBOX-Ungelesen mit der zuletzt gemeldeten Zahl
-    #    vergleichen. Erster Lauf (Basis -1) setzt nur die Basis, ohne zu pushen.
+    # 3) Push bei neuer Mail: pro ausgewaehltem Ordner die Ungelesen-Zahl mit der
+    #    zuletzt gemeldeten vergleichen. Erster Lauf (Basis -1) setzt nur die Basis.
     if counts is not None and not _stop.is_set():
-        inbox_unseen = next(
-            (c.get("unseen", 0) for c in counts if str(c.get("name", "")).upper().endswith("INBOX")),
-            None,
-        )
-        if inbox_unseen is not None:
-            try:
-                with Session(engine) as s:
-                    row = s.get(MailAccount, acc.id)
-                    if row is not None:
-                        base = row.last_notified_unseen
-                        if base >= 0 and inbox_unseen > base:
-                            push_mod.push_new_mail(s, row, inbox_unseen - base)
-                        if inbox_unseen != base:
-                            row.last_notified_unseen = inbox_unseen
+        try:
+            with Session(engine) as s:
+                rows = list(s.exec(select(FolderNotify).where(FolderNotify.account_id == acc.id)).all())
+                if rows:
+                    by_name = {str(c.get("name", "")): int(c.get("unseen", 0) or 0) for c in counts}
+                    changed = False
+                    for row in rows:
+                        unseen = by_name.get(row.folder)
+                        if unseen is None:
+                            continue
+                        base = row.last_unseen
+                        if base >= 0 and unseen > base:
+                            push_mod.push_new_mail(s, acc, row.folder, unseen - base)
+                        if unseen != base:
+                            row.last_unseen = unseen
                             s.add(row)
-                            s.commit()
-            except Exception:  # noqa: BLE001 - Push darf den Sync nie kippen
-                logger.warning("Push-Check fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+                            changed = True
+                    if changed:
+                        s.commit()
+        except Exception:  # noqa: BLE001 - Push darf den Sync nie kippen
+            logger.warning("Push-Check fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
 
 def _sync_once() -> None:

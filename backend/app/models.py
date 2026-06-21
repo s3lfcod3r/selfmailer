@@ -265,6 +265,20 @@ class PushConfig(SQLModel, table=True):
     created_at: dt.datetime = Field(default_factory=_now)
 
 
+class FolderNotify(SQLModel, table=True):
+    """Pro Konto+Ordner: Benachrichtigung bei neuer Mail an/aus.
+
+    Existiert eine Zeile, wird fuer diesen Ordner gepusht. `last_unseen` ist die
+    zuletzt gemeldete Ungelesen-Zahl (-1 = noch nie beobachtet -> erster Lauf
+    setzt nur die Basis, ohne zu pushen).
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    account_id: int = Field(index=True, foreign_key="mailaccount.id")
+    folder: str = ""
+    last_unseen: int = -1
+
+
 class FeedToken(SQLModel, table=True):
     """Geheimer Token fuer abonnierbare Export-Feeds (ICS/vCard).
 

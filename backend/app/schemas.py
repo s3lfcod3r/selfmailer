@@ -442,6 +442,11 @@ class PushConfigOut(BaseModel):
     topic: str
 
 
+class FolderNotifyIn(BaseModel):
+    account_id: int
+    folders: list[str] = []   # vollstaendige Liste der zu benachrichtigenden Ordner
+
+
 # ---- Export-Feed-Token --------------------------------------------------
 class FeedTokenOut(BaseModel):
     token: str

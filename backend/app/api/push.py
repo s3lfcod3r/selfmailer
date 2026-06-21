@@ -1,15 +1,22 @@
 """ntfy-Push-Konfiguration des angemeldeten Users (Self-Service)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from ..core.db import get_session
-from ..models import PushConfig, User
-from ..schemas import PushConfigIn, PushConfigOut
+from ..models import FolderNotify, MailAccount, PushConfig, User
+from ..schemas import FolderNotifyIn, PushConfigIn, PushConfigOut
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/push", tags=["push"])
+
+
+def _own_account(account_id: int, user: User, session: Session) -> MailAccount:
+    acc = session.get(MailAccount, account_id)
+    if acc is None or acc.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Konto nicht gefunden")
+    return acc
 
 
 @router.get("", response_model=PushConfigOut)
@@ -48,3 +55,40 @@ def delete_push(
     if cfg is not None:
         session.delete(cfg)
         session.commit()
+
+
+# ---- Pro-Ordner-Benachrichtigung je Konto -------------------------------
+@router.get("/folders", response_model=list[str])
+def get_notify_folders(
+    account_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[str]:
+    """Welche Ordner dieses Kontos lösen eine Benachrichtigung aus."""
+    _own_account(account_id, user, session)
+    rows = session.exec(select(FolderNotify).where(FolderNotify.account_id == account_id)).all()
+    return [r.folder for r in rows]
+
+
+@router.put("/folders", response_model=list[str])
+def set_notify_folders(
+    data: FolderNotifyIn,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[str]:
+    """Ersetzt die Ordnerauswahl eines Kontos (volle Liste). Neue Ordner starten
+    mit Basis -1 (erster Lauf meldet nicht)."""
+    _own_account(data.account_id, user, session)
+    existing = {
+        r.folder: r
+        for r in session.exec(select(FolderNotify).where(FolderNotify.account_id == data.account_id)).all()
+    }
+    wanted = {f for f in data.folders if f.strip()}
+    for folder, row in existing.items():
+        if folder not in wanted:
+            session.delete(row)
+    for folder in wanted:
+        if folder not in existing:
+            session.add(FolderNotify(account_id=data.account_id, folder=folder, last_unseen=-1))
+    session.commit()
+    return sorted(wanted)
