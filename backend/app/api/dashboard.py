@@ -33,11 +33,34 @@ INBOX = "INBOX"
 RECENT_LIMIT = 10          # max. Vorschau-Mails ueber alle Konten zusammen
 PER_ACCOUNT_RECENT = 5     # je Konto so viele neueste Ungelesene einsammeln
 
+# Bei folders=all NICHT mitzaehlende Sonderordner: dort liegt keine "neue
+# eingehende Mail" (Papierkorb/Spam/Gesendet/Entwuerfe). Inbox/Archiv/eigene
+# Ordner + Unterordner zaehlen mit.
+_EXCLUDED_KINDS = {"trash", "spam", "sent", "drafts"}
+
 
 def _cached_unseen(session: Session, account_id: int) -> int:
     counts = cache_mod.read_counts(session, account_id)
     fs = counts.get(INBOX)
     return int(fs.unseen) if fs else 0
+
+
+def _leaf(folder: str) -> str:
+    """Letzter Pfadteil eines Ordnernamens (Trenner . oder /)."""
+    return folder.replace("/", ".").rsplit(".", 1)[-1]
+
+
+def _all_folders_unseen(session: Session, account_id: int) -> int:
+    """Ungelesen ueber ALLE Ordner des Kontos (aus dem warmen Ordner-Cache),
+    OHNE Papierkorb/Spam/Gesendet/Entwuerfe. Quelle: CachedFolder, vom
+    Hintergrund-Scheduler je Konto alle paar Minuten via IMAP STATUS gepflegt."""
+    total = 0
+    for fc in cache_mod.read_folder_counts(session, account_id):
+        name = fc.get("name") or ""
+        if imap_mod._special_kind(_leaf(name)) in _EXCLUDED_KINDS:
+            continue
+        total += int(fc.get("unseen", 0) or 0)
+    return total
 
 
 def _live_unseen(acc: MailAccount) -> tuple[int, int | None, str | None]:
@@ -54,6 +77,7 @@ def _live_unseen(acc: MailAccount) -> tuple[int, int | None, str | None]:
 @router.get("/summary")
 def summary(
     live: bool = False,
+    folders: str = "inbox",
     user: User = Depends(feed_or_bearer_user),
     session: Session = Depends(get_session),
 ) -> dict:
@@ -70,10 +94,17 @@ def summary(
     """
     accounts = list(session.exec(select(MailAccount).where(MailAccount.user_id == user.id)).all())
 
+    # folders=all -> ALLE Ordner (ohne Papierkorb/Spam/Gesendet/Entwuerfe) aus dem
+    # warmen Ordner-Cache. Bewusst KEIN Live-IMAP ueber alle Ordner (STATUS je
+    # Ordner je Konto = zu langsam fuers Polling) — der Scheduler haelt die Zaehler
+    # frisch. folders=inbox (Default) = bisheriges Verhalten (nur Posteingang).
+    include_all = folders.strip().lower() in {"all", "sub", "subfolders"}
+
     # Live: alle Konten PARALLEL abfragen (jedes durch IMAP-Timeout gebunden) ->
     # Gesamtdauer ~ langsamstes Konto statt Summe. Threads machen NUR IMAP.
+    # Nur im Inbox-Modus relevant (all zaehlt immer aus dem Cache).
     live_by_id: dict[int, tuple[int, int | None, str | None]] = {}
-    if live and accounts:
+    if live and accounts and not include_all:
         with ThreadPoolExecutor(max_workers=min(8, len(accounts))) as pool:
             for acc, res in zip(accounts, pool.map(_live_unseen, accounts)):
                 live_by_id[acc.id] = res
@@ -84,7 +115,9 @@ def summary(
     for acc in accounts:
         ms: int | None = None
         err: str | None = None
-        if acc.id in live_by_id:
+        if include_all:
+            unseen = _all_folders_unseen(session, acc.id)
+        elif acc.id in live_by_id:
             u, ms, err = live_by_id[acc.id]
             unseen = u if u >= 0 else _cached_unseen(session, acc.id)  # Fehler -> Cache
         else:
