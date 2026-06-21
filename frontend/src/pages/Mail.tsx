@@ -282,7 +282,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     return (foldersByAcc[accId] || []).find((f) => f.name === path)?.unseen ?? 0;
   }
   function rollupUnseen(accId: number): number {
-    return (foldersByAcc[accId] || []).reduce((s, f) => s + (f.unseen || 0), 0);
+    // Ausgeblendete Ordner NICHT mitzaehlen — sonst zeigt der zugeklappte Konto-
+    // Kopf eine Zahl, die in keinem sichtbaren Ordner auftaucht.
+    const hidden = hiddenByAcc[accId] || [];
+    return (foldersByAcc[accId] || []).reduce((s, f) => s + (hidden.includes(f.name) ? 0 : (f.unseen || 0)), 0);
   }
   // Ungelesen-Zaehler lokal anpassen (ohne erneuten IMAP-Abruf).
   function bumpUnseen(accId: number, path: string, delta: number) {
@@ -912,6 +915,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                     {revealHidden.has(a.id) && hid.map((p) => (
                       <div className="mail-hidden-row" key={p}>
                         <span className="mail-hidden-name" title={p}>{p.split(/[/.]/).pop() || p}</span>
+                        {unseenOf(a.id, p) > 0 && <span className="mail-badge">{unseenOf(a.id, p)}</span>}
                         <button className="mail-folder-toggle" style={{ width: "auto", padding: "0 0.3rem" }} onClick={() => unhideFolder(a.id, p)} title={t("folder.unhide")}>👁</button>
                       </div>
                     ))}
