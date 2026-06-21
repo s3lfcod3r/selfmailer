@@ -4,39 +4,46 @@
 
 # SelfMailer
 
-**Self-hosted, multi-user e-mail client with calendar, contacts, notes & a native Android app — your own alternative to Synology MailPlus.**
+**Self-hosted, multi-user e-mail client — with calendar, contacts, notes, a native Android app, and real-time sync. Your own alternative to Synology MailPlus.**
 
 [![Build](https://github.com/kabelsalatundklartext/selfmailer/actions/workflows/docker.yml/badge.svg)](https://github.com/kabelsalatundklartext/selfmailer/actions/workflows/docker.yml)
-![Version](https://img.shields.io/badge/version-1.8.0-33A78C)
+![Version](https://img.shields.io/badge/version-1.12.0-33A78C)
 ![License](https://img.shields.io/badge/license-private-8A9CAA)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-009688)
 ![Web](https://img.shields.io/badge/web-React%20%2B%20Vite-43D3AD)
 ![App](https://img.shields.io/badge/android-Kotlin%20%2B%20Compose-9DBDD0)
 
-[English](#english) · [Deutsch](#deutsch)
+[English](#-english) · [Deutsch](#-deutsch)
 
 </div>
 
 ---
 
-<a id="english"></a>
+<a id="-english"></a>
 
 ## 🇬🇧 English
 
-A single Docker container that is **not a mail server** — it's a **client** for the mail accounts you already have. It connects to any **IMAP / POP3** mailbox to read and to **SMTP** to send, and bundles a **calendar, contacts, notes and tasks** on top. One web UI **and** a native Android app talk to **one JSON API**.
+A single Docker container that is **not a mail server** — it's a **client** for the mailboxes you already have. It connects to any **IMAP / POP3** account to read and to **SMTP** to send, and adds a **calendar, contacts, notes and tasks** on top. A polished **web UI** and a **native Android app** share **one JSON API** — and stay in sync **live** across devices.
 
 Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …) — same design system, same deploy style (GHCR → Unraid).
+
+> **TL;DR** — IMAP/SMTP mail client · calendar/contacts/notes · web + native Android · live cross-device sync · 3 notification options (FCM / ntfy / background) · 2FA · single container · no external DB.
+
+### 📑 Table of contents
+[Features](#-features) · [Architecture](#-architecture) · [Notifications](#-notifications) · [Live sync](#-live-sync) · [Quick start](#-quick-start-docker) · [Unraid](#-unraid) · [Configuration](#%EF%B8%8F-configuration-env-prefix-selfmailer_) · [Android app](#-android-app) · [API](#-api-overview-apiv1-jwt-bearer) · [Security](#%EF%B8%8F-security) · [Tech stack](#-tech-stack) · [Development](#%EF%B8%8F-development) · [Roadmap](#%EF%B8%8F-roadmap)
 
 ### ✨ Features
 
 **📬 Mail**
 - Multiple **IMAP / POP3 / SMTP** accounts per user
 - **Thunderbird-style** stacked accounts with a per-account folder tree and **unread counters**
-- Read **HTML mail** (sandboxed), download/open **attachments**, **SPF/DKIM/DMARC** spoofing check
-- **Compose / reply / forward**, per-account **signatures**, drafts, read/delivery receipts
-- **Flag (star)**, mark read/unread, delete, **move**, **cross-account transfer**, **bulk actions**
-- **Filter rules** (move/star/mark on arrival), **server-side mailbox migration**
-- **Search**, pagination, snippets, and a local **SQLite cache** kept warm by a background sync → the UI never waits on a slow provider
+- Read **HTML mail** (hardened), download/open **attachments**, **SPF/DKIM/DMARC** spoofing check
+- **Compose / reply / forward** with a per-account **From** picker and **signatures**; drafts, read/delivery receipts
+- **Star**, mark read/unread, delete, **move**, **cross-account transfer**
+- **Multi-select** (long-press → select → bulk move / read / unread / star / delete)
+- **Filter rules** (move/star/mark on arrival) and **server-side mailbox migration**
+- **Search** with quick filters (unread · has attachment · starred), pagination, snippets
+- A local **SQLite cache** kept warm by a background sync → the UI never waits on a slow provider
 
 **📅 Organizer**
 - **Calendar** — local events, month/agenda views, birthdays from contacts
@@ -44,17 +51,21 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
 - **Notes** & **Tasks**
 - **CalDAV / CardDAV** pull from external servers (Nextcloud, Synology …) + subscribable **ICS / vCard** export feeds
 
-**🔔 Notifications (self-hosted, no Google)**
-- Push on new mail via **ntfy** — the server pushes, your phone gets it, no Firebase/FCM
-- **Per account, per folder** — choose exactly which mailboxes notify you
-- Configurable in the **web UI and the app** (one shared setting)
+**🔔 Notifications — you choose**
+- **FCM (Google Push)** — instant, no persistent notification (like Gmail/Synology)
+- **ntfy** — self-hosted push, no Google
+- **Background check** — ~1 min, zero setup
+- **Per account, per folder** — pick exactly which mailboxes notify you
+- Configurable in **both** the web UI and the app — one shared setting
+
+**🔄 Live sync (SSE)**
+- Read/delete/move on your phone → an open web tab **updates instantly** (and vice-versa)
 
 **🔐 Security & platform**
 - **Multi-user** with admin/user roles; admin can pre-configure accounts for users
-- **2FA / TOTP** login with backup codes
+- **2FA / TOTP** login with backup codes; biometric **app-lock** on Android
 - Account credentials **Fernet-encrypted at rest**
-- **Native Android app** (Kotlin + Jetpack Compose) with biometric app-lock
-- **i18n DE/EN**, dark/light themes + custom accent colours
+- **i18n DE/EN**, light/dark themes + custom accent colours
 - **Single container** — FastAPI + SQLite, no external database
 
 ### 🧭 Architecture
@@ -64,29 +75,55 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
         │   Web UI     │          │  Android app  │
         │ React + Vite │          │ Kotlin/Compose│
         └──────┬───────┘          └──────┬────────┘
-               └────────  JSON API  ──────┘
-                      /api/v1 · JWT (Bearer)
+               └───── JSON API + SSE ─────┘
+                   /api/v1 · JWT (Bearer)
                           │
                  ┌────────▼─────────┐
                  │   FastAPI core   │  SQLite (cache + config)
-                 │  + background    │  Fernet-encrypted secrets
-                 │      sync        │
+                 │  background sync │  Fernet-encrypted secrets
+                 │  + event bus     │  in-memory pub/sub → live sync
                  └────────┬─────────┘
-        ┌─────────────────┼────────────────┬─────────────────┐
-     IMAP / POP3        SMTP        CalDAV / CardDAV         ntfy
-   (read mailboxes)  (send mail)  (sync cal & contacts)  (push on new mail)
+        ┌──────────┬──────┴───────┬──────────────┬───────────┐
+   IMAP / POP3   SMTP      CalDAV / CardDAV     FCM         ntfy
+  (read mail) (send mail) (sync cal & contacts) (Google push) (self-hosted push)
 ```
 
-### 🔔 Notifications setup (ntfy)
+### 🔔 Notifications
 
-Self-hosted push without Google. The SelfMailer server detects new mail and posts to **your** ntfy server; the ntfy app on your phone shows it.
+Pick a method in **Settings → E-Mail notifications** (web *user menu → 🔔* / app *Settings*). The server can drive **all three** in parallel — e.g. FCM on your main phone, ntfy on a de-Googled one.
 
-1. **Run an ntfy container** on Unraid (port e.g. `8095`, `NTFY_BASE_URL=http://<host>:8095`).
-2. **Install the ntfy app** on your phone, add your server, and subscribe to the topic SelfMailer shows you.
-3. In SelfMailer (**web** *user menu → 🔔 Notifications* **or app** *Settings → ntfy push*): enter the ntfy URL → **Save & enable** → pick the folders per account that should notify you.
-4. *(Optional)* set `SELFMAILER_SYNC_INTERVAL=120` for ~2-minute push latency.
+| Method | Latency | Persistent notification | Needs |
+|---|---|---|---|
+| **FCM (Google Push)** | instant | none | Firebase project + Google Play Services |
+| **ntfy** | instant | none (the ntfy app holds one connection for all apps) | ntfy container + ntfy app |
+| **Background check** | ~1 min | yes (Android requirement for a foreground service) | nothing |
 
-> The app also offers a **foreground polling** mode (~1 min, no extra infrastructure) as an alternative — it keeps a small persistent notification, which ntfy avoids.
+**Per-folder:** under *Choose folders* you pick, per account, which folders trigger a push.
+
+<details>
+<summary><b>Setup — FCM (Google Push)</b></summary>
+
+1. Create a free **Firebase** project at <https://console.firebase.google.com>.
+2. **Add Android app** with package name `com.selfmailer.viewer` → download **`google-services.json`** (goes into the app build).
+3. Project settings → **Service accounts** → **Generate new private key** → download the JSON.
+4. Put that JSON on the server as `…/selfmailer/data/fcm-service-account.json` and set
+   `SELFMAILER_FCM_CREDENTIALS=/data/fcm-service-account.json` → restart the container.
+5. In the app: notifications on → **Google Push (FCM)** → pick folders → use **Send test push** to verify.
+
+> The push payload is intentionally minimal ("2 new e-mails"); the app fetches the actual content from **your** server, so Google never sees mail bodies.
+</details>
+
+<details>
+<summary><b>Setup — ntfy (self-hosted)</b></summary>
+
+1. Run an **ntfy** container (e.g. `binwiederhier/ntfy serve`, host port `8095` → container `80`, `NTFY_BASE_URL=http://<host>:8095`).
+2. Install the **ntfy app**, add your server, subscribe to the topic SelfMailer shows you.
+3. In SelfMailer: notifications on → **ntfy** → enter the URL → **Save & enable** → pick folders.
+</details>
+
+### 🔄 Live sync
+
+Every open client (web tab, app in the foreground) holds a thin **SSE** connection (`/api/v1/events/stream`). Whenever anyone performs an action — or new mail arrives — the server emits a tiny event and the other clients refresh the affected folder. No polling storm, no Google, near-instant.
 
 ### 🚀 Quick start (Docker)
 
@@ -106,18 +143,21 @@ Add the template from
 `https://raw.githubusercontent.com/kabelsalatundklartext/selfmailer/main/unraid/selfmailer.xml`
 or import it under *Docker → Add Container → Template*. Set the **Master Secret**, leave the rest on defaults.
 
-> **Permissions:** the container runs **non-root** (uid `99` / gid `100` = `nobody:users`). If the appdata folder is owned by root, fix it once:
-> `chown -R 99:100 /mnt/user/appdata/selfmailer` (or use *Tools → Docker Safe New Permissions*).
+> **Master Secret:** never change `SELFMAILER_SECRET` after first run — it encrypts the stored mailbox passwords. Changing it makes them unreadable.
+>
+> **Permissions:** the container runs **non-root** (uid `99` / gid `100` = `nobody:users`). If a data file is owned by root, fix it once:
+> `chown -R 99:100 /mnt/user/appdata/selfmailer` (or *Tools → Docker Safe New Permissions*).
 
 ### ⚙️ Configuration (ENV, prefix `SELFMAILER_`)
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `SELFMAILER_SECRET` | ✅ | – | JWT signing **and** at-rest encryption of mailbox passwords (≥ 32 chars). Changing it makes stored passwords unreadable. |
+| `SELFMAILER_SECRET` | ✅ | – | JWT signing **and** at-rest encryption of mailbox passwords (≥ 32 chars). **Do not change after setup.** |
 | `SELFMAILER_DB_PATH` | – | `/data/selfmailer.db` | SQLite path |
+| `SELFMAILER_FCM_CREDENTIALS` | – | `/data/fcm-service-account.json` | Path to the Firebase service-account JSON for Google push. Empty/missing = FCM off. |
 | `SELFMAILER_ADMIN_TOKEN` | – | – | If set, first-run admin setup requires this token |
 | `SELFMAILER_BASE_URL` | – | – | Public base URL (e.g. for feed links) |
-| `SELFMAILER_SYNC_INTERVAL` | – | `300` | Seconds between background syncs (lower = faster push) |
+| `SELFMAILER_SYNC_INTERVAL` | – | `300` | Seconds between background syncs (lower = faster push & sync) |
 | `SELFMAILER_SYNC_DISABLE` | – | `0` | Turn off the background sync |
 | `SELFMAILER_IMAP_TIMEOUT` | – | `15` | IMAP socket timeout (seconds) |
 | `SELFMAILER_DAV_BLOCK_PRIVATE` | – | `false` | Block private/LAN targets for DAV pull (SSRF strict mode) |
@@ -129,10 +169,10 @@ A real native client (`android/SelfMailer.apk`) — **not** a web-view wrapper. 
 
 - **Hamburger drawer** → account switcher + special folders + sub-folders, with unread badges
 - **Bottom navigation**: Mail · Calendar · Notes
-- HTML mail rendering, attachment download/open, search, compose/reply/forward
+- HTML mail, attachments, **multi-select** with a bulk action bar, **search filters**, Synology-style **compose** with From picker
 - **Biometric app-lock** (face / fingerprint / device PIN), unread accent markers
-- **Self-hosted push** (ntfy) with per-account per-folder selection
-- Server URL entered on first launch; talks to the same `/api/v1` as the web UI
+- **Notifications**: FCM / ntfy / background — your choice, per folder
+- Talks to the same `/api/v1` as the web UI; server URL entered on first launch
 
 ### 🔌 API overview (`/api/v1`, JWT Bearer)
 
@@ -143,17 +183,27 @@ A real native client (`android/SelfMailer.apk`) — **not** a web-view wrapper. 
 | **Mail** | `mail/{id}/folders[/counts]`, `mail/{id}/messages`, `…/{uid}`, `…/flags`, `…/move`, `…/send`, `…/transfer`, `…/batch-*` |
 | **Organizer** | `calendar/events`, `contacts`, `notes`, `tasks` |
 | **DAV / Feeds** | `dav/accounts`, `feeds/token`, `calendar/export.ics`, `contacts/export.vcf` |
-| **Push** | `push` (ntfy config), `push/folders` (per-account folder selection) |
+| **Push** | `push` (ntfy), `push/folders` (per-account folders), `push/device` (FCM tokens), `push/test` |
+| **Live** | `events/stream` (Server-Sent Events) |
 | **Dashboard** | `dashboard/summary` (bundled unseen counts) |
+
+### 🛡️ Security
+
+- Login passwords **Argon2**-hashed; mailbox & DAV passwords **Fernet-encrypted at rest** (key from `SELFMAILER_SECRET`)
+- **JWT** pinned to `HS256/384/512`; the 2FA intermediate token grants no access
+- **Rate limiting** on login/2FA/setup; defensive response headers; **anti-enumeration** dummy hash
+- **SSRF guard** on DAV pull (loopback/link-local/cloud-metadata always blocked)
+- Android: `allowBackup=false`, JWT in the **Android Keystore**, hardened mail-HTML WebView, FileProvider with path-traversal check
+- **Deliberate LAN trade-offs** (documented): cleartext HTTP allowed (TLS terminated externally), `SELFMAILER_SECRET` doubles as the encryption seed. Reviewed with the ECC security reviewer.
 
 ### 🧱 Tech stack
 
 | Part | Tech |
 |---|---|
-| Backend | FastAPI · SQLModel · SQLite (WAL) · httpx · aiosmtplib · imap-tools |
-| Web | React · Vite · TypeScript |
-| App | Kotlin · Jetpack Compose · OkHttp · WorkManager · BiometricPrompt |
-| Push | ntfy (self-hosted) |
+| Backend | FastAPI · SQLModel · SQLite (WAL) · httpx · aiosmtplib · imap-tools · PyJWT |
+| Web | React · Vite · TypeScript · EventSource (SSE) |
+| App | Kotlin · Jetpack Compose · OkHttp · WorkManager · Firebase Messaging · BiometricPrompt |
+| Push | FCM (Google) · ntfy (self-hosted) |
 | Deploy | Docker (multi-stage, non-root) · GHCR · Unraid |
 
 ### 🛠️ Development
@@ -173,86 +223,100 @@ Interactive API docs: `http://localhost:8090/docs`
 ### 🗺️ Roadmap
 
 - [x] Mail (IMAP/POP3/SMTP) · stacked accounts · folder tree + unread counts
-- [x] Calendar · Contacts · Notes · Tasks
-- [x] CalDAV/CardDAV pull + ICS/vCard export feeds
-- [x] 2FA / TOTP · filter rules · cross-account transfer
+- [x] Calendar · Contacts · Notes · Tasks · CalDAV/CardDAV + ICS/vCard feeds
+- [x] 2FA / TOTP · filter rules · cross-account transfer · multi-select · search filters
 - [x] Native Android app (Synology-style, biometric lock)
-- [x] Self-hosted push (ntfy), per account & per folder
+- [x] Notifications: **FCM** + **ntfy** + background, per account & folder
+- [x] **Live sync** (SSE) between web clients
+- [ ] Live sync into the Android app (foreground)
 - [ ] OAuth for Gmail / Outlook
 - [ ] Calendar month grid in the app (currently agenda)
-- [ ] HTTPS reverse-proxy guide
-- [ ] Tests toward 80 % coverage
+- [ ] HTTPS reverse-proxy guide · tests toward 80 % coverage
 
 ---
 
-<a id="deutsch"></a>
+<a id="-deutsch"></a>
 
 ## 🇩🇪 Deutsch
 
-Ein einzelner Docker-Container, der **kein Mailserver** ist — sondern ein **Client** für die Postfächer, die du schon hast. Er verbindet sich mit jedem **IMAP-/POP3**-Konto zum Lesen und mit **SMTP** zum Senden und bringt obendrauf **Kalender, Kontakte, Notizen und Aufgaben** mit. Eine Web-Oberfläche **und** eine native Android-App reden mit **einer JSON-API**.
+Ein einzelner Docker-Container, der **kein Mailserver** ist — sondern ein **Client** für die Postfächer, die du schon hast. Er verbindet sich mit jedem **IMAP-/POP3**-Konto zum Lesen und mit **SMTP** zum Senden und bringt **Kalender, Kontakte, Notizen und Aufgaben** mit. Eine ausgefeilte **Web-Oberfläche** und eine **native Android-App** teilen sich **eine JSON-API** — und bleiben **live** über Geräte hinweg synchron.
 
 Teil der **Self**-Reihe (SelfAuthenticator, SelfArchiver, SelfDashboard …) — gleiches Design-System, gleicher Deploy-Stil (GHCR → Unraid).
+
+> **Kurz** — IMAP/SMTP-Mail-Client · Kalender/Kontakte/Notizen · Web + native Android · Live-Sync · 3 Benachrichtigungs-Wege (FCM / ntfy / Hintergrund) · 2FA · ein Container · keine externe DB.
 
 ### ✨ Funktionen
 
 **📬 Mail**
 - Mehrere **IMAP-/POP3-/SMTP**-Konten pro Nutzer
-- **Thunderbird-Ansicht**: gestapelte Konten mit Ordnerbaum pro Konto und **Ungelesen-Zählern**
-- **HTML-Mails** lesen (sandboxed), **Anhänge** öffnen/herunterladen, **SPF/DKIM/DMARC**-Spoofing-Check
-- **Schreiben / Antworten / Weiterleiten**, **Signatur** pro Konto, Entwürfe, Lese-/Empfangsbestätigung
-- **Stern (Flag)**, gelesen/ungelesen, löschen, **verschieben**, **Konto-übergreifend übertragen**, **Sammelaktionen**
-- **Filterregeln** (verschieben/markieren beim Eingang), **Postfach-Migration** serverseitig
-- **Suche**, Pagination, Vorschauen und ein lokaler **SQLite-Cache**, den ein Hintergrund-Sync warm hält → die UI wartet nie auf einen langsamen Provider
+- **Thunderbird-Ansicht**: gestapelte Konten mit Ordnerbaum und **Ungelesen-Zählern**
+- **HTML-Mails** lesen (gehärtet), **Anhänge** öffnen, **SPF/DKIM/DMARC**-Spoofing-Check
+- **Schreiben / Antworten / Weiterleiten** mit **Von-Konto-Auswahl** und **Signaturen**; Entwürfe, Lese-/Empfangsbestätigung
+- **Stern**, gelesen/ungelesen, löschen, **verschieben**, **Konto-übergreifend übertragen**
+- **Mehrfachauswahl** (lange drücken → auswählen → Sammelaktionen Verschieben/Gelesen/Ungelesen/Stern/Löschen)
+- **Filterregeln** und serverseitige **Postfach-Migration**
+- **Suche** mit Schnellfiltern (ungelesen · Anhang · Stern), Pagination, Vorschauen
+- Lokaler **SQLite-Cache**, vom Hintergrund-Sync warmgehalten → die UI wartet nie auf einen langsamen Provider
 
 **📅 Organizer**
 - **Kalender** — lokale Termine, Monats-/Agenda-Ansicht, Geburtstage aus Kontakten
 - **Kontakte** — reiches Adressbuch (Telefon, Adresse, Firma, Website, Geburtstag)
 - **Notizen** & **Aufgaben**
-- **CalDAV-/CardDAV**-Pull von externen Servern (Nextcloud, Synology …) + abonnierbare **ICS-/vCard**-Export-Feeds
+- **CalDAV-/CardDAV**-Pull von externen Servern (Nextcloud, Synology …) + abonnierbare **ICS-/vCard**-Feeds
 
-**🔔 Benachrichtigungen (self-hosted, kein Google)**
-- Push bei neuer Mail über **ntfy** — der Server pusht, dein Handy bekommt es, kein Firebase/FCM
-- **Pro Konto, pro Ordner** — wähle genau, welche Postfächer dich benachrichtigen
-- Einstellbar in **Web-UI und App** (eine gemeinsame Einstellung)
+**🔔 Benachrichtigungen — du wählst**
+- **FCM (Google-Push)** — sofort, keine Dauer-Benachrichtigung (wie Gmail/Synology)
+- **ntfy** — self-hosted, kein Google
+- **Hintergrund-Prüfung** — ~1 Min, null Setup
+- **Pro Konto, pro Ordner** — wähle genau, welche Postfächer benachrichtigen
+- Einstellbar in **Web-UI und App** — eine gemeinsame Einstellung
+
+**🔄 Live-Sync (SSE)**
+- Lesen/Löschen/Verschieben am Handy → ein offener Web-Tab **aktualisiert sich sofort** (und umgekehrt)
 
 **🔐 Sicherheit & Plattform**
-- **Multi-User** mit Admin-/Nutzer-Rollen; Admin kann Konten für Nutzer vorkonfigurieren
-- **2FA / TOTP**-Login mit Backup-Codes
+- **Multi-User** mit Admin-/Nutzer-Rollen; Admin kann Konten vorkonfigurieren
+- **2FA / TOTP** mit Backup-Codes; biometrische **App-Sperre** unter Android
 - Konto-Zugangsdaten **Fernet-verschlüsselt at-rest**
-- **Native Android-App** (Kotlin + Jetpack Compose) mit Biometrie-App-Sperre
 - **i18n DE/EN**, helles/dunkles Theme + eigene Akzentfarben
 - **Ein Container** — FastAPI + SQLite, keine externe Datenbank
 
-### 🧭 Architektur
+### 🔔 Benachrichtigungen
 
-```
-        ┌──────────────┐          ┌───────────────┐
-        │  Web-UI      │          │  Android-App  │
-        │ React + Vite │          │ Kotlin/Compose│
-        └──────┬───────┘          └──────┬────────┘
-               └────────  JSON-API  ──────┘
-                      /api/v1 · JWT (Bearer)
-                          │
-                 ┌────────▼─────────┐
-                 │   FastAPI-Kern   │  SQLite (Cache + Konfig)
-                 │  + Hintergrund-  │  Fernet-verschlüsselte Secrets
-                 │      Sync        │
-                 └────────┬─────────┘
-        ┌─────────────────┼────────────────┬─────────────────┐
-     IMAP / POP3        SMTP        CalDAV / CardDAV         ntfy
-   (Postfächer lesen)(Mail senden)(Kal. & Kontakte sync) (Push bei neuer Mail)
-```
+Methode in **Einstellungen → E-Mail-Benachrichtigungen** wählen (Web *Benutzer-Menü → 🔔* / App *Einstellungen*). Der Server bedient **alle drei** parallel — z. B. FCM aufs Haupt-Handy, ntfy auf ein entgoogeltes.
 
-### 🔔 Benachrichtigungen einrichten (ntfy)
+| Methode | Latenz | Dauer-Benachrichtigung | Voraussetzung |
+|---|---|---|---|
+| **FCM (Google-Push)** | sofort | keine | Firebase-Projekt + Google-Play-Dienste |
+| **ntfy** | sofort | keine (die ntfy-App hält eine Verbindung für alle Apps) | ntfy-Container + ntfy-App |
+| **Hintergrund-Prüfung** | ~1 Min | ja (Android-Pflicht für einen Vordergrund-Dienst) | nichts |
 
-Self-hosted Push ohne Google. Der SelfMailer-Server erkennt neue Mail und postet an **deinen** ntfy-Server; die ntfy-App auf dem Handy zeigt sie.
+**Pro Ordner:** unter *Ordner auswählen* legst du je Konto fest, welche Ordner pushen.
 
-1. **ntfy-Container** auf Unraid starten (Port z. B. `8095`, `NTFY_BASE_URL=http://<host>:8095`).
-2. **ntfy-App** aufs Handy, Server eintragen, das in SelfMailer angezeigte **Thema abonnieren**.
-3. In SelfMailer (**Web** *Benutzer-Menü → 🔔 Benachrichtigungen* **oder App** *Einstellungen → ntfy-Push*): ntfy-URL eintragen → **Speichern & aktivieren** → pro Konto die Ordner wählen, die benachrichtigen sollen.
-4. *(Optional)* `SELFMAILER_SYNC_INTERVAL=120` für ~2 Minuten Push-Latenz.
+<details>
+<summary><b>Einrichtung — FCM (Google-Push)</b></summary>
 
-> Die App bietet alternativ einen **Vordergrund-Prüfmodus** (~1 Min, keine Extra-Infrastruktur) — der hält eine kleine Dauer-Benachrichtigung, die ntfy vermeidet.
+1. Kostenloses **Firebase**-Projekt anlegen: <https://console.firebase.google.com>.
+2. **Android-App** mit Paketname `com.selfmailer.viewer` hinzufügen → **`google-services.json`** laden (kommt in den App-Build).
+3. Projekteinstellungen → **Dienstkonten** → **Neuen privaten Schlüssel generieren** → JSON laden.
+4. Diese JSON auf den Server als `…/selfmailer/data/fcm-service-account.json` legen und
+   `SELFMAILER_FCM_CREDENTIALS=/data/fcm-service-account.json` setzen → Container neu starten.
+5. In der App: Benachrichtigungen an → **Google-Push (FCM)** → Ordner wählen → mit **Test-Push** prüfen.
+
+> Der Push-Inhalt ist bewusst minimal („2 neue E-Mails"); die Details holt die App direkt von **deinem** Server — Google sieht keine Mail-Inhalte.
+</details>
+
+<details>
+<summary><b>Einrichtung — ntfy (self-hosted)</b></summary>
+
+1. **ntfy**-Container starten (z. B. `binwiederhier/ntfy serve`, Host-Port `8095` → Container `80`, `NTFY_BASE_URL=http://<host>:8095`).
+2. **ntfy-App** installieren, Server eintragen, das in SelfMailer gezeigte Thema abonnieren.
+3. In SelfMailer: Benachrichtigungen an → **ntfy** → URL eintragen → **Speichern & aktivieren** → Ordner wählen.
+</details>
+
+### 🔄 Live-Sync
+
+Jeder offene Client (Web-Tab, App im Vordergrund) hält eine dünne **SSE**-Verbindung (`/api/v1/events/stream`). Macht irgendwer eine Aktion — oder trifft neue Mail ein — schickt der Server ein winziges Event und die anderen Clients frischen den betroffenen Ordner auf. Kein Polling-Sturm, kein Google, quasi sofort.
 
 ### 🚀 Schnellstart (Docker)
 
@@ -264,26 +328,29 @@ python -c "import secrets; print(secrets.token_hex(32))"
 docker compose up -d
 ```
 
-`http://<host>:8090` öffnen → das **Erst-Setup** legt den Admin-Account an → danach Mailkonten hinzufügen.
+`http://<host>:8090` öffnen → **Erst-Setup** legt den Admin an → danach Mailkonten hinzufügen.
 
 ### 📦 Unraid
 
-Template hinzufügen über
+Template über
 `https://raw.githubusercontent.com/kabelsalatundklartext/selfmailer/main/unraid/selfmailer.xml`
-oder unter *Docker → Add Container → Template* importieren. **Master Secret** eintragen, Rest auf Standard lassen.
+hinzufügen oder unter *Docker → Add Container → Template* importieren. **Master Secret** setzen, Rest auf Standard.
 
-> **Rechte:** der Container läuft **non-root** (uid `99` / gid `100` = `nobody:users`). Gehört der appdata-Ordner noch root, einmal korrigieren:
+> **Master Secret:** `SELFMAILER_SECRET` nach dem ersten Start **nie ändern** — er verschlüsselt die gespeicherten Postfach-Passwörter. Ändern macht sie unlesbar.
+>
+> **Rechte:** der Container läuft **non-root** (uid `99` / gid `100` = `nobody:users`). Gehört eine Datei root, einmal korrigieren:
 > `chown -R 99:100 /mnt/user/appdata/selfmailer` (oder *Tools → Docker Safe New Permissions*).
 
 ### ⚙️ Konfiguration (ENV, Prefix `SELFMAILER_`)
 
 | Variable | Pflicht | Default | Zweck |
 |---|---|---|---|
-| `SELFMAILER_SECRET` | ✅ | – | JWT-Signatur **und** At-Rest-Verschlüsselung der Postfach-Passwörter (≥ 32 Zeichen). Ändern macht gespeicherte Passwörter unlesbar. |
+| `SELFMAILER_SECRET` | ✅ | – | JWT-Signatur **und** At-Rest-Verschlüsselung der Postfach-Passwörter (≥ 32 Zeichen). **Nach Setup nicht ändern.** |
 | `SELFMAILER_DB_PATH` | – | `/data/selfmailer.db` | SQLite-Pfad |
+| `SELFMAILER_FCM_CREDENTIALS` | – | `/data/fcm-service-account.json` | Pfad zur Firebase-Service-Account-JSON für Google-Push. Leer/fehlend = FCM aus. |
 | `SELFMAILER_ADMIN_TOKEN` | – | – | Wenn gesetzt, verlangt das Erst-Setup diesen Token |
 | `SELFMAILER_BASE_URL` | – | – | Öffentliche Basis-URL (z. B. für Feed-Links) |
-| `SELFMAILER_SYNC_INTERVAL` | – | `300` | Sekunden zwischen Hintergrund-Syncs (kleiner = schnellerer Push) |
+| `SELFMAILER_SYNC_INTERVAL` | – | `300` | Sekunden zwischen Hintergrund-Syncs (kleiner = schnellerer Push & Sync) |
 | `SELFMAILER_SYNC_DISABLE` | – | `0` | Hintergrund-Sync abschalten |
 | `SELFMAILER_IMAP_TIMEOUT` | – | `15` | IMAP-Socket-Timeout (Sekunden) |
 | `SELFMAILER_DAV_BLOCK_PRIVATE` | – | `false` | Private/LAN-Ziele beim DAV-Pull blocken (SSRF-Strikt-Modus) |
@@ -295,10 +362,10 @@ Ein echter nativer Client (`android/SelfMailer.apk`) — **kein** WebView-Wrappe
 
 - **Hamburger-Schublade** → Konto-Wechsler + Sonderordner + Unterordner, mit Ungelesen-Badges
 - **Untere Navigation**: Mail · Kalender · Notizen
-- HTML-Mail-Anzeige, Anhänge öffnen/herunterladen, Suche, Schreiben/Antworten/Weiterleiten
+- HTML-Mail, Anhänge, **Mehrfachauswahl** mit Aktionsleiste, **Such-Filter**, Synology-Stil-**Schreiben** mit Von-Auswahl
 - **Biometrie-App-Sperre** (Gesicht / Finger / Geräte-PIN), Akzent-Markierung für Ungelesene
-- **Self-hosted Push** (ntfy) mit Auswahl pro Konto und Ordner
-- Server-URL beim ersten Start; spricht dieselbe `/api/v1` wie die Web-UI
+- **Benachrichtigungen**: FCM / ntfy / Hintergrund — deine Wahl, pro Ordner
+- Spricht dieselbe `/api/v1` wie die Web-UI; Server-URL beim ersten Start
 
 ### 🔌 API-Überblick (`/api/v1`, JWT Bearer)
 
@@ -309,17 +376,27 @@ Ein echter nativer Client (`android/SelfMailer.apk`) — **kein** WebView-Wrappe
 | **Mail** | `mail/{id}/folders[/counts]`, `mail/{id}/messages`, `…/{uid}`, `…/flags`, `…/move`, `…/send`, `…/transfer`, `…/batch-*` |
 | **Organizer** | `calendar/events`, `contacts`, `notes`, `tasks` |
 | **DAV / Feeds** | `dav/accounts`, `feeds/token`, `calendar/export.ics`, `contacts/export.vcf` |
-| **Push** | `push` (ntfy-Konfig), `push/folders` (Ordnerauswahl pro Konto) |
+| **Push** | `push` (ntfy), `push/folders` (Ordner je Konto), `push/device` (FCM-Tokens), `push/test` |
+| **Live** | `events/stream` (Server-Sent Events) |
 | **Dashboard** | `dashboard/summary` (gebündelte Ungelesen-Zähler) |
+
+### 🛡️ Sicherheit
+
+- Login-Passwörter **Argon2**-gehasht; Postfach- & DAV-Passwörter **Fernet-verschlüsselt at-rest** (Key aus `SELFMAILER_SECRET`)
+- **JWT** auf `HS256/384/512` festgenagelt; der 2FA-Zwischen-Token gewährt keinen Zugriff
+- **Rate-Limiting** auf Login/2FA/Setup; defensive Response-Header; **Anti-Enumeration**-Dummy-Hash
+- **SSRF-Schutz** beim DAV-Pull (loopback/link-local/Cloud-Metadata immer geblockt)
+- Android: `allowBackup=false`, JWT im **Android-Keystore**, gehärteter Mail-HTML-WebView, FileProvider mit Path-Traversal-Check
+- **Bewusste LAN-Trade-offs** (dokumentiert): Klartext-HTTP erlaubt (TLS extern terminiert), `SELFMAILER_SECRET` ist zugleich der Verschlüsselungs-Seed. Geprüft mit dem ECC-Security-Reviewer.
 
 ### 🧱 Technik-Stack
 
 | Teil | Technik |
 |---|---|
-| Backend | FastAPI · SQLModel · SQLite (WAL) · httpx · aiosmtplib · imap-tools |
-| Web | React · Vite · TypeScript |
-| App | Kotlin · Jetpack Compose · OkHttp · WorkManager · BiometricPrompt |
-| Push | ntfy (self-hosted) |
+| Backend | FastAPI · SQLModel · SQLite (WAL) · httpx · aiosmtplib · imap-tools · PyJWT |
+| Web | React · Vite · TypeScript · EventSource (SSE) |
+| App | Kotlin · Jetpack Compose · OkHttp · WorkManager · Firebase Messaging · BiometricPrompt |
+| Push | FCM (Google) · ntfy (self-hosted) |
 | Deploy | Docker (Multi-Stage, non-root) · GHCR · Unraid |
 
 ### 🛠️ Entwicklung
@@ -339,20 +416,20 @@ Interaktive API-Doku: `http://localhost:8090/docs`
 ### 🗺️ Roadmap
 
 - [x] Mail (IMAP/POP3/SMTP) · gestapelte Konten · Ordnerbaum + Ungelesen-Zähler
-- [x] Kalender · Kontakte · Notizen · Aufgaben
-- [x] CalDAV-/CardDAV-Pull + ICS-/vCard-Export-Feeds
-- [x] 2FA / TOTP · Filterregeln · Konto-übergreifend übertragen
+- [x] Kalender · Kontakte · Notizen · Aufgaben · CalDAV/CardDAV + ICS/vCard-Feeds
+- [x] 2FA / TOTP · Filterregeln · Konto-übergreifend übertragen · Mehrfachauswahl · Such-Filter
 - [x] Native Android-App (Synology-Stil, Biometrie-Sperre)
-- [x] Self-hosted Push (ntfy), pro Konto & pro Ordner
+- [x] Benachrichtigungen: **FCM** + **ntfy** + Hintergrund, pro Konto & Ordner
+- [x] **Live-Sync** (SSE) zwischen Web-Clients
+- [ ] Live-Sync in die Android-App (Vordergrund)
 - [ ] OAuth für Gmail / Outlook
 - [ ] Kalender-Monatsgitter in der App (aktuell Agenda)
-- [ ] HTTPS-Reverse-Proxy-Anleitung
-- [ ] Tests Richtung 80 % Coverage
+- [ ] HTTPS-Reverse-Proxy-Anleitung · Tests Richtung 80 % Coverage
 
 ---
 
 <div align="center">
 
-**SelfMailer** · Teil der Self-Reihe · made with 📬 for self-hosting
+**SelfMailer** · part of the Self family · made with 📬 for self-hosting
 
 </div>
