@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
@@ -81,39 +81,33 @@ function loadSet(key: string): Set<number> {
   catch { return new Set(); }
 }
 
-const authBannerBase: CSSProperties = { borderRadius: 8, padding: "8px 12px", margin: "0 0 10px", lineHeight: 1.45, fontSize: "0.9rem" };
-
-// Echtheits-/Spoofing-Hinweis aus den SPF/DKIM/DMARC-Headern.
+// Echtheits-/Spoofing-Hinweis (SPF/DKIM/DMARC) — kompakt in EINER Zeile.
 function AuthBanner({ auth, de }: { auth: AuthInfo; de: boolean }) {
+  const chips = ([["SPF", auth.spf], ["DKIM", auth.dkim], ["DMARC", auth.dmarc]] as const)
+    .filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(" · ");
+  let border = "var(--border)", color = "var(--text-muted)", bg = "var(--surface-2)";
+  let icon = "🛈", text = de ? "Echtheit nicht prüfbar" : "Not verifiable", tip = "";
   if (auth.self_spoof) {
-    return (
-      <div style={{ ...authBannerBase, background: "rgba(239,68,68,0.12)", border: "1px solid #ef4444", color: "#fca5a5" }}>
-        <strong style={{ color: "#ef4444" }}>⚠️ {de ? "Vorsicht: gefälschter Absender" : "Caution: forged sender"}</strong>
-        <div style={{ marginTop: 4 }}>{de
-          ? "Diese E-Mail gibt vor, von DEINER eigenen Adresse zu kommen — ist aber NICHT authentifiziert. Klassische Spoofing-/Erpressungsmasche; dein Konto wurde NICHT gehackt."
-          : "This email pretends to come from YOUR own address — but it is NOT authenticated. Classic spoofing/extortion scam; your account was NOT hacked."}</div>
-        <div style={{ opacity: 0.75, fontSize: "0.8rem", marginTop: 4 }}>{auth.reasons.join(" · ")}</div>
-      </div>
-    );
-  }
-  if (auth.verdict === "fail") {
-    return (
-      <div style={{ ...authBannerBase, background: "rgba(239,68,68,0.1)", border: "1px solid #ef4444", color: "#fca5a5" }}>
-        <strong style={{ color: "#ef4444" }}>⚠️ {de ? "Echtheit nicht bestätigt — evtl. gefälscht" : "Authenticity failed — possibly forged"}</strong>
-        <div style={{ opacity: 0.8, fontSize: "0.82rem", marginTop: 2 }}>{auth.reasons.join(" · ")}</div>
-      </div>
-    );
-  }
-  if (auth.verdict === "pass") {
-    return (
-      <div style={{ ...authBannerBase, background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e", color: "#86efac" }}>
-        ✓ {de ? "Echtheit bestätigt" : "Authenticity verified"} <span style={{ opacity: 0.75 }}>({auth.reasons.join(", ")})</span>
-      </div>
-    );
+    border = "#ef4444"; color = "#fca5a5"; bg = "rgba(239,68,68,0.12)"; icon = "⚠️";
+    text = de ? "Gefälschter Absender — du wurdest NICHT gehackt" : "Forged sender — you were NOT hacked";
+    tip = de
+      ? "Diese E-Mail gibt vor, von deiner eigenen Adresse zu kommen, ist aber nicht authentifiziert (Spoofing/Erpressung)."
+      : "This email pretends to come from your own address but is not authenticated (spoofing/extortion).";
+  } else if (auth.verdict === "fail") {
+    border = "#ef4444"; color = "#fca5a5"; bg = "rgba(239,68,68,0.1)"; icon = "⚠️";
+    text = de ? "Möglicherweise gefälscht" : "Possibly forged";
+  } else if (auth.verdict === "pass") {
+    border = "#22c55e"; color = "#86efac"; bg = "rgba(34,197,94,0.1)"; icon = "✓";
+    text = de ? "Echtheit bestätigt" : "Verified";
   }
   return (
-    <div style={{ ...authBannerBase, background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-muted)", fontSize: "0.82rem" }}>
-      🛈 {de ? "Echtheit nicht prüfbar (keine Authentifizierungs-Header)" : "Authenticity not verifiable (no auth headers)"}
+    <div
+      title={tip || undefined}
+      style={{ display: "flex", alignItems: "center", gap: 8, background: bg, border: `1px solid ${border}`, color, borderRadius: 8, padding: "5px 10px", margin: "0 0 10px", fontSize: "0.82rem", lineHeight: 1.3, overflow: "hidden" }}
+    >
+      <span style={{ flexShrink: 0 }}>{icon}</span>
+      <strong style={{ flexShrink: 0 }}>{text}</strong>
+      {chips && <span style={{ opacity: 0.7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {chips}</span>}
     </div>
   );
 }
