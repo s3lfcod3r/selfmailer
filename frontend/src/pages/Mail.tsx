@@ -81,33 +81,46 @@ function loadSet(key: string): Set<number> {
   catch { return new Set(); }
 }
 
-// Echtheits-/Spoofing-Hinweis (SPF/DKIM/DMARC) — kompakt in EINER Zeile.
-function AuthBanner({ auth, de }: { auth: AuthInfo; de: boolean }) {
-  const chips = ([["SPF", auth.spf], ["DKIM", auth.dkim], ["DMARC", auth.dmarc]] as const)
-    .filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(" · ");
+// Info-Leiste über der Mail: links Echtheits-Status (SPF/DKIM/DMARC), rechts
+// optionaler Slot (z. B. „Bilder anzeigen") — alles in EINER Zeile.
+function AuthBanner({ auth, de, right }: { auth: AuthInfo | null; de: boolean; right?: ReactNode }) {
   let border = "var(--border)", color = "var(--text-muted)", bg = "var(--surface-2)";
-  let icon = "🛈", text = de ? "Echtheit nicht prüfbar" : "Not verifiable", tip = "";
-  if (auth.self_spoof) {
-    border = "#ef4444"; color = "#fca5a5"; bg = "rgba(239,68,68,0.12)"; icon = "⚠️";
-    text = de ? "Gefälschter Absender — du wurdest NICHT gehackt" : "Forged sender — you were NOT hacked";
-    tip = de
-      ? "Diese E-Mail gibt vor, von deiner eigenen Adresse zu kommen, ist aber nicht authentifiziert (Spoofing/Erpressung)."
-      : "This email pretends to come from your own address but is not authenticated (spoofing/extortion).";
-  } else if (auth.verdict === "fail") {
-    border = "#ef4444"; color = "#fca5a5"; bg = "rgba(239,68,68,0.1)"; icon = "⚠️";
-    text = de ? "Möglicherweise gefälscht" : "Possibly forged";
-  } else if (auth.verdict === "pass") {
-    border = "#22c55e"; color = "#86efac"; bg = "rgba(34,197,94,0.1)"; icon = "✓";
-    text = de ? "Echtheit bestätigt" : "Verified";
+  let icon = "🛈", text = de ? "Echtheit nicht prüfbar" : "Not verifiable", tip = "", chips = "";
+  if (auth) {
+    chips = ([["SPF", auth.spf], ["DKIM", auth.dkim], ["DMARC", auth.dmarc]] as const)
+      .filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(" · ");
+    if (auth.self_spoof) {
+      border = "#ef4444"; color = "#fca5a5"; bg = "rgba(239,68,68,0.12)"; icon = "⚠️";
+      text = de ? "Gefälschter Absender — du wurdest NICHT gehackt" : "Forged sender — you were NOT hacked";
+      tip = de
+        ? "Diese E-Mail gibt vor, von deiner eigenen Adresse zu kommen, ist aber nicht authentifiziert (Spoofing/Erpressung)."
+        : "This email pretends to come from your own address but is not authenticated (spoofing/extortion).";
+    } else if (auth.verdict === "fail") {
+      border = "#ef4444"; color = "#fca5a5"; bg = "rgba(239,68,68,0.1)"; icon = "⚠️";
+      text = de ? "Möglicherweise gefälscht" : "Possibly forged";
+    } else if (auth.verdict === "pass") {
+      border = "#22c55e"; color = "#86efac"; bg = "rgba(34,197,94,0.1)"; icon = "✓";
+      text = de ? "Echtheit bestätigt" : "Verified";
+    }
   }
   return (
     <div
       title={tip || undefined}
       style={{ display: "flex", alignItems: "center", gap: 8, background: bg, border: `1px solid ${border}`, color, borderRadius: 8, padding: "5px 10px", margin: "0 0 10px", fontSize: "0.82rem", lineHeight: 1.3, overflow: "hidden" }}
     >
-      <span style={{ flexShrink: 0 }}>{icon}</span>
-      <strong style={{ flexShrink: 0 }}>{text}</strong>
-      {chips && <span style={{ opacity: 0.7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {chips}</span>}
+      {auth && (
+        <>
+          <span style={{ flexShrink: 0 }}>{icon}</span>
+          <strong style={{ flexShrink: 0 }}>{text}</strong>
+          {chips && <span style={{ opacity: 0.7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {chips}</span>}
+        </>
+      )}
+      {right && (
+        <>
+          <span style={{ flex: 1, minWidth: 8 }} />
+          <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>{right}</span>
+        </>
+      )}
     </div>
   );
 }
@@ -1008,21 +1021,22 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
               )}
             </div>
             <hr style={{ borderColor: "var(--self-line)", margin: "0.9rem 0" }} />
-            {open.auth && <AuthBanner auth={open.auth} de={de} />}
+            {(() => {
+              // Eine Leiste: links Echtheit, rechts „Bilder anzeigen" (Volltext im Tooltip).
+              const imagesBlocked = !!open.html && blockImages && !showImages && hasRemoteContent(open.html);
+              const right = imagesBlocked ? (
+                <button className="ghost" title={t("mail.imagesBlocked")} onClick={() => setShowImages(true)}>
+                  🛡 {t("mail.showImages")}
+                </button>
+              ) : null;
+              return open.auth || right ? <AuthBanner auth={open.auth ?? null} de={de} right={right} /> : null;
+            })()}
             {open.text ? (
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>
             ) : open.html ? (
-              <>
-                {blockImages && !showImages && hasRemoteContent(open.html) && (
-                  <div className="img-banner">
-                    <span>🛡 {t("mail.imagesBlocked")}</span>
-                    <button className="ghost" onClick={() => setShowImages(true)}>{t("mail.showImages")}</button>
-                  </div>
-                )}
-                <iframe title="mail-body" sandbox=""
-                  srcDoc={buildSrcDoc(open.html, blockImages && !showImages)}
-                  style={{ width: "100%", height: "62vh", border: "none", background: "#fff", borderRadius: "6px" }} />
-              </>
+              <iframe title="mail-body" sandbox=""
+                srcDoc={buildSrcDoc(open.html, blockImages && !showImages)}
+                style={{ width: "100%", height: "62vh", border: "none", background: "#fff", borderRadius: "6px" }} />
             ) : (
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{t("mail.emptyBody")}</div>
             )}
