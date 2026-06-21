@@ -115,6 +115,8 @@ export function App() {
   });
   // Externe Bilder (Tracking-Pixel) standardmaessig blockieren — Datenschutz/Sicherheit.
   const [blockImages, setBlockImages] = useState<boolean>(() => localStorage.getItem("selfmailer.blockImages") !== "0");
+  // Helle Mails automatisch in den dunklen Look umfaerben (global; pro Mail uebersteuerbar).
+  const [darkMail, setDarkMail] = useState<boolean>(() => localStorage.getItem("selfmailer.darkMail") !== "0");
   // App-eigene Textgroesse (skaliert alle rem-Einheiten ueber die Wurzel-Schrift),
   // damit Lesbarkeit OHNE Browser-Zoom (der die Layout-Breite schrumpft) moeglich ist.
   const [uiScale, setUiScale] = useState<number>(() => {
@@ -128,6 +130,7 @@ export function App() {
   }, [theme]);
   useEffect(() => { localStorage.setItem("selfmailer.pollMin", String(pollMin)); }, [pollMin]);
   useEffect(() => { localStorage.setItem("selfmailer.blockImages", blockImages ? "1" : "0"); }, [blockImages]);
+  useEffect(() => { localStorage.setItem("selfmailer.darkMail", darkMail ? "1" : "0"); }, [darkMail]);
   useEffect(() => {
     document.documentElement.style.fontSize = uiScale === 100 ? "" : `${uiScale}%`;
     localStorage.setItem("selfmailer.uiScale", String(uiScale));
@@ -293,6 +296,10 @@ export function App() {
           <button onClick={() => setTheme((tm) => (tm === "dark" ? "light" : "dark"))}>
             <span>{theme === "dark" ? "☀" : "🌙"}</span> {theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}
           </button>
+          <button onClick={() => setDarkMail((b) => !b)}>
+            <span>🌗</span> {t("shell.darkMail")}
+            <span style={{ marginLeft: "auto", color: darkMail ? "var(--self-teal-bright)" : "var(--self-text-3)" }}>{darkMail ? "✓" : "—"}</span>
+          </button>
           <button onClick={() => { setMenu(null); setDesignOpen(true); }}><span>🎨</span> {t("shell.design")}</button>
           <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
             <span>🔠 {t("shell.textSize")}</span>
@@ -323,7 +330,7 @@ export function App() {
         {/* Mail bleibt gemountet (nur versteckt), damit beim Zurückwechseln
             nicht neu geladen wird – kein sichtbares Nachladen. */}
         <div style={{ display: view === "mail" ? "contents" : "none" }}>
-          <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} />
+          <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} />
         </div>
         <Suspense fallback={<div className="muted">{t("common.loading")}</div>}>
           {view === "calendar" && <Calendar />}

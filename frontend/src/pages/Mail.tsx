@@ -120,7 +120,7 @@ function authView(auth: AuthInfo | null, de: boolean): AuthView {
   return { color, bg, border, icon, short, text, tip, chips };
 }
 
-export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean }) {
+export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean }) {
   const { t, lang } = useLang();
   const de = lang === "de";
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -148,8 +148,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   const [popup, setPopup] = useState(false);
   // Echtheits-Details (SPF/DKIM/DMARC + Volltext) zum kompakten Status-Chip aufgeklappt?
   const [authOpen, setAuthOpen] = useState(false);
-  // Helle Mails automatisch in den dunklen App-Look umfaerben (umschaltbar je Mail).
-  const [darkBody, setDarkBody] = useState(true);
+  // Helle Mails automatisch in den dunklen App-Look umfaerben. Standard kommt aus
+  // der globalen Einstellung (darkMail), ist aber pro Mail umschaltbar.
+  const [darkBody, setDarkBody] = useState(darkMail);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dragUids, setDragUids] = useState<string[]>([]);
@@ -476,6 +477,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollMin, accounts, sel?.acc, sel?.folder]);
 
+  // Globale Einstellung umgeschaltet -> aktuell offene Mail sofort mitziehen.
+  useEffect(() => { setDarkBody(darkMail); }, [darkMail]);
+
   function patchHeader(uid: string, patch: Partial<MsgHeader>) {
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
   }
@@ -497,7 +501,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
       setAuthOpen(false);
       setReadMenu(false);
       setShowImages(false);
-      setDarkBody(true);
+      setDarkBody(darkMail);
       if (!msg.seen) {
         api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=true`).catch(() => {});
         patchHeader(uid, { seen: true });
