@@ -45,13 +45,19 @@ def _sync_account(acc: MailAccount) -> None:
         logger.warning("Sync uebersprungen: Entschluesselung fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
         return
 
-    # 1) Nachrichten der wichtigen Ordner (Delta-Sync fuellt CachedMessage + Counts)
+    # 1) Nachrichten der wichtigen Ordner (Delta-Sync fuellt CachedMessage + Counts).
+    #    Kamen NEUE Mails an, sofort ein Live-Sync-Event senden, damit offene
+    #    Clients (Web/App) auffrischen — UNABHAENGIG von Benachrichtigungs-Ordnern.
+    #    (Die eigentliche Push-Notification weiter unten bleibt an FolderNotify
+    #    gebunden; das hier ist nur das „bitte neu laden" fuer offene Ansichten.)
     for folder in _WARM_FOLDERS:
         if _stop.is_set():
             return
         try:
             with Session(engine) as s:
-                cache_mod.sync_folder(s, acc, pw, folder)
+                res = cache_mod.sync_folder(s, acc, pw, folder)
+            if int(res.get("new", 0) or 0) > 0:
+                bus.publish(acc.user_id, {"type": "mail", "account_id": acc.id, "folder": folder})
         except Exception:  # noqa: BLE001 - ein Ordner/Konto darf den Lauf nie kippen
             logger.warning(
                 "Hintergrund-Sync fehlgeschlagen (account_id=%s, folder=%s)", acc.id, folder, exc_info=True

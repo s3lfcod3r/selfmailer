@@ -95,7 +95,7 @@ app.include_router(events.router)
 
 # Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
-APP_BUILD = "2026-06-21-push-test"
+APP_BUILD = "2026-06-21-livesync-newmail"
 
 
 @app.get("/api/health")
