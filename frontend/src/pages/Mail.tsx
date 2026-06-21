@@ -51,8 +51,14 @@ const _CSP_BLOCK =
 function hasRemoteContent(html: string): boolean {
   return /(?:src|background)\s*=\s*["']?\s*https?:/i.test(html) || /url\(\s*['"]?\s*https?:/i.test(html);
 }
-function buildSrcDoc(html: string, block: boolean): string {
-  return `<!DOCTYPE html><meta charset="utf-8">${block ? _CSP_BLOCK : ""}<base target="_blank">${html}`;
+// Auto-Dunkelmodus fuer helle Mails: das ganze Dokument wird invertiert
+// (Weiss -> dunkel, dunkler Text -> hell), und Medien (Bilder/Logos/Hintergrund-
+// bilder) werden ein zweites Mal invertiert, damit sie wieder normal aussehen.
+const _DARK_STYLE =
+  `<style>:root{color-scheme:dark}html{background:#0d1117}html{filter:invert(1) hue-rotate(180deg)}` +
+  `img,picture,video,canvas,svg,image,[background],[style*="background-image"]{filter:invert(1) hue-rotate(180deg)}</style>`;
+function buildSrcDoc(html: string, block: boolean, dark: boolean): string {
+  return `<!DOCTYPE html><meta charset="utf-8">${block ? _CSP_BLOCK : ""}${dark ? _DARK_STYLE : ""}<base target="_blank">${html}`;
 }
 
 function fmtSize(bytes: number): string {
@@ -142,6 +148,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   const [popup, setPopup] = useState(false);
   // Echtheits-Details (SPF/DKIM/DMARC + Volltext) zum kompakten Status-Chip aufgeklappt?
   const [authOpen, setAuthOpen] = useState(false);
+  // Helle Mails automatisch in den dunklen App-Look umfaerben (umschaltbar je Mail).
+  const [darkBody, setDarkBody] = useState(true);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dragUids, setDragUids] = useState<string[]>([]);
@@ -489,6 +497,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
       setAuthOpen(false);
       setReadMenu(false);
       setShowImages(false);
+      setDarkBody(true);
       if (!msg.seen) {
         api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=true`).catch(() => {});
         patchHeader(uid, { seen: true });
@@ -796,6 +805,16 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
             🛡 {t("mail.showImages")}
           </button>
         )}
+        {msg.html && (
+          <button
+            className="ghost"
+            style={{ flex: "0 0 auto", whiteSpace: "nowrap" }}
+            title={darkBody ? (de ? "Original-Farben der Mail anzeigen" : "Show original colors") : (de ? "Helle Mail dunkel einfärben" : "Tint light mail dark")}
+            onClick={() => setDarkBody((v) => !v)}
+          >
+            {darkBody ? (de ? "☀️ Original" : "☀️ Original") : (de ? "🌙 Dunkel" : "🌙 Dark")}
+          </button>
+        )}
       </>
     );
   }
@@ -1074,7 +1093,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
             <hr style={{ borderColor: "var(--self-line)", margin: "0.5rem 0 0.55rem" }} />
             {open.html ? (
               <iframe title="mail-body" sandbox="" className="mail-body-frame"
-                srcDoc={buildSrcDoc(open.html, blockImages && !showImages)} />
+                srcDoc={buildSrcDoc(open.html, blockImages && !showImages, darkBody)} />
             ) : open.text ? (
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>
             ) : (
@@ -1252,7 +1271,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
             <div style={{ overflow: "auto", padding: 16, flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
               {open.html ? (
                 <iframe title="mail-body-popup" sandbox="" className="mail-body-frame"
-                  srcDoc={buildSrcDoc(open.html, blockImages && !showImages)} />
+                  srcDoc={buildSrcDoc(open.html, blockImages && !showImages, darkBody)} />
               ) : open.text ? (
                 <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{open.text}</div>
               ) : (
