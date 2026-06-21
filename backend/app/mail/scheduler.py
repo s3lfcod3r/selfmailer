@@ -23,6 +23,7 @@ from ..core.db import engine
 from ..models import MailAccount, User
 from . import cache as cache_mod
 from . import imap as imap_mod
+from . import push as push_mod
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +59,35 @@ def _sync_account(acc: MailAccount) -> None:
     # 2) Ordnerliste + Zaehler fuer die Seitenleiste (CachedFolder)
     if _stop.is_set():
         return
+    counts: list[dict] | None = None
     try:
         counts = imap_mod.folder_counts(acc, pw)
         with Session(engine) as s:
             cache_mod.write_folder_counts(s, acc.id, counts)
     except Exception:  # noqa: BLE001
         logger.warning("Ordnerzaehler-Sync fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+
+    # 3) Push bei neuer Mail: INBOX-Ungelesen mit der zuletzt gemeldeten Zahl
+    #    vergleichen. Erster Lauf (Basis -1) setzt nur die Basis, ohne zu pushen.
+    if counts is not None and not _stop.is_set():
+        inbox_unseen = next(
+            (c.get("unseen", 0) for c in counts if str(c.get("name", "")).upper().endswith("INBOX")),
+            None,
+        )
+        if inbox_unseen is not None:
+            try:
+                with Session(engine) as s:
+                    row = s.get(MailAccount, acc.id)
+                    if row is not None:
+                        base = row.last_notified_unseen
+                        if base >= 0 and inbox_unseen > base:
+                            push_mod.push_new_mail(s, row, inbox_unseen - base)
+                        if inbox_unseen != base:
+                            row.last_notified_unseen = inbox_unseen
+                            s.add(row)
+                            s.commit()
+            except Exception:  # noqa: BLE001 - Push darf den Sync nie kippen
+                logger.warning("Push-Check fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
 
 def _sync_once() -> None:

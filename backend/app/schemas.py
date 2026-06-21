@@ -429,6 +429,19 @@ class SyncResult(BaseModel):
     error: str = ""
 
 
+# ---- Push (ntfy) --------------------------------------------------------
+class PushConfigIn(BaseModel):
+    ntfy_url: str = ""
+    topic: str = ""
+    enabled: bool = True
+
+
+class PushConfigOut(BaseModel):
+    enabled: bool
+    ntfy_url: str
+    topic: str
+
+
 # ---- Export-Feed-Token --------------------------------------------------
 class FeedTokenOut(BaseModel):
     token: str

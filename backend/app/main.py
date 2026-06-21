@@ -26,6 +26,7 @@ from .api import (
     feeds,
     mail,
     notes,
+    push,
     rules,
     tasks,
 )
@@ -82,11 +83,12 @@ app.include_router(contacts.router)
 app.include_router(feeds.router)
 app.include_router(dav.router)
 app.include_router(dashboard.router)
+app.include_router(push.router)
 
 
 # Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
-APP_BUILD = "2026-06-21-batch-route-fix"
+APP_BUILD = "2026-06-21-ntfy-push"
 
 
 @app.get("/api/health")

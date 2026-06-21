@@ -77,6 +77,9 @@ class MailAccount(SQLModel, table=True):
     auth_user: str = ""                 # falls abweichend von email
     secret_enc: str                     # VERSCHLUESSELT (Fernet)
     signature: str = ""                 # E-Mail-Signatur (Plaintext, beim Schreiben angehaengt)
+    # Basis fuer Push: zuletzt per ntfy gemeldete INBOX-Ungelesen-Zahl. -1 = noch
+    # nie beobachtet (erster Lauf setzt nur die Basis, ohne zu pushen).
+    last_notified_unseen: int = -1
     created_at: dt.datetime = Field(default_factory=_now)
 
 
@@ -245,6 +248,21 @@ class CachedFolder(SQLModel, table=True):
     idx: int = 0                          # Reihenfolge wie vom Server geliefert
     unseen: int = 0
     total: int = 0
+
+
+class PushConfig(SQLModel, table=True):
+    """ntfy-Push-Konfiguration eines Users (self-hosted Benachrichtigungen).
+
+    Der Server postet bei neuer Mail an `ntfy_url`/`topic`; die ntfy-App auf dem
+    Handy zeigt die Benachrichtigung. Kein Google/FCM noetig. Pro User eine Zeile.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, unique=True, foreign_key="user.id")
+    ntfy_url: str = ""                   # Basis-URL des ntfy-Servers (z. B. http://192.168.1.10:8095)
+    topic: str = ""                      # geheimes Thema, auf das die App abonniert
+    enabled: bool = False
+    created_at: dt.datetime = Field(default_factory=_now)
 
 
 class FeedToken(SQLModel, table=True):
