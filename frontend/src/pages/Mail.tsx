@@ -1065,10 +1065,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
               {authDetail(open)}
               {detailsOpen && (
                 <div className="mail-head-details">
+                  <div><span className="label">{t("mail.hdrSubject")}</span><span>{open.subject || t("mail.noSubject")}</span></div>
                   <div><span className="label">{t("mail.hdrFrom")}</span><span>{open.from}</span></div>
                   <div><span className="label">{t("mail.hdrTo")}</span><span>{open.to.join(", ") || "—"}</span></div>
                   <div><span className="label">{t("mail.hdrDate")}</span><span>{open.date}</span></div>
-                  <div><span className="label">{t("mail.hdrSubject")}</span><span>{open.subject || t("mail.noSubject")}</span></div>
                 </div>
               )}
             </div>
