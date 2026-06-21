@@ -81,48 +81,37 @@ function loadSet(key: string): Set<number> {
   catch { return new Set(); }
 }
 
-// Info-Leiste über der Mail: links Echtheits-Status (SPF/DKIM/DMARC), rechts
-// optionaler Slot (z. B. „Bilder anzeigen") — alles in EINER Zeile.
-function AuthBanner({ auth, de, right }: { auth: AuthInfo | null; de: boolean; right?: ReactNode }) {
+type AuthView = {
+  color: string; bg: string; border: string;
+  icon: string; short: string; text: string; tip: string; chips: string;
+};
+// Echtheits-Status aufbereiten: kompaktes Kurzwort (Chip) + Volltext (Ausklappen)
+// + SPF/DKIM/DMARC-Chips, jeweils farbcodiert.
+function authView(auth: AuthInfo | null, de: boolean): AuthView {
   let border = "var(--self-line)", color = "var(--self-text-2)", bg = "var(--self-bg-3)";
-  let icon = "🛈", text = de ? "Echtheit nicht prüfbar" : "Not verifiable", tip = "", chips = "";
+  let icon = "🛈", short = de ? "Nicht prüfbar" : "Not verifiable";
+  let text = de ? "Echtheit nicht prüfbar" : "Not verifiable", tip = "", chips = "";
   if (auth) {
     chips = ([["SPF", auth.spf], ["DKIM", auth.dkim], ["DMARC", auth.dmarc]] as const)
       .filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(" · ");
     if (auth.self_spoof) {
       border = "#ef4444"; color = "#fca5a5"; bg = "rgba(239,68,68,0.12)"; icon = "⚠️";
+      short = de ? "Gefälscht" : "Forged";
       text = de ? "Gefälschter Absender — du wurdest NICHT gehackt" : "Forged sender — you were NOT hacked";
       tip = de
         ? "Diese E-Mail gibt vor, von deiner eigenen Adresse zu kommen, ist aber nicht authentifiziert (Spoofing/Erpressung)."
         : "This email pretends to come from your own address but is not authenticated (spoofing/extortion).";
     } else if (auth.verdict === "fail") {
       border = "#ef4444"; color = "#fca5a5"; bg = "rgba(239,68,68,0.1)"; icon = "⚠️";
+      short = de ? "Evtl. gefälscht" : "Possibly forged";
       text = de ? "Möglicherweise gefälscht" : "Possibly forged";
     } else if (auth.verdict === "pass") {
       border = "#22c55e"; color = "#86efac"; bg = "rgba(34,197,94,0.1)"; icon = "✓";
+      short = de ? "Echt" : "Verified";
       text = de ? "Echtheit bestätigt" : "Verified";
     }
   }
-  return (
-    <div
-      title={tip || undefined}
-      style={{ display: "flex", alignItems: "center", gap: 8, background: bg, border: `1px solid ${border}`, color, borderRadius: 8, padding: "5px 10px", margin: "0 0 10px", fontSize: "0.82rem", lineHeight: 1.3, overflow: "hidden" }}
-    >
-      {auth && (
-        <>
-          <span style={{ flexShrink: 0 }}>{icon}</span>
-          <strong style={{ flexShrink: 0 }}>{text}</strong>
-          {chips && <span style={{ opacity: 0.7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {chips}</span>}
-        </>
-      )}
-      {right && (
-        <>
-          <span style={{ flex: 1, minWidth: 8 }} />
-          <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>{right}</span>
-        </>
-      )}
-    </div>
-  );
+  return { color, bg, border, icon, short, text, tip, chips };
 }
 
 export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean }) {
@@ -151,6 +140,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
   const [showImages, setShowImages] = useState(false);
   // Doppelklick auf eine Mail oeffnet sie zusaetzlich in einem eigenen Popup-Fenster.
   const [popup, setPopup] = useState(false);
+  // Echtheits-Details (SPF/DKIM/DMARC + Volltext) zum kompakten Status-Chip aufgeklappt?
+  const [authOpen, setAuthOpen] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dragUids, setDragUids] = useState<string[]>([]);
@@ -495,6 +486,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
       setPopup(asPopup);
       setMobilePane("read");
       setDetailsOpen(false);
+      setAuthOpen(false);
       setReadMenu(false);
       setShowImages(false);
       if (!msg.seen) {
@@ -779,6 +771,50 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
     setDragUids(selected.has(uid) && selected.size > 0 ? [...selected] : [uid]);
   }
 
+  // Kompakter Echtheits-Chip (klickbar → Details ausklappen) + „Bilder anzeigen",
+  // beides für den Kopf der Lese-Ansicht UND das Doppelklick-Popup.
+  function authCluster(msg: MsgDetail): ReactNode {
+    const v = authView(msg.auth ?? null, de);
+    const imagesBlocked = !!msg.html && blockImages && !showImages && hasRemoteContent(msg.html);
+    if (!msg.auth && !imagesBlocked) return null;
+    return (
+      <>
+        {msg.auth && (
+          <button
+            type="button"
+            onClick={() => setAuthOpen((v2) => !v2)}
+            title={v.tip || undefined}
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, flex: "0 0 auto", padding: "2px 9px", borderRadius: 999, fontSize: "0.8rem", lineHeight: 1.3, color: v.color, background: v.bg, border: `1px solid ${v.border}`, cursor: "pointer", whiteSpace: "nowrap" }}
+          >
+            <span>{v.icon}</span>
+            <strong>{v.short}</strong>
+            <span aria-hidden style={{ opacity: 0.8 }}>{authOpen ? "▴" : "▾"}</span>
+          </button>
+        )}
+        {imagesBlocked && (
+          <button className="ghost" style={{ flex: "0 0 auto", whiteSpace: "nowrap" }} title={t("mail.imagesBlocked")} onClick={() => setShowImages(true)}>
+            🛡 {t("mail.showImages")}
+          </button>
+        )}
+      </>
+    );
+  }
+  // Ausgeklappter Volltext zum Echtheits-Chip (Warnung/Bestätigung + SPF/DKIM/DMARC).
+  function authDetail(msg: MsgDetail): ReactNode {
+    if (!authOpen || !msg.auth) return null;
+    const v = authView(msg.auth, de);
+    return (
+      <div
+        title={v.tip || undefined}
+        style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "8px 0 0", padding: "6px 10px", borderRadius: 8, fontSize: "0.8rem", lineHeight: 1.4, color: v.color, background: v.bg, border: `1px solid ${v.border}` }}
+      >
+        <span style={{ flexShrink: 0 }}>{v.icon}</span>
+        <strong>{v.text}</strong>
+        {v.chips && <span style={{ opacity: 0.75 }}>· {v.chips}</span>}
+      </div>
+    );
+  }
+
   return (
     <div className="mail-page">
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
@@ -1021,9 +1057,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                 <button className="mail-head-toexp" onClick={() => setDetailsOpen((v) => !v)} title={t("mail.details")}>
                   Details <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>
                 </button>
+                {/* Echtheits-Chip + „Bilder anzeigen" direkt neben „Details". */}
+                {authCluster(open)}
                 <span className="grow" />
                 <span className="mail-head-date">{prettyDate(open.date)}</span>
               </div>
+              {authDetail(open)}
               {detailsOpen && (
                 <div className="mail-head-details">
                   <div><span className="label">{t("mail.hdrFrom")}</span><span>{open.from}</span></div>
@@ -1034,16 +1073,6 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
               )}
             </div>
             <hr style={{ borderColor: "var(--self-line)", margin: "0.5rem 0 0.55rem" }} />
-            {(() => {
-              // Eine Leiste: links Echtheit, rechts „Bilder anzeigen" (Volltext im Tooltip).
-              const imagesBlocked = !!open.html && blockImages && !showImages && hasRemoteContent(open.html);
-              const right = imagesBlocked ? (
-                <button className="ghost" title={t("mail.imagesBlocked")} onClick={() => setShowImages(true)}>
-                  🛡 {t("mail.showImages")}
-                </button>
-              ) : null;
-              return open.auth || right ? <AuthBanner auth={open.auth ?? null} de={de} right={right} /> : null;
-            })()}
             {open.text ? (
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>
             ) : open.html ? (
@@ -1212,11 +1241,16 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                 <button className="icon-btn" onClick={() => setPopup(false)} title={t("mail.back")}>✕</button>
               </div>
             </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "8px 16px", borderBottom: "1px solid var(--self-line)", fontSize: "0.85rem", color: "var(--self-text-2)" }}>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--self-text)" }}>{open.from}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", borderBottom: "1px solid var(--self-line)", fontSize: "0.85rem", color: "var(--self-text-2)" }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--self-text)", minWidth: 0 }}>{open.from}</span>
+              {/* Echtheits-Chip + „Bilder anzeigen" auch im Popup. */}
+              {authCluster(open)}
               <span className="grow" style={{ flex: 1 }} />
               <span style={{ flex: "0 0 auto", color: "var(--self-text-3)" }}>{prettyDate(open.date)}</span>
             </div>
+            {authOpen && open.auth && (
+              <div style={{ padding: "0 16px" }}>{authDetail(open)}</div>
+            )}
             <div style={{ overflow: "auto", padding: 16 }}>
               {open.text ? (
                 <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{open.text}</div>
