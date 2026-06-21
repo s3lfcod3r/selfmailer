@@ -447,6 +447,11 @@ class FolderNotifyIn(BaseModel):
     folders: list[str] = []   # vollstaendige Liste der zu benachrichtigenden Ordner
 
 
+class DeviceTokenIn(BaseModel):
+    token: str
+    platform: str = "android"
+
+
 # ---- Export-Feed-Token --------------------------------------------------
 class FeedTokenOut(BaseModel):
     token: str

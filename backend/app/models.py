@@ -279,6 +279,16 @@ class FolderNotify(SQLModel, table=True):
     last_unseen: int = -1
 
 
+class DeviceToken(SQLModel, table=True):
+    """FCM-Geraetetoken eines Users (fuer Google-Push an die Android-App)."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    token: str = Field(index=True)
+    platform: str = "android"
+    created_at: dt.datetime = Field(default_factory=_now)
+
+
 class FeedToken(SQLModel, table=True):
     """Geheimer Token fuer abonnierbare Export-Feeds (ICS/vCard).
 

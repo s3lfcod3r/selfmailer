@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     secret: str = ""
     db_path: str = "./data/selfmailer.db"
     base_url: str = ""
+    # Pfad zur FCM-Service-Account-JSON (Google-Push). Leer/fehlend = FCM aus.
+    fcm_credentials: str = ""
     # First-Run: optionaler Admin-Token, sonst Web-Setup beim ersten Start.
     admin_token: str = ""
 

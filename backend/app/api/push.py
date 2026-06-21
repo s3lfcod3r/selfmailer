@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from ..core.db import get_session
-from ..models import FolderNotify, MailAccount, PushConfig, User
-from ..schemas import FolderNotifyIn, PushConfigIn, PushConfigOut
+from ..models import DeviceToken, FolderNotify, MailAccount, PushConfig, User
+from ..schemas import DeviceTokenIn, FolderNotifyIn, PushConfigIn, PushConfigOut
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/push", tags=["push"])
@@ -92,3 +92,34 @@ def set_notify_folders(
             session.add(FolderNotify(account_id=data.account_id, folder=folder, last_unseen=-1))
     session.commit()
     return sorted(wanted)
+
+
+# ---- FCM-Geraetetokens (Google-Push) ------------------------------------
+@router.post("/device", status_code=status.HTTP_204_NO_CONTENT)
+def register_device(
+    data: DeviceTokenIn,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> None:
+    """Registriert/aktualisiert den FCM-Token dieses Geräts für den User."""
+    if not data.token.strip():
+        return
+    exists = session.exec(
+        select(DeviceToken).where(DeviceToken.user_id == user.id, DeviceToken.token == data.token)
+    ).first()
+    if exists is None:
+        session.add(DeviceToken(user_id=user.id, token=data.token, platform=data.platform))
+        session.commit()
+
+
+@router.delete("/device", status_code=status.HTTP_204_NO_CONTENT)
+def unregister_device(
+    data: DeviceTokenIn,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> None:
+    for row in session.exec(
+        select(DeviceToken).where(DeviceToken.user_id == user.id, DeviceToken.token == data.token)
+    ).all():
+        session.delete(row)
+    session.commit()
