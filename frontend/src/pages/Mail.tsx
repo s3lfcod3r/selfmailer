@@ -1072,12 +1072,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
               )}
             </div>
             <hr style={{ borderColor: "var(--self-line)", margin: "0.5rem 0 0.55rem" }} />
-            {open.text ? (
-              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>
-            ) : open.html ? (
+            {open.html ? (
               <iframe title="mail-body" sandbox=""
                 srcDoc={buildSrcDoc(open.html, blockImages && !showImages)}
                 style={{ width: "100%", height: "62vh", border: "none", background: "#fff", borderRadius: "6px" }} />
+            ) : open.text ? (
+              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>
             ) : (
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{t("mail.emptyBody")}</div>
             )}
@@ -1251,12 +1251,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
               <div style={{ padding: "0 16px" }}>{authDetail(open)}</div>
             )}
             <div style={{ overflow: "auto", padding: 16 }}>
-              {open.text ? (
-                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{open.text}</div>
-              ) : open.html ? (
+              {open.html ? (
                 <iframe title="mail-body-popup" sandbox=""
                   srcDoc={buildSrcDoc(open.html, blockImages && !showImages)}
                   style={{ width: "100%", height: "64vh", border: "none", background: "#fff", borderRadius: 6 }} />
+              ) : open.text ? (
+                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{open.text}</div>
               ) : (
                 <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{t("mail.emptyBody")}</div>
               )}
