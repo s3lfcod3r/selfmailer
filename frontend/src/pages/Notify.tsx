@@ -127,14 +127,22 @@ export function Notify() {
                 <span style={{ opacity: 0.6 }}>{isOpen ? "▾" : "▸"}</span>
               </div>
               {isOpen && (
-                <div style={{ marginTop: 8, paddingLeft: 8 }}>
-                  {folders.length === 0 && <div style={{ opacity: 0.6, color: "var(--self-text)", fontSize: 13 }}>Lade Ordner …</div>}
+                <div style={{ marginTop: 4 }}>
+                  {folders.length === 0 && <div style={{ opacity: 0.6, color: "var(--self-text)", fontSize: 13, padding: "8px 0" }}>Lade Ordner …</div>}
                   {folders.map((f) => (
-                    <label key={f.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", color: "var(--self-text)", cursor: "pointer" }}>
+                    <label key={f.name} style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+                      padding: "11px 6px", cursor: "pointer", borderTop: "1px solid var(--self-bg-3)",
+                    }}>
+                      <span style={{ color: "var(--self-text)", textAlign: "left", flex: 1 }}>
+                        {leaf(f.name)}
+                        {f.unseen > 0 && (
+                          <span style={{ color: "var(--self-teal-bright)", fontSize: 12, marginLeft: 8 }}>({f.unseen})</span>
+                        )}
+                      </span>
                       <input type="checkbox" checked={enabled.has(f.name)}
-                        onChange={(e) => toggleFolder(acc.id, f.name, e.target.checked)} />
-                      <span style={{ flex: 1 }}>{leaf(f.name)}</span>
-                      {f.unseen > 0 && <span style={{ color: "var(--self-teal-bright)", fontSize: 12 }}>{f.unseen}</span>}
+                        onChange={(e) => toggleFolder(acc.id, f.name, e.target.checked)}
+                        style={{ width: 18, height: 18, accentColor: "var(--self-teal)", cursor: "pointer", flex: "0 0 auto" }} />
                     </label>
                   ))}
                 </div>
