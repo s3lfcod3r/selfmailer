@@ -23,6 +23,7 @@ from .api import (
     contacts,
     dashboard,
     dav,
+    events,
     feeds,
     mail,
     notes,
@@ -37,6 +38,11 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # Event-Loop dem Live-Sync-Bus geben (für thread-sicheres publish).
+    import asyncio
+
+    from .events import bus
+    bus.set_loop(asyncio.get_running_loop())
     from .mail.scheduler import start_scheduler, stop_scheduler
     start_scheduler()  # haelt den Cache im Hintergrund warm -> UI wartet nie auf IMAP
     try:
@@ -84,11 +90,12 @@ app.include_router(feeds.router)
 app.include_router(dav.router)
 app.include_router(dashboard.router)
 app.include_router(push.router)
+app.include_router(events.router)
 
 
 # Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
-APP_BUILD = "2026-06-21-fcm-push"
+APP_BUILD = "2026-06-21-live-sync"
 
 
 @app.get("/api/health")

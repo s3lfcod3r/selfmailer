@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult } from "../lib/api";
+import { api, auth, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
@@ -476,6 +476,27 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollMin, accounts, sel?.acc, sel?.folder]);
+
+  // Live-Sync (SSE): sobald irgendwer (anderes Gerät / Web-Tab) etwas ändert
+  // oder neue Mail eintrifft, schickt der Server ein Event → aktiver Ordner +
+  // Zähler frischen sofort auf. EventSource reconnectet automatisch.
+  useEffect(() => {
+    const token = auth.get();
+    if (!token) return;
+    const es = new EventSource(`/api/v1/events/stream?token=${encodeURIComponent(token)}`);
+    es.onmessage = (e) => {
+      try {
+        const ev = JSON.parse(e.data) as { type?: string; account_id?: number };
+        if (ev.type !== "mail") return;
+        if (typeof ev.account_id === "number") refreshCounts(ev.account_id);
+        if (selRef.current && selRef.current.acc === ev.account_id) {
+          bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
+        }
+      } catch { /* ignorieren */ }
+    };
+    return () => es.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Globale Einstellung umgeschaltet -> aktuell offene Mail sofort mitziehen.
   useEffect(() => { setDarkBody(darkMail); }, [darkMail]);

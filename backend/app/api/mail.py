@@ -9,6 +9,7 @@ from sqlmodel import Session
 
 from ..core.crypto import decrypt
 from ..core.db import get_session
+from ..events import bus
 from ..mail import cache as cache_mod
 from ..mail import imap as imap_mod
 from ..mail import migrate as migrate_mod
@@ -351,6 +352,7 @@ def set_flags(
         cache_mod.update_flags(session, account_id, folder, uid, seen=seen, flagged=flagged)
     except Exception:  # noqa: BLE001 - Cache-Pflege darf nie die Aktion kippen
         pass
+    bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
     return {"ok": True}
 
 
@@ -373,6 +375,7 @@ def move_message(
         cache_mod.remove_uids(session, account_id, folder, [uid])
     except Exception:  # noqa: BLE001
         pass
+    bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
     return {"ok": True}
 
 
@@ -420,6 +423,7 @@ def delete_messages_batch(
         cache_mod.remove_uids(session, account_id, data.folder, data.uids)
     except Exception:  # noqa: BLE001
         pass
+    bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": data.folder})
     return {"ok": True, "result": result}
 
 
@@ -446,6 +450,7 @@ def set_flags_batch(
         cache_mod.set_flags_bulk(session, account_id, data.folder, data.uids, seen=seen, flagged=flagged)
     except Exception:  # noqa: BLE001 - Cache-Pflege darf die Aktion nie kippen
         pass
+    bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": data.folder})
     return {"ok": True, "count": n}
 
 
@@ -469,6 +474,7 @@ def move_messages_batch(
         cache_mod.remove_uids(session, account_id, data.folder, data.uids)
     except Exception:  # noqa: BLE001
         pass
+    bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": data.folder})
     return {"ok": True, "result": result}
 
 
@@ -490,6 +496,7 @@ def delete_message(
         cache_mod.remove_uids(session, account_id, folder, [uid])
     except Exception:  # noqa: BLE001
         pass
+    bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
     return {"ok": True, "result": result}
 
 

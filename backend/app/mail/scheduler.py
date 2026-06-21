@@ -20,6 +20,7 @@ from sqlmodel import Session, select
 
 from ..core.crypto import decrypt
 from ..core.db import engine
+from ..events import bus
 from ..models import FolderNotify, MailAccount, User
 from . import cache as cache_mod
 from . import imap as imap_mod
@@ -87,6 +88,8 @@ def _sync_account(acc: MailAccount) -> None:
                             row.last_unseen = unseen
                             s.add(row)
                             changed = True
+                            # Live-Sync: offene Clients dieses Users auffrischen lassen.
+                            bus.publish(acc.user_id, {"type": "mail", "account_id": acc.id, "folder": row.folder})
                     if changed:
                         s.commit()
         except Exception:  # noqa: BLE001 - Push darf den Sync nie kippen
