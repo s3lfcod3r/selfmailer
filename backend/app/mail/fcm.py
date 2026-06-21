@@ -79,7 +79,14 @@ def _access_token(sa: dict) -> str:
         return _token
 
 
-def notify(session: Session, user_id: int, title: str, body: str) -> None:
+def notify(
+    session: Session,
+    user_id: int,
+    title: str,
+    body: str,
+    account_id: int | None = None,
+    folder: str | None = None,
+) -> None:
     sa = _load_sa()
     if not enabled() or sa is None:
         return
@@ -94,15 +101,23 @@ def notify(session: Session, user_id: int, title: str, body: str) -> None:
 
     url = f"https://fcm.googleapis.com/v1/projects/{sa['project_id']}/messages:send"
     headers = {"Authorization": f"Bearer {access}", "Content-Type": "application/json"}
+    # Deep-Link-Daten: damit ein Tipp auf die Benachrichtigung ins richtige Postfach führt.
+    data: dict[str, str] = {}
+    if account_id is not None:
+        data["account_id"] = str(account_id)
+    if folder:
+        data["folder"] = folder
+
     dead: list[DeviceToken] = []
     for row in rows:
-        msg = {
-            "message": {
-                "token": row.token,
-                "notification": {"title": title, "body": body},
-                "android": {"priority": "high", "notification": {"channel_id": "mail_new"}},
-            }
+        message_body: dict = {
+            "token": row.token,
+            "notification": {"title": title, "body": body},
+            "android": {"priority": "high", "notification": {"channel_id": "mail_new"}},
         }
+        if data:
+            message_body["data"] = data
+        msg = {"message": message_body}
         try:
             resp = httpx.post(url, headers=headers, json=msg, timeout=10.0)
             if resp.status_code == 404 or (resp.status_code == 400 and "UNREGISTERED" in resp.text):

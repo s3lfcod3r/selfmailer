@@ -60,6 +60,6 @@ def push_new_mail(session: Session, account: MailAccount, folder: str, count: in
     title, text = _preview(session, account, folder, count)
     _push_ntfy(session, account, title, text)
     try:
-        fcm_mod.notify(session, account.user_id, title, text)
+        fcm_mod.notify(session, account.user_id, title, text, account_id=account.id, folder=folder)
     except Exception:  # noqa: BLE001 - FCM ist best-effort
         logger.warning("FCM-Push fehlgeschlagen (user_id=%s)", account.user_id, exc_info=True)
