@@ -1016,8 +1016,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true }: {
                     </div>
                   );
                 })()}
+                {/* Empfaengeradresse (oft die eigene) nicht im Kopf zeigen — sie steht
+                    in den aufgeklappten Details. Hier nur der Aufklapp-Schalter. */}
                 <button className="mail-head-toexp" onClick={() => setDetailsOpen((v) => !v)} title={t("mail.details")}>
-                  {t("mail.hdrTo")}: {open.to[0] || "—"} <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>
+                  Details <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>
                 </button>
                 <span className="grow" />
                 <span className="mail-head-date">{prettyDate(open.date)}</span>
