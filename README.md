@@ -220,6 +220,9 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, proxies /ap
 
 Interactive API docs: `http://localhost:8090/docs`
 
+**Run the tests:** `cd backend && pip install -r requirements.txt -r requirements-dev.txt && pytest --cov=app`
+(pytest + TestClient against a temp SQLite — currently ~48 % coverage; the IMAP/SMTP/DAV paths need mocking to push higher.)
+
 ### 🗺️ Roadmap
 
 - [x] Mail (IMAP/POP3/SMTP) · stacked accounts · folder tree + unread counts
@@ -227,11 +230,11 @@ Interactive API docs: `http://localhost:8090/docs`
 - [x] 2FA / TOTP · filter rules · cross-account transfer · multi-select · search filters
 - [x] Native Android app (Synology-style, biometric lock)
 - [x] Notifications: **FCM** + **ntfy** + background, per account & folder
-- [x] **Live sync** (SSE) between web clients
-- [ ] Live sync into the Android app (foreground)
+- [x] **Live sync** (SSE) between web clients **and** the Android app (foreground)
+- [x] Calendar month grid in the app
+- [x] [HTTPS reverse-proxy guide](docs/HTTPS.md)
 - [ ] OAuth for Gmail / Outlook
-- [ ] Calendar month grid in the app (currently agenda)
-- [ ] HTTPS reverse-proxy guide · tests toward 80 % coverage
+- [ ] Tests toward 80 % coverage
 
 ---
 
@@ -413,6 +416,9 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, proxyt /api
 
 Interaktive API-Doku: `http://localhost:8090/docs`
 
+**Tests ausführen:** `cd backend && pip install -r requirements.txt -r requirements-dev.txt && pytest --cov=app`
+(pytest + TestClient gegen eine Temp-SQLite — aktuell ~48 % Coverage; die IMAP/SMTP/DAV-Pfade brauchen Mocking, um höher zu kommen.)
+
 ### 🗺️ Roadmap
 
 - [x] Mail (IMAP/POP3/SMTP) · gestapelte Konten · Ordnerbaum + Ungelesen-Zähler
@@ -420,11 +426,11 @@ Interaktive API-Doku: `http://localhost:8090/docs`
 - [x] 2FA / TOTP · Filterregeln · Konto-übergreifend übertragen · Mehrfachauswahl · Such-Filter
 - [x] Native Android-App (Synology-Stil, Biometrie-Sperre)
 - [x] Benachrichtigungen: **FCM** + **ntfy** + Hintergrund, pro Konto & Ordner
-- [x] **Live-Sync** (SSE) zwischen Web-Clients
-- [ ] Live-Sync in die Android-App (Vordergrund)
+- [x] **Live-Sync** (SSE) zwischen Web-Clients **und** der Android-App (Vordergrund)
+- [x] Kalender-Monatsgitter in der App
+- [x] [HTTPS-Reverse-Proxy-Anleitung](docs/HTTPS.md)
 - [ ] OAuth für Gmail / Outlook
-- [ ] Kalender-Monatsgitter in der App (aktuell Agenda)
-- [ ] HTTPS-Reverse-Proxy-Anleitung · Tests Richtung 80 % Coverage
+- [ ] Tests Richtung 80 % Coverage
 
 ---
 
