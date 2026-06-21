@@ -38,9 +38,10 @@ const Contacts = lazyWithReload(() => import("./pages/Contacts").then((m) => ({ 
 const Sync = lazyWithReload(() => import("./pages/Sync").then((m) => ({ default: m.Sync })));
 const Admin = lazyWithReload(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
 const Rules = lazyWithReload(() => import("./pages/Rules").then((m) => ({ default: m.Rules })));
+const Notify = lazyWithReload(() => import("./pages/Notify").then((m) => ({ default: m.Notify })));
 const TotpSettings = lazyWithReload(() => import("./components/TotpSettings").then((m) => ({ default: m.TotpSettings })));
 
-type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin" | "rules";
+type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin" | "rules" | "notify";
 
 // --- Theme-Anpassung: eigene Farben als CSS-Variablen-Overrides ---------------
 type ThemeCustom = { bg: string; surface: string; text: string; accent: string; unread: string };
@@ -87,6 +88,7 @@ const APPS: AppItem[] = [
 ];
 // Im Benutzer-Menü: Sync & Export + Einstellungen.
 const SETTINGS: AppItem[] = [
+  { key: "notify", labelKey: "nav.notify", icon: "🔔" },
   { key: "sync", labelKey: "nav.sync", icon: "🔄" },
   { key: "rules", labelKey: "nav.rules", icon: "🔀" },
   { key: "accounts", labelKey: "nav.accounts", icon: "⚙" },
@@ -337,6 +339,7 @@ export function App() {
           {view === "contacts" && <Contacts />}
           {view === "notes" && <Notes />}
           {view === "sync" && <Sync />}
+          {view === "notify" && <Notify />}
           {view === "accounts" && <Accounts />}
           {view === "rules" && <Rules />}
           {view === "admin" && isAdmin && <Admin meId={user.id} />}
