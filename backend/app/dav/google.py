@@ -20,6 +20,7 @@ import httpx
 
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/{cal}/events"
+_CALLIST_URL = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
 _TIMEOUT = httpx.Timeout(20.0)
 
 
@@ -78,8 +79,32 @@ def _map_event(item: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def calendars(access_tok: str) -> list[dict[str, str]]:
+    """Listet ALLE Kalender des Kontos (eigene, geteilte, abonnierte: Geburtstage,
+    Familienkalender …). Gibt ``[{id, name}, …]`` zurück."""
+    headers = {"Authorization": f"Bearer {access_tok}"}
+    out: list[dict[str, str]] = []
+    page: str | None = None
+    with httpx.Client(timeout=_TIMEOUT) as http:
+        while True:
+            params: dict[str, str] = {"maxResults": "250"}
+            if page:
+                params["pageToken"] = page
+            r = http.get(_CALLIST_URL, headers=headers, params=params)
+            r.raise_for_status()
+            data = r.json()
+            for item in data.get("items", []):
+                cid = item.get("id")
+                if cid:
+                    out.append({"id": cid, "name": item.get("summary", "") or cid})
+            page = data.get("nextPageToken")
+            if not page:
+                break
+    return out
+
+
 def events(access_tok: str, calendar_id: str = "primary") -> list[dict[str, Any]]:
-    """Holt alle Termine eines Google-Kalenders (paginierte REST-Abfrage)."""
+    """Holt alle Termine EINES Google-Kalenders (paginierte REST-Abfrage)."""
     headers = {"Authorization": f"Bearer {access_tok}"}
     url = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
     out: list[dict[str, Any]] = []
@@ -99,4 +124,17 @@ def events(access_tok: str, calendar_id: str = "primary") -> list[dict[str, Any]
             page = data.get("nextPageToken")
             if not page:
                 break
+    return out
+
+
+def all_events(access_tok: str) -> list[dict[str, Any]]:
+    """Termine ALLER Kalender des Kontos. UID wird mit der Kalender-ID präfixt
+    (eindeutig über Kalender hinweg); Kalendername als Quelle mitgegeben."""
+    out: list[dict[str, Any]] = []
+    for cal in calendars(access_tok):
+        for ev in events(access_tok, cal["id"]):
+            ev = dict(ev)
+            ev["uid"] = f'{cal["id"]}::{ev["uid"]}'
+            ev["calendar"] = cal["name"]
+            out.append(ev)
     return out

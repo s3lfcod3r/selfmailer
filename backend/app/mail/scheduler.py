@@ -21,7 +21,7 @@ from sqlmodel import Session, select
 from ..core.crypto import decrypt
 from ..core.db import engine
 from ..events import bus
-from ..models import FolderNotify, MailAccount, User
+from ..models import DavAccount, FolderNotify, MailAccount, User
 from . import cache as cache_mod
 from . import imap as imap_mod
 from . import push as push_mod
@@ -120,12 +120,43 @@ def _sync_once() -> None:
         _sync_account(acc)
 
 
+def _sync_dav() -> None:
+    """Externe Kalender/Adressbücher (CalDAV/Google/iCal) periodisch abgleichen,
+    damit neue Termine ohne manuelles Synchronisieren in WebUI/APK erscheinen."""
+    try:
+        from ..api.dav import run_dav_sync  # lazy: vermeidet Import-Zyklen beim Boot
+    except Exception:  # noqa: BLE001
+        logger.warning("DAV-Sync-Import fehlgeschlagen", exc_info=True)
+        return
+    try:
+        with Session(engine) as s:
+            accs = list(
+                s.exec(
+                    select(DavAccount).join(User, DavAccount.user_id == User.id).where(User.is_active == True)  # noqa: E712
+                ).all()
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning("DAV-Konten fuer Hintergrund-Sync laden fehlgeschlagen", exc_info=True)
+        return
+    for acc in accs:
+        if _stop.is_set():
+            return
+        try:
+            with Session(engine) as s:
+                fresh = s.get(DavAccount, acc.id)
+                if fresh is not None:
+                    run_dav_sync(fresh, s)
+        except Exception:  # noqa: BLE001 - ein Konto darf den Lauf nie kippen
+            logger.warning("DAV-Hintergrund-Sync fehlgeschlagen (id=%s)", acc.id, exc_info=True)
+
+
 def _loop() -> None:
     # kleiner Anlauf, damit der Sync nicht mit dem App-Boot kollidiert
     if _stop.wait(_STARTUP_DELAY):
         return
     while not _stop.is_set():
         _sync_once()
+        _sync_dav()
         _stop.wait(_INTERVAL)
 
 

@@ -150,17 +150,17 @@ def delete_dav_account(
 
 
 def _sync_events(
-    acc: DavAccount, resources: list[tuple[str, str]], user: User, session: Session
+    acc: DavAccount, resources: list[tuple[str, str]], session: Session
 ) -> SyncResult:
     """CalDAV/iCal: ICS-Bodies parsen, dann in den lokalen Store übernehmen."""
     events: list[dict] = []
     for _href, body in resources:
         events.extend(parse_events(body))
-    return _upsert_events(acc, events, user, session)
+    return _upsert_events(acc, events, session)
 
 
 def _upsert_events(
-    acc: DavAccount, events: list[dict], user: User, session: Session
+    acc: DavAccount, events: list[dict], session: Session
 ) -> SyncResult:
     """Übernimmt eine Liste Event-Dicts (uid/title/…/start/end/all_day) in den Store."""
     seen: set[str] = set()
@@ -177,7 +177,7 @@ def _upsert_events(
                 )
             ).first()
             target = existing or CalendarEvent(
-                user_id=user.id,
+                user_id=acc.user_id,
                 dav_account_id=acc.id,
                 external_uid=uid,
                 start=ev["start"],
@@ -198,7 +198,7 @@ def _upsert_events(
 
 
 def _sync_contacts(
-    acc: DavAccount, resources: list[tuple[str, str]], user: User, session: Session
+    acc: DavAccount, resources: list[tuple[str, str]], session: Session
 ) -> SyncResult:
     seen: set[str] = set()
     imported = updated = 0
@@ -214,7 +214,7 @@ def _sync_contacts(
                 )
             ).first()
             target = existing or Contact(
-                user_id=user.id, dav_account_id=acc.id, external_uid=uid
+                user_id=acc.user_id, dav_account_id=acc.id, external_uid=uid
             )
             target.first_name = card["first_name"]
             target.last_name = card["last_name"]
@@ -250,6 +250,62 @@ def _prune(model, account_id: int, seen: set[str], session: Session) -> int:
     return removed
 
 
+def run_dav_sync(acc: DavAccount, session: Session) -> SyncResult:
+    """Holt die externe Quelle und gleicht sie in den lokalen Store ab.
+    Wiederverwendbar: vom Sync-Endpoint UND vom Hintergrund-Scheduler genutzt.
+    Wirft NICHT — Fehler landen in acc.last_status + SyncResult(ok=False)."""
+    gcal_events: list[dict] | None = None
+    resources: list[tuple[str, str]] = []
+    try:
+        if acc.kind == DavKind.gcal:
+            # Google: refresh_token → access_token → Calendar REST API (alle Kalender).
+            tok = google.access_token(
+                acc.oauth_client_id, decrypt(acc.oauth_secret_enc), decrypt(acc.oauth_refresh_enc)
+            )
+            gcal_events = google.all_events(tok)
+        elif acc.kind == DavKind.ics:
+            # Einzelner iCal-Feed (z. B. Google secret .ics) — direkter GET.
+            text = client.fetch_ics(acc.url, acc.username, decrypt(acc.secret_enc))
+            resources = [(acc.url, text)]
+        else:
+            resources = client.fetch_collection(acc.url, acc.username, decrypt(acc.secret_enc))
+    except DavUrlError as exc:
+        logger.warning("DAV-Sync konto=%s SSRF-Block: %s", acc.id, exc)
+        acc.last_status = "Ziel-URL nicht erlaubt"
+        session.add(acc)
+        session.commit()
+        return SyncResult(ok=False, error="Ziel-URL nicht erlaubt")
+    except httpx.HTTPStatusError as exc:
+        # Konkreter HTTP-Status hilft bei der Diagnose (403 = Google Calendar API
+        # nicht aktiviert, 401 = Token/Scope falsch).
+        code = exc.response.status_code
+        logger.warning("DAV-Sync konto=%s HTTP %s: %s", acc.id, code, exc)
+        hint = " (Google Calendar API aktivieren?)" if code == 403 else ""
+        acc.last_status = f"HTTP {code}"
+        session.add(acc)
+        session.commit()
+        return SyncResult(ok=False, error=f"Server-Fehler HTTP {code}{hint}")
+    except httpx.HTTPError as exc:
+        logger.warning("DAV-Sync konto=%s Verbindungsfehler: %s", acc.id, exc)
+        acc.last_status = "Verbindungsfehler"
+        session.add(acc)
+        session.commit()
+        return SyncResult(ok=False, error="Verbindungsfehler zum DAV-Server")
+
+    if acc.kind == DavKind.gcal:
+        result = _upsert_events(acc, gcal_events or [], session)
+    elif acc.kind in (DavKind.caldav, DavKind.ics):
+        result = _sync_events(acc, resources, session)
+    else:
+        result = _sync_contacts(acc, resources, session)
+
+    acc.last_sync = dt.datetime.now(dt.timezone.utc)
+    acc.last_status = "ok"
+    session.add(acc)
+    session.commit()
+    return result
+
+
 @router.post("/accounts/{account_id}/sync", response_model=SyncResult)
 def sync_dav_account(
     account_id: int,
@@ -258,56 +314,4 @@ def sync_dav_account(
 ) -> SyncResult:
     """Holt die externe Collection und gleicht sie in den lokalen Store ab."""
     acc = _owned(account_id, user, session)
-    gcal_events: list[dict] | None = None
-    resources: list[tuple[str, str]] = []
-    try:
-        if acc.kind == DavKind.gcal:
-            # Google: refresh_token → access_token → Calendar REST API (robuster als CalDAV).
-            tok = google.access_token(
-                acc.oauth_client_id, decrypt(acc.oauth_secret_enc), decrypt(acc.oauth_refresh_enc)
-            )
-            gcal_events = google.events(tok)
-        elif acc.kind == DavKind.ics:
-            # Einzelner iCal-Feed (z. B. Google secret .ics) — direkter GET.
-            text = client.fetch_ics(acc.url, acc.username, decrypt(acc.secret_enc))
-            resources = [(acc.url, text)]
-        else:
-            resources = client.fetch_collection(acc.url, acc.username, decrypt(acc.secret_enc))
-    except DavUrlError as exc:
-        # SSRF-Schutz hat die Ziel-URL abgelehnt — generische, sichere Meldung
-        # (kein interner Host/IP-Leak); Detail nur ins Server-Log.
-        logger.warning("DAV-Sync konto=%s SSRF-Block: %s", account_id, exc)
-        acc.last_status = "Ziel-URL nicht erlaubt"
-        session.add(acc)
-        session.commit()
-        return SyncResult(ok=False, error="Ziel-URL nicht erlaubt")
-    except httpx.HTTPStatusError as exc:
-        # Konkreter HTTP-Status hilft bei der Diagnose (z. B. 403 = Google
-        # Calendar API nicht aktiviert, 401 = Token/Scope falsch).
-        code = exc.response.status_code
-        logger.warning("DAV-Sync konto=%s HTTP %s: %s", account_id, code, exc)
-        hint = " (Google Calendar API aktivieren?)" if code == 403 else ""
-        acc.last_status = f"HTTP {code}"
-        session.add(acc)
-        session.commit()
-        return SyncResult(ok=False, error=f"Server-Fehler HTTP {code}{hint}")
-    except httpx.HTTPError as exc:
-        # httpx-Fehler koennen interne Hosts/Banner enthalten → nicht nach aussen.
-        logger.warning("DAV-Sync konto=%s Verbindungsfehler: %s", account_id, exc)
-        acc.last_status = "Verbindungsfehler"
-        session.add(acc)
-        session.commit()
-        return SyncResult(ok=False, error="Verbindungsfehler zum DAV-Server")
-
-    if acc.kind == DavKind.gcal:
-        result = _upsert_events(acc, gcal_events or [], user, session)
-    elif acc.kind in (DavKind.caldav, DavKind.ics):
-        result = _sync_events(acc, resources, user, session)
-    else:
-        result = _sync_contacts(acc, resources, user, session)
-
-    acc.last_sync = dt.datetime.now(dt.timezone.utc)
-    acc.last_status = "ok"
-    session.add(acc)
-    session.commit()
-    return result
+    return run_dav_sync(acc, session)
