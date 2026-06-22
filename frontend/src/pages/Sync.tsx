@@ -28,6 +28,9 @@ export function Sync() {
   const [discBusy, setDiscBusy] = useState(false);
   // iCal-Feed-Abo (read-only, z. B. Google secret .ics)
   const [ics, setIcs] = useState({ label: "", url: "" });
+  // Google-Kalender via OAuth (refresh_token-Verfahren)
+  const [goog, setGoog] = useState({ email: "", client_id: "", client_secret: "", refresh_token: "", label: "" });
+  const [googBusy, setGoogBusy] = useState(false);
   // Postfach-Migration (Synology → passende Zielkonten)
   const [mailAccounts, setMailAccounts] = useState<Account[]>([]);
   const [mig, setMig] = useState({ sourceId: 0, destId: 0, prefix: "", limit: 5000 });
@@ -134,6 +137,21 @@ export function Sync() {
       setNote("iCal-Abo hinzugefügt — unten Abgleichen antippen.");
       load();
     } catch (e) { setErr((e as Error).message); }
+  }
+  async function addGoogle(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(""); setNote("");
+    if (!goog.email || !goog.client_id || !goog.client_secret || !goog.refresh_token) {
+      setErr("Bitte alle Google-Felder ausfüllen."); return;
+    }
+    setGoogBusy(true);
+    try {
+      await api.post<DavAccount>("/dav/google", goog);
+      setGoog({ email: "", client_id: "", client_secret: "", refresh_token: "", label: "" });
+      setNote("Google-Kalender verbunden — unten Abgleichen antippen.");
+      load();
+    } catch (e) { setErr((e as Error).message); }
+    finally { setGoogBusy(false); }
   }
   async function syncAll() {
     setErr(""); setNote("");
@@ -278,6 +296,37 @@ export function Sync() {
             <input className="grow" placeholder="iCal-URL (…/basic.ics)" value={ics.url}
                    onChange={(e) => setIcs((s) => ({ ...s, url: e.target.value }))} required />
             <button className="primary">Abonnieren</button>
+          </div>
+        </form>
+      </section>
+
+      {/* Google-Kalender via OAuth (zwei Wege, sobald Schreiben aktiv ist) */}
+      <section className="stack">
+        <div className="label">Google-Kalender verbinden (OAuth)</div>
+        <p className="muted" style={{ margin: 0 }}>
+          Google verlangt OAuth (App-Passwort geht nicht). Einmalige Einrichtung in der{" "}
+          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Google Cloud Console</a>:
+          OAuth-Client (Webanwendung) anlegen, als Redirect <code>https://developers.google.com/oauthplayground</code> eintragen,
+          Google-Calendar-API aktivieren. Dann im{" "}
+          <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noreferrer">OAuth Playground</a>{" "}
+          (Zahnrad → „Use your own OAuth credentials") mit Scope{" "}
+          <code>https://www.googleapis.com/auth/calendar</code> ein <strong>refresh_token</strong> holen und hier eintragen.
+        </p>
+        <form className="card stack" style={{ padding: "1rem" }} onSubmit={addGoogle}>
+          <div className="row">
+            <input className="grow" placeholder="Google-E-Mail" value={goog.email}
+                   onChange={(e) => setGoog((g) => ({ ...g, email: e.target.value }))} required />
+            <input placeholder="Name (optional)" value={goog.label}
+                   onChange={(e) => setGoog((g) => ({ ...g, label: e.target.value }))} />
+          </div>
+          <input placeholder="client_id" value={goog.client_id}
+                 onChange={(e) => setGoog((g) => ({ ...g, client_id: e.target.value }))} required />
+          <input placeholder="client_secret" value={goog.client_secret}
+                 onChange={(e) => setGoog((g) => ({ ...g, client_secret: e.target.value }))} required />
+          <div className="row">
+            <input className="grow" placeholder="refresh_token" value={goog.refresh_token}
+                   onChange={(e) => setGoog((g) => ({ ...g, refresh_token: e.target.value }))} required />
+            <button className="primary" disabled={googBusy}>{googBusy ? "Prüfe…" : "Verbinden"}</button>
           </div>
         </form>
       </section>

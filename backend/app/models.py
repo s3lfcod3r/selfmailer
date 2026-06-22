@@ -29,6 +29,7 @@ class DavKind(str, Enum):
     caldav = "caldav"
     carddav = "carddav"
     ics = "ics"          # read-only Abo einer einzelnen iCal-Feed-URL (z. B. Google secret .ics)
+    gcal = "gcal"        # Google-Kalender via OAuth (CalDAV mit Bearer-Token)
 
 
 class User(SQLModel, table=True):
@@ -167,7 +168,13 @@ class DavAccount(SQLModel, table=True):
     label: str = ""
     url: str                              # direkte Collection-URL
     username: str = ""
-    secret_enc: str                       # VERSCHLUESSELT (Fernet)
+    secret_enc: str                       # VERSCHLUESSELT (Fernet); bei gcal ungenutzt
+    # OAuth (nur kind=gcal): Google verlangt OAuth statt Passwort. client_secret und
+    # refresh_token Fernet-verschluesselt; aus dem refresh_token wird je Sync ein
+    # kurzlebiges access_token gemintet.
+    oauth_client_id: str = ""
+    oauth_secret_enc: str = ""            # VERSCHLUESSELT (Fernet) — OAuth client_secret
+    oauth_refresh_enc: str = ""           # VERSCHLUESSELT (Fernet) — OAuth refresh_token
     last_sync: dt.datetime | None = None
     last_status: str = ""                 # "ok" oder Fehlertext
     created_at: dt.datetime = Field(default_factory=_now)

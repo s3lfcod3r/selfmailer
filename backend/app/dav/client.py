@@ -248,19 +248,21 @@ def fetch_ics(url: str, username: str = "", password: str = "") -> str:
     raise httpx.HTTPError("Zu viele Weiterleitungen")
 
 
-def fetch_collection(url: str, username: str, password: str) -> list[tuple[str, str]]:
+def fetch_collection(url: str, username: str, password: str, *, token: str | None = None) -> list[tuple[str, str]]:
     """Liest alle Ressourcen einer CalDAV/CardDAV-Collection.
 
-    Returns eine Liste ``(href, body)``. Wirft httpx.HTTPError bei Netz-/Status-
-    Fehlern, damit der aufrufende Endpoint sie als Sync-Fehler melden kann.
+    Auth wahlweise per BasicAuth (username/password) ODER OAuth-Bearer (``token``,
+    z. B. Google). Returns eine Liste ``(href, body)``. Wirft httpx.HTTPError bei
+    Netz-/Status-Fehlern, damit der aufrufende Endpoint sie als Sync-Fehler melden kann.
     """
     _validate_dav_url(url)
-    auth = httpx.BasicAuth(username, password)
+    auth = None if token else httpx.BasicAuth(username, password)
+    headers = {"Authorization": f"Bearer {token}"} if token else None
     collection_path = httpx.URL(url).path
     # follow_redirects=False: ein boesartiger/uebernommener Server koennte sonst
     # per 3xx auf eine interne Adresse umleiten und damit die Vorab-Pruefung
     # umgehen (SSRF via Redirect).
-    with httpx.Client(auth=auth, timeout=_TIMEOUT, follow_redirects=False) as client:
+    with httpx.Client(auth=auth, headers=headers, timeout=_TIMEOUT, follow_redirects=False) as client:
         pf = client.request(
             "PROPFIND",
             url,

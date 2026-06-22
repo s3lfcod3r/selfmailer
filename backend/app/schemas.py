@@ -434,6 +434,16 @@ class DiscoveredCollection(BaseModel):
     name: str
 
 
+class GoogleCalCreate(BaseModel):
+    """Google-Kalender via OAuth (refresh_token-Verfahren). Klartext nur im
+    Request; client_secret + refresh_token werden verschluesselt gespeichert."""
+    email: str
+    client_id: str
+    client_secret: str
+    refresh_token: str
+    label: str = ""
+
+
 class SyncResult(BaseModel):
     ok: bool
     imported: int = 0      # neu angelegt

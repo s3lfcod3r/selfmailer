@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 
 from ..core.crypto import decrypt, encrypt
 from ..core.db import get_session
-from ..dav import client
+from ..dav import client, google
 from ..dav.client import DavUrlError
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ from ..schemas import (
     DavAccountOut,
     DavDiscoverRequest,
     DiscoveredCollection,
+    GoogleCalCreate,
     SyncResult,
 )
 from .deps import get_current_user
@@ -91,6 +92,36 @@ def add_dav_account(
         url=data.url,
         username=data.username,
         secret_enc=encrypt(data.password),
+    )
+    session.add(acc)
+    session.commit()
+    session.refresh(acc)
+    return acc
+
+
+@router.post("/google", response_model=DavAccountOut, status_code=status.HTTP_201_CREATED)
+def add_google_account(
+    data: GoogleCalCreate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> DavAccount:
+    """Google-Kalender via OAuth anbinden (refresh_token-Verfahren). Sofortiger
+    Token-Test, damit Tippfehler gleich auffallen statt erst beim Sync."""
+    try:
+        google.access_token(data.client_id, data.client_secret, data.refresh_token)
+    except httpx.HTTPError as exc:
+        logger.warning("Google-OAuth-Test fehlgeschlagen: %s", exc)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Google-Zugang ungültig (client_id/secret/refresh_token prüfen)")
+    acc = DavAccount(
+        user_id=user.id,
+        kind=DavKind.gcal,
+        label=data.label or data.email,
+        url="",                       # wird aus der E-Mail abgeleitet
+        username=data.email,
+        secret_enc=encrypt(""),
+        oauth_client_id=data.client_id,
+        oauth_secret_enc=encrypt(data.client_secret),
+        oauth_refresh_enc=encrypt(data.refresh_token),
     )
     session.add(acc)
     session.commit()
@@ -218,7 +249,14 @@ def sync_dav_account(
     """Holt die externe Collection und gleicht sie in den lokalen Store ab."""
     acc = _owned(account_id, user, session)
     try:
-        if acc.kind == DavKind.ics:
+        if acc.kind == DavKind.gcal:
+            # Google: refresh_token → kurzlebiges access_token → CalDAV mit Bearer.
+            tok = google.access_token(
+                acc.oauth_client_id, decrypt(acc.oauth_secret_enc), decrypt(acc.oauth_refresh_enc)
+            )
+            gurl = acc.url or google.CALDAV_EVENTS_URL.format(email=acc.username)
+            resources = client.fetch_collection(gurl, "", "", token=tok)
+        elif acc.kind == DavKind.ics:
             # Einzelner iCal-Feed (z. B. Google secret .ics) — direkter GET.
             text = client.fetch_ics(acc.url, acc.username, decrypt(acc.secret_enc))
             resources = [(acc.url, text)]
@@ -240,7 +278,7 @@ def sync_dav_account(
         session.commit()
         return SyncResult(ok=False, error="Verbindungsfehler zum DAV-Server")
 
-    if acc.kind in (DavKind.caldav, DavKind.ics):
+    if acc.kind in (DavKind.caldav, DavKind.ics, DavKind.gcal):
         result = _sync_events(acc, resources, user, session)
     else:
         result = _sync_contacts(acc, resources, user, session)
