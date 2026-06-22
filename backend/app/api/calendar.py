@@ -398,3 +398,31 @@ def targets(
                 "primary": c.get("primary", False),
             })
     return {"targets": out}
+
+
+@router.get("/calendars")
+def all_calendars(
+    user: User = Depends(feed_or_bearer_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """ALLE Quell-Kalender des Users fuer den Filter eines externen Dashboards:
+    ``Lokal`` plus saemtliche Google-Kalender (auch read-only/leere — Feiertage,
+    Geburtstage, abonnierte). ``key`` matcht den ``source_key`` der Events
+    (Google-Kalender-ID bzw. ``local``), damit das Widget ALLE Kalender auflisten
+    kann, nicht nur die mit Terminen im sichtbaren Zeitraum. Heavier (Google-Call)
+    → vom Widget nur selten holen (Start/Refresh), nicht beim Polling."""
+    out: list[dict] = [{"key": "local", "name": "Lokal", "color": ""}]
+    accounts = session.exec(
+        select(DavAccount).where(
+            DavAccount.user_id == user.id, DavAccount.kind == DavKind.gcal
+        )
+    ).all()
+    for acc in accounts:
+        try:
+            cals = google.calendars(gcal_token(acc))
+        except httpx.HTTPError as exc:
+            logger.warning("Calendars: Google-Konto %s nicht erreichbar: %s", acc.id, exc)
+            continue
+        for c in cals:
+            out.append({"key": c["id"], "name": c["name"], "color": c.get("color", "")})
+    return {"calendars": out}
