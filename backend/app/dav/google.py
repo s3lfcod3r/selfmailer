@@ -190,6 +190,17 @@ def delete_event(access_tok: str, calendar_id: str, event_id: str) -> None:
             r.raise_for_status()
 
 
+def move_event(access_tok: str, calendar_id: str, event_id: str, destination_id: str) -> None:
+    """Verschiebt einen Termin in einen anderen Kalender DESSELBEN Kontos (events.move).
+    Die Event-ID bleibt erhalten; nur die Zugehörigkeit ändert sich."""
+    headers = {"Authorization": f"Bearer {access_tok}"}
+    base = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
+    url = f"{base}/{urllib.parse.quote(event_id, safe='')}/move"
+    with httpx.Client(timeout=_TIMEOUT) as http:
+        r = http.post(url, headers=headers, params={"destination": destination_id})
+        r.raise_for_status()
+
+
 def split_uid(external_uid: str) -> tuple[str, str]:
     """``{calId}::{eventId}`` → (calId, eventId). Ohne Trenner: ('', uid)."""
     if "::" in external_uid:

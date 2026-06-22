@@ -314,6 +314,10 @@ class EventUpdate(BaseModel):
     start: dt.datetime | None = None
     end: dt.datetime | None = None
     all_day: bool | None = None
+    # Ziel-Kalender wechseln (nur wenn mitgeschickt). dav_account_id=None → lokal,
+    # sonst Google-Konto + (optional) Kalender-ID. Leer = Hauptkalender.
+    dav_account_id: int | None = None
+    gcal_calendar_id: str | None = None
 
 
 class EventOut(BaseModel):

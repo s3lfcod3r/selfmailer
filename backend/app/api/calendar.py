@@ -194,6 +194,112 @@ def create_event(
     return _persist_event(data, user, session)
 
 
+def _cal_meta(token: str, cal_id: str) -> tuple[str, str]:
+    """Name + Farbe eines Google-Kalenders (für sofort korrekte Anzeige nach Move)."""
+    try:
+        for c in google.calendars(token):
+            if c.get("id") == cal_id:
+                return c.get("name", "") or "", c.get("color", "") or ""
+    except httpx.HTTPError:
+        pass
+    return "", ""
+
+
+def _push_field_update(ev: CalendarEvent, session: Session) -> None:
+    """Feldänderung an den bestehenden Google-Termin zurückschreiben (kein Move)."""
+    if ev.dav_account_id is None or not ev.external_uid:
+        return
+    acc = session.get(DavAccount, ev.dav_account_id)
+    if acc is None or acc.kind != DavKind.gcal:
+        return
+    cal_id, gid = google.split_uid(ev.external_uid)
+    if cal_id and gid:
+        try:
+            google.patch_event(gcal_token(acc), cal_id, gid, _ev_dict(ev))
+        except httpx.HTTPError as exc:
+            logger.warning("Google-Patch konto=%s: %s", acc.id, exc)
+            raise _push_error(exc)
+
+
+def _change_calendar(
+    ev: CalendarEvent, target_acc_id: int | None, target_cal: str,
+    user: User, session: Session,
+) -> None:
+    """Verschiebt einen Termin in einen anderen Kalender — oder zurück nach lokal.
+
+    Fälle: gleiches Ziel → nur Feld-Push; lokal→Google → anlegen; Google→lokal →
+    dort löschen; Google→Google im selben Konto → echtes ``events.move``;
+    kontoübergreifend → alt löschen + neu anlegen.
+    """
+    cur_acc_id = ev.dav_account_id
+    cur_cal, cur_gid = ("", "")
+    if cur_acc_id is not None and ev.external_uid:
+        cur_cal, cur_gid = google.split_uid(ev.external_uid)
+
+    new_acc: DavAccount | None = None
+    new_cal = ""
+    if target_acc_id:
+        new_acc = _gcal_account(target_acc_id, user, session)
+        new_cal = target_cal or google.primary_calendar_id(gcal_token(new_acc))
+    new_acc_id = new_acc.id if new_acc else None
+
+    # Gleiches Ziel → nur Feldänderung am bestehenden Termin zurückschreiben.
+    if new_acc_id == cur_acc_id and (new_acc_id is None or new_cal == cur_cal):
+        _push_field_update(ev, session)
+        return
+
+    try:
+        if cur_acc_id is None and new_acc is not None:
+            tok = gcal_token(new_acc)
+            gid = google.create_event(tok, new_cal, _ev_dict(ev))
+            ev.dav_account_id = new_acc.id
+            ev.external_uid = f"{new_cal}::{gid}"
+            ev.source_key = new_cal
+            ev.source_name, ev.source_color = _cal_meta(tok, new_cal)
+        elif cur_acc_id is not None and new_acc is None:
+            old = session.get(DavAccount, cur_acc_id)
+            if old is not None and cur_cal and cur_gid:
+                google.delete_event(gcal_token(old), cur_cal, cur_gid)
+            ev.dav_account_id = None
+            ev.external_uid = None
+            ev.source_key = "local"
+            ev.source_name = ""
+            ev.source_color = ""
+        elif cur_acc_id == new_acc_id and new_acc is not None:
+            tok = gcal_token(new_acc)
+            if cur_cal and cur_gid:
+                google.move_event(tok, cur_cal, cur_gid, new_cal)
+                try:
+                    google.patch_event(tok, new_cal, cur_gid, _ev_dict(ev))
+                except httpx.HTTPError:
+                    pass  # Move hat geklappt; Feld-Push ist Beiwerk
+                ev.external_uid = f"{new_cal}::{cur_gid}"
+            else:
+                gid = google.create_event(tok, new_cal, _ev_dict(ev))
+                ev.external_uid = f"{new_cal}::{gid}"
+            ev.source_key = new_cal
+            ev.source_name, ev.source_color = _cal_meta(tok, new_cal)
+        elif new_acc is not None:
+            old = session.get(DavAccount, cur_acc_id) if cur_acc_id else None
+            if old is not None and cur_cal and cur_gid:
+                try:
+                    google.delete_event(gcal_token(old), cur_cal, cur_gid)
+                except httpx.HTTPError:
+                    pass
+            tok = gcal_token(new_acc)
+            gid = google.create_event(tok, new_cal, _ev_dict(ev))
+            ev.dav_account_id = new_acc.id
+            ev.external_uid = f"{new_cal}::{gid}"
+            ev.source_key = new_cal
+            ev.source_name, ev.source_color = _cal_meta(tok, new_cal)
+    except httpx.HTTPError as exc:
+        logger.warning("Kalender-Wechsel Termin=%s: %s", ev.id, exc)
+        raise _push_error(exc)
+
+
+_UNSET = object()
+
+
 @router.patch("/events/{event_id}", response_model=EventOut)
 def update_event(
     event_id: int,
@@ -202,23 +308,21 @@ def update_event(
     session: Session = Depends(get_session),
 ) -> CalendarEvent:
     ev = _owned(event_id, user, session)
-    for field, value in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    # Ziel-Felder gesondert behandeln (nicht per setattr ins Modell schreiben).
+    target_acc_id = payload.pop("dav_account_id", _UNSET)
+    target_cal = payload.pop("gcal_calendar_id", "")
+    for field, value in payload.items():
         if field in ("start", "end") and isinstance(value, dt.datetime):
             value = _to_utc_naive(value)
         setattr(ev, field, value)
     ev.updated_at = dt.datetime.now(dt.timezone.utc)
 
-    # Aenderung an einem Google-Termin zurueckschreiben.
-    if ev.dav_account_id is not None and ev.external_uid:
-        acc = session.get(DavAccount, ev.dav_account_id)
-        if acc is not None and acc.kind == DavKind.gcal:
-            cal_id, gid = google.split_uid(ev.external_uid)
-            if cal_id and gid:
-                try:
-                    google.patch_event(gcal_token(acc), cal_id, gid, _ev_dict(ev))
-                except httpx.HTTPError as exc:
-                    logger.warning("Google-Patch konto=%s: %s", acc.id, exc)
-                    raise _push_error(exc)
+    if target_acc_id is _UNSET:
+        # Kein Ziel mitgeschickt → bestehendes Verhalten: Felder am Google-Termin pushen.
+        _push_field_update(ev, session)
+    else:
+        _change_calendar(ev, target_acc_id, target_cal or "", user, session)
 
     session.add(ev)
     session.commit()
