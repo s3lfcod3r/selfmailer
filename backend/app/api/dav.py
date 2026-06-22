@@ -31,12 +31,23 @@ from ..schemas import (
     DavAccountOut,
     DavDiscoverRequest,
     DiscoveredCollection,
+    GcalCalendarOut,
     GoogleCalCreate,
     SyncResult,
 )
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/dav", tags=["dav"])
+
+
+def gcal_token(acc: DavAccount) -> str:
+    """Mintet aus den gespeicherten OAuth-Daten eines gcal-Kontos ein frisches
+    access_token. Gemeinsame Stelle fuer Sync (Pull) UND Push (calendar.py)."""
+    return google.access_token(
+        acc.oauth_client_id,
+        decrypt(acc.oauth_secret_enc),
+        decrypt(acc.oauth_refresh_enc),
+    )
 
 
 @router.post("/discover", response_model=list[DiscoveredCollection])
@@ -127,6 +138,24 @@ def add_google_account(
     session.commit()
     session.refresh(acc)
     return acc
+
+
+@router.get("/accounts/{account_id}/calendars", response_model=list[GcalCalendarOut])
+def list_gcal_calendars(
+    account_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """Beschreibbare Google-Kalender eines gcal-Kontos (Ziel-Auswahl beim Anlegen)."""
+    acc = _owned(account_id, user, session)
+    if acc.kind != DavKind.gcal:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Kein Google-Konto")
+    try:
+        cals = google.writable_calendars(gcal_token(acc))
+    except httpx.HTTPError as exc:
+        logger.warning("Google-Kalenderliste konto=%s: %s", account_id, exc)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Google-Kalender nicht abrufbar")
+    return [{"id": c["id"], "name": c["name"], "primary": c.get("primary", False)} for c in cals]
 
 
 @router.delete("/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -259,10 +288,7 @@ def run_dav_sync(acc: DavAccount, session: Session) -> SyncResult:
     try:
         if acc.kind == DavKind.gcal:
             # Google: refresh_token → access_token → Calendar REST API (alle Kalender).
-            tok = google.access_token(
-                acc.oauth_client_id, decrypt(acc.oauth_secret_enc), decrypt(acc.oauth_refresh_enc)
-            )
-            gcal_events = google.all_events(tok)
+            gcal_events = google.all_events(gcal_token(acc))
         elif acc.kind == DavKind.ics:
             # Einzelner iCal-Feed (z. B. Google secret .ics) — direkter GET.
             text = client.fetch_ics(acc.url, acc.username, decrypt(acc.secret_enc))

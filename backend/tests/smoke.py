@@ -101,7 +101,7 @@ print("self-protect OK: admin cannot delete/deactivate self (400)")
 
 # Admin kann User-Passwort zuruecksetzen, danach Login mit neuem PW
 sven_id = next(u["id"] for u in c.get("/api/v1/admin/users", headers=H).json() if u["username"]=="sven@self")
-r = c.patch(f"/api/v1/admin/users/{sven_id}/password?new_password=neuespass99", headers=H)
+r = c.patch(f"/api/v1/admin/users/{sven_id}/password", json={"new_password":"neuespass99"}, headers=H)
 assert r.status_code==200, r.text
 r = c.post("/api/v1/auth/login", json={"username":"sven@self","password":"neuespass99"})
 assert r.status_code==200, r.text
@@ -255,6 +255,40 @@ r = c.get("/api/v1/calendar/events?start_from=2026-01-01T00:00:00&start_to=2027-
 assert not any(e["title"].startswith("Extern") for e in r.json()), "DAV-Import nicht mandantengetrennt"
 print("caldav pull OK (import/update/remove merge, isolation)")
 
+# ---- Google Zwei-Wege-Push (Google-API gemockt) ----
+import app.dav.google as _g
+_g.access_token = lambda cid, cs, rt: "tok-x"
+_g.primary_calendar_id = lambda tok: "primary@cal"
+_pushed = {}
+_g.create_event = lambda tok, cal, ev: (_pushed.update(create=(cal, ev)) or "EVT123")
+_g.patch_event = lambda tok, cal, eid, ev: _pushed.update(patch=(cal, eid))
+_g.delete_event = lambda tok, cal, eid: _pushed.update(delete=(cal, eid))
+# gcal-Konto anlegen (access_token-Test ist gemockt)
+r = c.post("/api/v1/dav/google", json={"email":"sven@gmail.com","client_id":"cid",
+       "client_secret":"cs","refresh_token":"rt","label":"Google"}, headers=svenH)
+assert r.status_code==201, r.text
+gacc_id = r.json()["id"]
+# Anlegen mit Google-Ziel -> Push create + external_uid {cal}::{eventId}
+r = c.post("/api/v1/calendar/events", json={"title":"GMeet","start":"2026-11-01T09:00:00Z",
+       "end":"2026-11-01T10:00:00Z","dav_account_id":gacc_id,"gcal_calendar_id":"primary@cal"}, headers=svenH)
+assert r.status_code==201, r.text
+gev = r.json()
+assert _pushed["create"][0]=="primary@cal", _pushed
+assert gev["dav_account_id"]==gacc_id, gev
+gev_id = gev["id"]
+# Aendern -> Push patch auf die richtige Event-ID
+r = c.patch(f"/api/v1/calendar/events/{gev_id}", json={"title":"GMeet v2"}, headers=svenH)
+assert r.status_code==200 and _pushed["patch"]==("primary@cal","EVT123"), (r.text, _pushed)
+# Loeschen -> Push delete (sonst kaeme der Termin beim naechsten Pull zurueck)
+r = c.delete(f"/api/v1/calendar/events/{gev_id}", headers=svenH)
+assert r.status_code==204 and _pushed["delete"]==("primary@cal","EVT123"), _pushed
+# Rein lokaler Termin (kein Ziel) loest KEINEN Google-Call aus
+_pushed.clear()
+r = c.post("/api/v1/calendar/events", json={"title":"Lokal","start":"2026-11-02T09:00:00Z",
+       "end":"2026-11-02T10:00:00Z"}, headers=svenH)
+assert r.status_code==201 and "create" not in _pushed, _pushed
+print("gcal two-way push OK (create/patch/delete mocked, local stays local)")
+
 # ---- Externer CardDAV-Pull ----
 ext_ct = NS(id=None, external_uid="c-1@srv", first_name="Ext", last_name="Kontakt",
             email="e@x.de", phone="", organization="ExtOrg", notes="")
@@ -274,7 +308,8 @@ def _boom(url, usr, pw):
     raise _httpx.ConnectError("Verbindung fehlgeschlagen")
 dav_api.client.fetch_collection = _boom
 r = c.post(f"/api/v1/dav/accounts/{dav_cal_id}/sync", headers=svenH).json()
-assert r["ok"] is False and "fehlgeschlagen" in r["error"], r
+# Sicherer fester Fehlertext (kein Exception-Leak) — Hauptsache ok=False + Meldung.
+assert r["ok"] is False and "Verbindungsfehler" in r["error"], r
 print("dav error handling OK (ok=false, message surfaced)")
 
 # ---- DAV-Konto loeschen raeumt importierte Eintraege ----

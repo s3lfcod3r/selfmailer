@@ -93,7 +93,9 @@ export type MsgDetail = MsgHeader & {
 export type CalEvent = {
   id: number; title: string; description: string; location: string;
   start: string; end: string; all_day: boolean;
+  dav_account_id?: number | null;
 };
+export type GcalCalendar = { id: string; name: string; primary: boolean };
 export type Contact = {
   id: number; first_name: string; last_name: string; email: string;
   phone: string; mobile: string; work_phone: string;
@@ -106,7 +108,7 @@ export type Task = {
   done: boolean; position: number;
 };
 
-export type DavKind = "caldav" | "carddav" | "ics";
+export type DavKind = "caldav" | "carddav" | "ics" | "gcal";
 export type DavAccount = {
   id: number; kind: DavKind; label: string; url: string;
   username: string; last_sync: string | null; last_status: string;

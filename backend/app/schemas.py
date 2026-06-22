@@ -7,7 +7,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_serializer
 
 from .models import DavKind, Protocol, Role
 
@@ -301,6 +301,10 @@ class EventCreate(BaseModel):
     start: dt.datetime
     end: dt.datetime
     all_day: bool = False
+    # Optionales Ziel: in welches externe Konto (nur Google/gcal) der Termin
+    # zurueckgeschrieben wird. None = rein lokaler Termin (altes Verhalten).
+    dav_account_id: int | None = None
+    gcal_calendar_id: str = ""   # leer = Hauptkalender (primary)
 
 
 class EventUpdate(BaseModel):
@@ -320,6 +324,24 @@ class EventOut(BaseModel):
     start: dt.datetime
     end: dt.datetime
     all_day: bool
+    # Herkunft: gesetzt, wenn der Termin zu einem externen Konto gehoert
+    # (Google). Das Frontend markiert solche Termine und schreibt Aenderungen
+    # zurueck.
+    dav_account_id: int | None = None
+
+    @field_serializer("start", "end")
+    def _serialize_utc(self, value: dt.datetime) -> str:
+        """Store haelt naive UTC → explizit mit ``Z`` ausgeben, damit das
+        Frontend (new Date(...)) die Zeit korrekt als UTC liest und lokal anzeigt."""
+        base = value.replace(tzinfo=None) if value.tzinfo else value
+        return base.isoformat(timespec="seconds") + "Z"
+
+
+class GcalCalendarOut(BaseModel):
+    """Ein beschreibbarer Google-Kalender (Ziel-Auswahl beim Anlegen)."""
+    id: str
+    name: str
+    primary: bool = False
 
 
 # ---- Kontakte -----------------------------------------------------------

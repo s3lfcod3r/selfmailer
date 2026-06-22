@@ -79,11 +79,14 @@ def _map_event(item: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def calendars(access_tok: str) -> list[dict[str, str]]:
+def calendars(access_tok: str) -> list[dict[str, Any]]:
     """Listet ALLE Kalender des Kontos (eigene, geteilte, abonnierte: Geburtstage,
-    Familienkalender …). Gibt ``[{id, name}, …]`` zurück."""
+    Familienkalender …). Gibt ``[{id, name, primary, access_role}, …]`` zurück.
+
+    ``access_role`` ist ``owner``/``writer``/``reader``/``freeBusyReader`` — nur
+    owner/writer sind beschreibbar (relevant fuer die Ziel-Auswahl beim Anlegen)."""
     headers = {"Authorization": f"Bearer {access_tok}"}
-    out: list[dict[str, str]] = []
+    out: list[dict[str, Any]] = []
     page: str | None = None
     with httpx.Client(timeout=_TIMEOUT) as http:
         while True:
@@ -96,11 +99,98 @@ def calendars(access_tok: str) -> list[dict[str, str]]:
             for item in data.get("items", []):
                 cid = item.get("id")
                 if cid:
-                    out.append({"id": cid, "name": item.get("summary", "") or cid})
+                    out.append({
+                        "id": cid,
+                        "name": item.get("summary", "") or cid,
+                        "primary": bool(item.get("primary")),
+                        "access_role": item.get("accessRole", "") or "",
+                    })
             page = data.get("nextPageToken")
             if not page:
                 break
     return out
+
+
+def writable_calendars(access_tok: str) -> list[dict[str, Any]]:
+    """Nur die Kalender, in die der Nutzer schreiben darf (owner/writer)."""
+    return [c for c in calendars(access_tok) if c.get("access_role") in ("owner", "writer")]
+
+
+def primary_calendar_id(access_tok: str) -> str:
+    """Echte ID des Hauptkalenders (= i. d. R. die Konto-E-Mail). Fallback
+    ``primary``, falls keiner als primary markiert ist."""
+    for c in calendars(access_tok):
+        if c.get("primary"):
+            return str(c["id"])
+    return "primary"
+
+
+def _to_google_body(ev: dict[str, Any]) -> dict[str, Any]:
+    """SelfMailer-Event-Dict → Google-REST-Event-Body.
+
+    Der lokale Store haelt Zeiten als **naive UTC** (so liefert sie auch der
+    Pull, siehe ``_utc_naive``) → beim Zurueckschreiben als UTC mit ``Z`` senden.
+    Ganztags: Google ``end.date`` ist EXKLUSIV → inklusiven letzten Tag + 1 Tag.
+    """
+    start: dt.datetime = ev["start"]
+    end: dt.datetime = ev["end"]
+    body: dict[str, Any] = {
+        "summary": ev.get("title", "") or "",
+        "description": ev.get("description", "") or "",
+        "location": ev.get("location", "") or "",
+    }
+    if ev.get("all_day"):
+        body["start"] = {"date": start.date().isoformat()}
+        body["end"] = {"date": (end.date() + dt.timedelta(days=1)).isoformat()}
+    else:
+        body["start"] = {"dateTime": _iso_z(start), "timeZone": "UTC"}
+        body["end"] = {"dateTime": _iso_z(end), "timeZone": "UTC"}
+    return body
+
+
+def _iso_z(d: dt.datetime) -> str:
+    """naive (UTC) datetime → ISO-8601 mit ``Z``."""
+    base = d.replace(tzinfo=None) if d.tzinfo else d
+    return base.isoformat(timespec="seconds") + "Z"
+
+
+def create_event(access_tok: str, calendar_id: str, ev: dict[str, Any]) -> str:
+    """Legt einen Termin in Google an und gibt dessen Event-ID zurueck."""
+    headers = {"Authorization": f"Bearer {access_tok}"}
+    url = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
+    with httpx.Client(timeout=_TIMEOUT) as http:
+        r = http.post(url, headers=headers, json=_to_google_body(ev))
+        r.raise_for_status()
+        return str(r.json().get("id") or "")
+
+
+def patch_event(access_tok: str, calendar_id: str, event_id: str, ev: dict[str, Any]) -> None:
+    """Aktualisiert einen vorhandenen Google-Termin (partielles Update)."""
+    headers = {"Authorization": f"Bearer {access_tok}"}
+    base = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
+    url = f"{base}/{urllib.parse.quote(event_id, safe='')}"
+    with httpx.Client(timeout=_TIMEOUT) as http:
+        r = http.patch(url, headers=headers, json=_to_google_body(ev))
+        r.raise_for_status()
+
+
+def delete_event(access_tok: str, calendar_id: str, event_id: str) -> None:
+    """Loescht einen Google-Termin. Bereits-geloescht (404/410) gilt als Erfolg."""
+    headers = {"Authorization": f"Bearer {access_tok}"}
+    base = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
+    url = f"{base}/{urllib.parse.quote(event_id, safe='')}"
+    with httpx.Client(timeout=_TIMEOUT) as http:
+        r = http.delete(url, headers=headers)
+        if r.status_code not in (404, 410):
+            r.raise_for_status()
+
+
+def split_uid(external_uid: str) -> tuple[str, str]:
+    """``{calId}::{eventId}`` → (calId, eventId). Ohne Trenner: ('', uid)."""
+    if "::" in external_uid:
+        cal_id, _, event_id = external_uid.partition("::")
+        return cal_id, event_id
+    return "", external_uid
 
 
 def events(access_tok: str, calendar_id: str = "primary") -> list[dict[str, Any]]:

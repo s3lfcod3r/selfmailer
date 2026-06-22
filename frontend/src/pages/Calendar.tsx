@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type CalEvent, type Contact, type Task } from "../lib/api";
+import { api, type CalEvent, type Contact, type DavAccount, type GcalCalendar, type Task } from "../lib/api";
 import { useLang, dateLocale, type Lang, type TFunc } from "../lib/i18n";
 
-const EMPTY = { title: "", location: "", description: "", start: "", end: "", all_day: false };
+const EMPTY = { title: "", location: "", description: "", start: "", end: "", all_day: false, target: "local", calendarId: "" };
 type Form = typeof EMPTY;
 
 function fmt(iso: string, lang: Lang): string {
@@ -42,11 +42,15 @@ export function Calendar() {
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [gcalAccounts, setGcalAccounts] = useState<DavAccount[]>([]);
+  const [calsByAcc, setCalsByAcc] = useState<Record<number, GcalCalendar[]>>({});
   const [mode, setMode] = useState<"month" | "agenda">("month");
   const now = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
   const [form, setForm] = useState<Form>({ ...EMPTY });
+  const [editId, setEditId] = useState<number | null>(null);   // null = Anlegen, sonst Bearbeiten
   const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<CalEvent | null>(null);
   const [newTask, setNewTask] = useState("");
   const [newTaskDue, setNewTaskDue] = useState("");
@@ -54,35 +58,84 @@ export function Calendar() {
 
   async function load() {
     try {
-      const [evs, cts, tks] = await Promise.all([
+      const [evs, cts, tks, dav] = await Promise.all([
         api.get<CalEvent[]>("/calendar/events"),
         api.get<Contact[]>("/contacts"),
         api.get<Task[]>("/tasks"),
+        api.get<DavAccount[]>("/dav/accounts"),
       ]);
       setEvents(evs); setContacts(cts); setTasks(tks);
+      setGcalAccounts(dav.filter((d) => d.kind === "gcal"));
     } catch (e) { setErr((e as Error).message); }
   }
   useEffect(() => { load(); }, []);
 
   function set<K extends keyof Form>(k: K, v: Form[K]) { setForm((f) => ({ ...f, [k]: v })); }
 
+  // Beim Wechsel des Ziel-Kontos die beschreibbaren Google-Kalender laden (gecacht).
+  async function chooseTarget(value: string) {
+    setForm((f) => ({ ...f, target: value, calendarId: "" }));
+    if (value === "local") return;
+    const accId = Number(value);
+    if (calsByAcc[accId]) return;
+    try {
+      const cals = await api.get<GcalCalendar[]>(`/dav/accounts/${accId}/calendars`);
+      setCalsByAcc((m) => ({ ...m, [accId]: cals }));
+      const primary = cals.find((c) => c.primary) ?? cals[0];
+      if (primary) setForm((f) => ({ ...f, calendarId: primary.id }));
+    } catch (e) { setErr((e as Error).message); }
+  }
+
   function openCreate(day?: Date) {
     const base = day ?? new Date();
     const start = new Date(base); start.setHours(9, 0, 0, 0);
     const end = new Date(base); end.setHours(10, 0, 0, 0);
     setForm({ ...EMPTY, start: localInput(start), end: localInput(end) });
-    setErr(""); setCreating(true);
+    setEditId(null); setErr(""); setCreating(true);
   }
+
+  function openEdit(ev: CalEvent) {
+    setForm({
+      title: ev.title, location: ev.location, description: ev.description,
+      start: localInput(new Date(ev.start)), end: localInput(new Date(ev.end)),
+      all_day: ev.all_day,
+      target: ev.dav_account_id ? String(ev.dav_account_id) : "local",
+      calendarId: "",
+    });
+    setEditId(ev.id); setDetail(null); setErr(""); setCreating(true);
+  }
+
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setErr("");
     if (!form.title || !form.start || !form.end) { setErr(t("cal.needFields")); return; }
-    try { await api.post<CalEvent>("/calendar/events", form); setCreating(false); setForm({ ...EMPTY }); load(); }
-    catch (e) { setErr((e as Error).message); }
+    // datetime-local ist Lokalzeit → als UTC-ISO (Z) senden; Store haelt UTC.
+    const payload: Record<string, unknown> = {
+      title: form.title, location: form.location, description: form.description,
+      start: new Date(form.start).toISOString(), end: new Date(form.end).toISOString(),
+      all_day: form.all_day,
+    };
+    setBusy(true);
+    try {
+      if (editId != null) {
+        await api.patch<CalEvent>(`/calendar/events/${editId}`, payload);
+      } else {
+        if (form.target !== "local") {
+          payload.dav_account_id = Number(form.target);
+          payload.gcal_calendar_id = form.calendarId;
+        }
+        await api.post<CalEvent>("/calendar/events", payload);
+      }
+      setCreating(false); setEditId(null); setForm({ ...EMPTY }); load();
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
   }
+
   async function remove(ev: CalEvent) {
+    setBusy(true);
     try { await api.del(`/calendar/events/${ev.id}`); setDetail(null); load(); }
     catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
   }
 
   async function addTask(e: React.FormEvent) {
@@ -184,7 +237,7 @@ export function Calendar() {
                         <div key={`b${i}`} className="cal-chip birthday" title={`${t("cal.birthday")}: ${b.name}`}>🎂 {b.name}{b.age != null ? ` (${b.age})` : ""}</div>
                       ))}
                       {evs.map((ev) => (
-                        <div key={ev.id} className="cal-chip" title={ev.title} onClick={(e) => { e.stopPropagation(); setDetail(ev); }}>{ev.title}</div>
+                        <div key={ev.id} className="cal-chip" title={ev.title} onClick={(e) => { e.stopPropagation(); setDetail(ev); }}>{ev.dav_account_id ? "🔄 " : ""}{ev.title}</div>
                       ))}
                     </div>
                   </div>
@@ -230,7 +283,7 @@ export function Calendar() {
         <div className="modal-backdrop" onClick={() => setCreating(false)}>
           <form className="modal card stack" onClick={(e) => e.stopPropagation()} onSubmit={add}>
             <div className="topbar">
-              <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{t("cal.new")}</h2>
+              <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{editId != null ? t("cal.edit") : t("cal.new")}</h2>
               <button type="button" className="ghost" onClick={() => setCreating(false)}>✕</button>
             </div>
             <input placeholder={t("cal.title")} value={form.title} onChange={(e) => set("title", e.target.value)} autoFocus required />
@@ -244,11 +297,33 @@ export function Calendar() {
               <input type="datetime-local" value={form.end} onChange={(e) => set("end", e.target.value)} required />
             </div>
             <textarea placeholder={t("cal.description")} value={form.description} onChange={(e) => set("description", e.target.value)} rows={2} />
+
+            {/* Ziel-Kalender nur beim Anlegen waehlbar (beim Bearbeiten bleibt die Herkunft). */}
+            {editId == null && gcalAccounts.length > 0 && (
+              <>
+                <div className="row">
+                  <label className="label" style={{ minWidth: 56 }}>{t("cal.saveIn")}</label>
+                  <select value={form.target} onChange={(e) => chooseTarget(e.target.value)} style={{ flex: 1 }}>
+                    <option value="local">{t("cal.localOnly")}</option>
+                    {gcalAccounts.map((a) => <option key={a.id} value={String(a.id)}>{a.label || a.username}</option>)}
+                  </select>
+                </div>
+                {form.target !== "local" && (calsByAcc[Number(form.target)]?.length ?? 0) > 0 && (
+                  <div className="row">
+                    <label className="label" style={{ minWidth: 56 }}>{t("cal.calendar")}</label>
+                    <select value={form.calendarId} onChange={(e) => set("calendarId", e.target.value)} style={{ flex: 1 }}>
+                      {calsByAcc[Number(form.target)].map((c) => <option key={c.id} value={c.id}>{c.name}{c.primary ? " ★" : ""}</option>)}
+                    </select>
+                  </div>
+                )}
+              </>
+            )}
+
             {err && <div className="err">{err}</div>}
             <div className="row">
               <span className="grow" />
               <button type="button" className="ghost" onClick={() => setCreating(false)}>{t("common.cancel")}</button>
-              <button className="primary">{t("common.add")}</button>
+              <button className="primary" disabled={busy}>{editId != null ? t("common.save") : t("common.add")}</button>
             </div>
           </form>
         </div>
@@ -264,7 +339,12 @@ export function Calendar() {
             <div className="muted">{fmt(detail.start, lang)} – {fmt(detail.end, lang)}</div>
             {detail.location && <div>📍 {detail.location}</div>}
             {detail.description && <div style={{ whiteSpace: "pre-wrap" }}>{detail.description}</div>}
-            <div className="row"><span className="grow" /><button className="ghost" onClick={() => remove(detail)}>{t("common.delete")}</button></div>
+            {detail.dav_account_id && <div className="muted" style={{ fontSize: "0.82rem" }}>🔄 {t("cal.syncedHint")}</div>}
+            <div className="row">
+              <span className="grow" />
+              <button className="ghost" onClick={() => openEdit(detail)}>{t("common.edit")}</button>
+              <button className="ghost" disabled={busy} onClick={() => remove(detail)}>{t("common.delete")}</button>
+            </div>
           </div>
         </div>
       )}
@@ -299,7 +379,7 @@ function AgendaList({ events, lang, t, onOpen }: { events: CalEvent[]; lang: Lan
             {evs.map((ev) => (
               <div className="card row" style={{ padding: "0.7rem 1rem", cursor: "pointer" }} key={ev.id} onClick={() => onOpen(ev)}>
                 <div className="grow">
-                  <div style={{ fontWeight: 600 }}>{ev.title}</div>
+                  <div style={{ fontWeight: 600 }}>{ev.dav_account_id ? "🔄 " : ""}{ev.title}</div>
                   <div className="mail-from">{fmt(ev.start, lang)} – {fmt(ev.end, lang)}{ev.location ? ` · ${ev.location}` : ""}</div>
                 </div>
               </div>
