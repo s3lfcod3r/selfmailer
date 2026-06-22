@@ -66,6 +66,7 @@ export function Calendar() {
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<CalEvent | null>(null);
+  const [dayOpen, setDayOpen] = useState<string | null>(null);   // Tag-Popup (ymd-Key)
   const [newTask, setNewTask] = useState("");
   const [newTaskDue, setNewTaskDue] = useState("");
   const [err, setErr] = useState("");
@@ -177,7 +178,7 @@ export function Calendar() {
     setForm({ ...EMPTY, ...dt, start: localInput(start), end: localInput(end) });
     setInitialTarget(selValue(dt.target, dt.calendarId));
     setCanRetarget(true);
-    setEditId(null); setErr(""); setCreating(true);
+    setEditId(null); setErr(""); setDayOpen(null); setCreating(true);
   }
 
   function openEdit(ev: CalEvent) {
@@ -195,7 +196,7 @@ export function Calendar() {
     });
     setInitialTarget(selValue(target, calendarId));
     setCanRetarget(isGcalOrLocal);
-    setEditId(ev.id); setDetail(null); setErr(""); setCreating(true);
+    setEditId(ev.id); setDetail(null); setDayOpen(null); setErr(""); setCreating(true);
   }
 
   async function add(e: React.FormEvent) {
@@ -364,7 +365,7 @@ export function Calendar() {
                   const bds = birthdaysByDay[key] ?? [];
                   const outside = d.getMonth() !== cursor.month;
                   return (
-                    <div key={key} className={`cal-cell ${outside ? "outside" : ""} ${key === todayKey ? "today" : ""}`} onClick={() => openCreate(d)}>
+                    <div key={key} className={`cal-cell ${outside ? "outside" : ""} ${key === todayKey ? "today" : ""}`} onClick={() => setDayOpen(key)}>
                       <div className="cal-daynum">
                         {d.getDay() === 1 && <span className="cal-kw" title="Kalenderwoche">KW {isoWeek(d)}</span>}
                         {d.getDate()}
@@ -481,6 +482,41 @@ export function Calendar() {
           </form>
         </div>
       )}
+
+      {dayOpen && (() => {
+        const evs = eventsByDay[dayOpen] ?? [];
+        const bds = birthdaysByDay[dayOpen] ?? [];
+        const dateLabel = new Date(dayOpen + "T12:00:00").toLocaleDateString(dateLocale(lang), { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+        return (
+          <div className="modal-backdrop" onClick={() => setDayOpen(null)}>
+            <div className="modal card stack" onClick={(e) => e.stopPropagation()}>
+              <div className="topbar">
+                <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{dateLabel}{evs.length > 0 ? <span className="muted" style={{ fontWeight: 400, fontSize: "0.85rem" }}> ({evs.length})</span> : null}</h2>
+                <button className="ghost" onClick={() => setDayOpen(null)}>✕</button>
+              </div>
+              <div className="stack" style={{ gap: "0.4rem", maxHeight: "50vh", overflowY: "auto" }}>
+                {bds.map((b, i) => (
+                  <div key={`b${i}`} className="card row" style={{ padding: "0.6rem 0.9rem" }}>🎂 {b.name}{b.age != null ? ` (${b.age})` : ""}</div>
+                ))}
+                {evs.length === 0 && bds.length === 0 && <p className="muted" style={{ margin: 0 }}>{t("cal.empty")}</p>}
+                {evs.map((ev) => (
+                  <button key={ev.id} className="card row" style={{ padding: "0.6rem 0.9rem", cursor: "pointer", textAlign: "left", borderLeft: ev.source_color ? `3px solid ${ev.source_color}` : undefined }} onClick={() => openEdit(ev)}>
+                    <div className="grow">
+                      <div style={{ fontWeight: 600 }}>{ev.dav_account_id ? "🔄 " : ""}{evLabel(ev)}</div>
+                      <div className="mail-from">{fmt(ev.start, lang)} – {fmt(ev.end, lang)}{ev.location ? ` · ${ev.location}` : ""}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="row">
+                <span className="grow" />
+                <button className="ghost" onClick={() => setDayOpen(null)}>{t("cal.close")}</button>
+                <button className="primary" onClick={() => openCreate(new Date(dayOpen + "T12:00:00"))}>＋ {t("cal.newEvent")}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {detail && (
         <div className="modal-backdrop" onClick={() => setDetail(null)}>

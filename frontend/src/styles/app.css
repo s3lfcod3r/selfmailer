@@ -536,6 +536,13 @@ select.bulk-btn { max-width: 170px; }
 .cal-cell.outside { background: var(--self-bg-0); }
 .cal-cell.outside .cal-daynum { color: var(--self-text-3); }
 .cal-daynum { font-size: 0.8rem; color: var(--self-text-2); text-align: right; padding: 0 0.15rem; }
+/* Heutiger Tag: ganze Zelle dezent getoent + Akzentrahmen, damit „heute" auf
+   einen Blick sichtbar ist (nicht nur an der kleinen Tageszahl). */
+.cal-cell.today {
+  background: color-mix(in srgb, var(--self-teal) 14%, var(--self-bg-1));
+  box-shadow: inset 0 0 0 1.5px var(--self-teal);
+}
+.cal-cell.today:hover { background: color-mix(in srgb, var(--self-teal) 22%, var(--self-bg-1)); }
 .cal-cell.today .cal-daynum {
   color: #04130f; background: var(--self-teal); font-weight: 700;
   width: 1.5rem; height: 1.5rem; border-radius: 50%; display: inline-flex;
