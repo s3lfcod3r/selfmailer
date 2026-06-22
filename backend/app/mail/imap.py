@@ -546,9 +546,21 @@ def _sent_folder(box: MailBox) -> str:
     return matches[0] if matches else ""
 
 
+# Anbieter, die SMTP-gesendete Mails SELBST in "Gesendet" ablegen → kein eigener
+# APPEND, sonst entstehen Dubletten. Gmail ist der bekannte Fall.
+_SELF_SAVES_SENT = ("gmail.com", "googlemail.com")
+
+
 def save_to_sent(account: MailAccount, password: str, raw: bytes) -> bool:
     """Legt eine Kopie einer GESENDETEN Mail in den Gesendet-Ordner (IMAP APPEND,
-    als gelesen markiert). Best-effort: ohne Gesendet-Ordner passiert nichts."""
+    als gelesen markiert). Best-effort: ohne Gesendet-Ordner passiert nichts.
+
+    Bei Anbietern, die das selbst tun (Gmail), wird NICHT abgelegt — sonst
+    Dubletten. Der lokale Store/SelfMailer liest den Ordner ohnehin live per IMAP,
+    daher ist die Kopie dort automatisch sichtbar (1:1 mit dem Anbieter)."""
+    host = (account.smtp_host or "").lower()
+    if any(h in host for h in _SELF_SAVES_SENT):
+        return False
     with _mailbox(account, password) as box:
         folder = _sent_folder(box)
         if not folder:
