@@ -116,11 +116,24 @@ export function Calendar() {
 
   function set<K extends keyof Form>(k: K, v: Form[K]) { setForm((f) => ({ ...f, [k]: v })); }
 
+  // Standard-Ziel: bevorzugt den Google-Hauptkalender (alles soll synchron laufen),
+  // nur wenn kein Google-Konto da ist, lokal.
+  function defaultTarget(): { target: string; calendarId: string } {
+    for (const a of gcalAccounts) {
+      const cals = (calsByAcc[a.id] || []).filter((c) => c.writable);
+      if (cals.length) {
+        const primary = cals.find((c) => c.primary) ?? cals[0];
+        return { target: String(a.id), calendarId: primary.id };
+      }
+    }
+    return { target: "local", calendarId: "" };
+  }
+
   function openCreate(day?: Date) {
     const base = day ?? new Date();
     const start = new Date(base); start.setHours(9, 0, 0, 0);
     const end = new Date(base); end.setHours(10, 0, 0, 0);
-    setForm({ ...EMPTY, start: localInput(start), end: localInput(end) });
+    setForm({ ...EMPTY, ...defaultTarget(), start: localInput(start), end: localInput(end) });
     setEditId(null); setErr(""); setCreating(true);
   }
 
@@ -346,7 +359,7 @@ export function Calendar() {
               <label className="label" style={{ minWidth: 56 }}>{t("cal.end")}</label>
               <input type="datetime-local" value={form.end} onChange={(e) => set("end", e.target.value)} required />
             </div>
-            <textarea placeholder={t("cal.description")} value={form.description} onChange={(e) => set("description", e.target.value)} rows={2} />
+            <textarea placeholder={t("cal.description")} value={form.description} onChange={(e) => set("description", e.target.value)} rows={8} style={{ minHeight: "11rem" }} />
 
             {/* Ziel-Kalender direkt waehlbar (Lokal + alle beschreibbaren Google-Kalender). */}
             {editId == null && gcalAccounts.length > 0 && (
