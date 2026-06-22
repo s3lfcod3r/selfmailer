@@ -463,6 +463,17 @@ class DiscoveredCollection(BaseModel):
     name: str
 
 
+class BirthdayCalIn(BaseModel):
+    """Welcher Google-Kalender bekommt die Geburtstage (leer/None = aus)."""
+    dav_account_id: int | None = None
+    gcal_calendar_id: str = ""
+
+
+class BirthdayCalOut(BaseModel):
+    dav_account_id: int | None = None
+    gcal_calendar_id: str = ""
+
+
 class TranslateRequest(BaseModel):
     text: str
     target: str = "de"

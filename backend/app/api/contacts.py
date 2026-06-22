@@ -9,14 +9,52 @@ import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel import Session, or_, select
 
+from ..birthdays import delete_one, sync_one, sync_user_birthdays
 from ..core.db import get_session
 from ..dav.vcard import build_vcards
 from ..models import Contact, User
-from ..schemas import ContactCreate, ContactOut, ContactUpdate
+from ..schemas import BirthdayCalIn, BirthdayCalOut, ContactCreate, ContactOut, ContactUpdate
 from .deps import get_current_user
 from .feeds import feed_or_bearer_user
 
 router = APIRouter(prefix="/api/v1/contacts", tags=["contacts"])
+
+
+@router.get("/birthday-calendar", response_model=BirthdayCalOut)
+def get_birthday_calendar(user: User = Depends(get_current_user)) -> BirthdayCalOut:
+    return BirthdayCalOut(dav_account_id=user.bday_cal_account_id, gcal_calendar_id=user.bday_cal_id or "")
+
+
+@router.put("/birthday-calendar", response_model=dict)
+def set_birthday_calendar(
+    data: BirthdayCalIn,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Geburtstage-Kalender setzen (oder leeren) und sofort abgleichen. Bei
+    Kalenderwechsel werden die Verknüpfungen geleert, damit die Termine im neuen
+    Kalender neu entstehen (alte bleiben im alten Kalender stehen)."""
+    changed = (user.bday_cal_account_id != data.dav_account_id) or (user.bday_cal_id != (data.gcal_calendar_id or ""))
+    if changed:
+        for c in session.exec(select(Contact).where(Contact.user_id == user.id)).all():
+            if c.bday_event_id:
+                c.bday_event_id = ""
+                session.add(c)
+    user.bday_cal_account_id = data.dav_account_id
+    user.bday_cal_id = data.gcal_calendar_id or ""
+    session.add(user)
+    session.commit()
+    if not user.bday_cal_account_id or not user.bday_cal_id:
+        return {"ok": True, "reason": "Geburtstage-Kalender deaktiviert"}
+    return sync_user_birthdays(session, user)
+
+
+@router.post("/birthdays/sync", response_model=dict)
+def sync_birthdays_now(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    return sync_user_birthdays(session, user)
 
 
 @router.get("/export.vcf")
@@ -77,6 +115,8 @@ def create_contact(
     session.add(ct)
     session.commit()
     session.refresh(ct)
+    if ct.birthday:
+        sync_one(session, user, ct)   # Geburtstag gleich in den Kalender (falls aktiv)
     return ct
 
 
@@ -94,6 +134,7 @@ def update_contact(
     session.add(ct)
     session.commit()
     session.refresh(ct)
+    sync_one(session, user, ct)       # Geburtstag im Kalender nachziehen (falls aktiv)
     return ct
 
 
@@ -104,5 +145,6 @@ def delete_contact(
     session: Session = Depends(get_session),
 ) -> None:
     ct = _owned(contact_id, user, session)
+    delete_one(session, user, ct)     # Geburtstags-Termin im Kalender mit entfernen
     session.delete(ct)
     session.commit()

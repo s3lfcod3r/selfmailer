@@ -44,6 +44,10 @@ class User(SQLModel, table=True):
     totp_secret: str = ""
     totp_enabled: bool = False
     totp_last_step: int = 0
+    # Geburtstage-Kalender: in welchen Google-Kalender die Geburtstage aus den
+    # Kontakten als jährliche Termine geschrieben werden (leer = aus).
+    bday_cal_account_id: int | None = None
+    bday_cal_id: str = ""
     created_at: dt.datetime = Field(default_factory=_now)
 
 
@@ -137,6 +141,7 @@ class Contact(SQLModel, table=True):
     country: str = ""                     # Land
     notes: str = ""
     birthday: dt.date | None = None       # Geburtstag -> jaehrlicher Kalender-Eintrag
+    bday_event_id: str = ""               # Google-Event-ID des Geburtstags (zum Pflegen/Loeschen)
     # Herkunft: gesetzt, wenn der Kontakt aus einem externen CardDAV-Konto stammt.
     dav_account_id: int | None = Field(default=None, index=True, foreign_key="davaccount.id")
     external_uid: str = Field(default="", index=True)

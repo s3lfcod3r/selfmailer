@@ -146,6 +146,10 @@ def _to_google_body(ev: dict[str, Any]) -> dict[str, Any]:
     else:
         body["start"] = {"dateTime": _iso_z(start), "timeZone": "UTC"}
         body["end"] = {"dateTime": _iso_z(end), "timeZone": "UTC"}
+    if ev.get("recurrence"):
+        body["recurrence"] = list(ev["recurrence"])   # z. B. ["RRULE:FREQ=YEARLY"]
+    if ev.get("transparency"):
+        body["transparency"] = ev["transparency"]      # "transparent" = blockiert nicht
     return body
 
 

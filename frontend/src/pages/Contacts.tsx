@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Contact } from "../lib/api";
+import { api, type Contact, type DavAccount, type GcalCalendar } from "../lib/api";
 import { useLang, dateLocale, type TFunc } from "../lib/i18n";
 import { confirmDialog } from "../lib/dialog";
 
@@ -77,12 +77,45 @@ export function Contacts() {
   const [form, setForm] = useState<Form>({ ...EMPTY });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // Geburtstage-Kalender (welcher Google-Kalender bekommt die Geburtstage).
+  const [gcalAccts, setGcalAccts] = useState<DavAccount[]>([]);
+  const [calsByAcc, setCalsByAcc] = useState<Record<number, GcalCalendar[]>>({});
+  const [bdayCal, setBdayCal] = useState("");   // "accId::calId" oder "" (aus)
+  const [bdayNote, setBdayNote] = useState("");
 
   async function load(query = q) {
     try { setContacts(await api.get<Contact[]>(`/contacts?q=${encodeURIComponent(query)}`)); }
     catch (e) { setErr((e as Error).message); }
   }
-  useEffect(() => { load(""); }, []);
+  async function loadBdaySettings() {
+    try {
+      const accs = (await api.get<DavAccount[]>("/dav/accounts")).filter((a) => a.kind === "gcal");
+      setGcalAccts(accs);
+      const map: Record<number, GcalCalendar[]> = {};
+      for (const a of accs) { try { map[a.id] = await api.get<GcalCalendar[]>(`/dav/accounts/${a.id}/calendars`); } catch { /* egal */ } }
+      setCalsByAcc(map);
+      const cur = await api.get<{ dav_account_id: number | null; gcal_calendar_id: string }>("/contacts/birthday-calendar");
+      setBdayCal(cur.dav_account_id && cur.gcal_calendar_id ? `${cur.dav_account_id}::${cur.gcal_calendar_id}` : "");
+    } catch { /* optional */ }
+  }
+  async function chooseBdayCal(val: string) {
+    setBdayCal(val); setBdayNote("");
+    const body = val.includes("::")
+      ? { dav_account_id: Number(val.split("::")[0]), gcal_calendar_id: val.split("::")[1] }
+      : { dav_account_id: null, gcal_calendar_id: "" };
+    try {
+      const r = await api.put<{ ok: boolean; created?: number; updated?: number; removed?: number }>("/contacts/birthday-calendar", body);
+      setBdayNote(val ? `Übertragen: ${r.created ?? 0} neu, ${r.updated ?? 0} aktualisiert` : "Geburtstage-Kalender aus");
+    } catch (e) { setBdayNote((e as Error).message); }
+  }
+  async function syncBdays() {
+    setBdayNote("Übertrage …");
+    try {
+      const r = await api.post<{ created?: number; updated?: number; removed?: number }>("/contacts/birthdays/sync", {});
+      setBdayNote(`Übertragen: ${r.created ?? 0} neu, ${r.updated ?? 0} aktualisiert, ${r.removed ?? 0} entfernt`);
+    } catch (e) { setBdayNote((e as Error).message); }
+  }
+  useEffect(() => { load(""); loadBdaySettings(); }, []);
 
   function set<K extends keyof Form>(k: K, v: Form[K]) { setForm((f) => ({ ...f, [k]: v })); }
   function payload(f: Form) { return { ...f, birthday: f.birthday || null }; }
@@ -122,6 +155,27 @@ export function Contacts() {
         <div className="md-list-head">
           <button className="primary" style={{ flex: 1 }} onClick={newContact}>＋ {t("contacts.new")}</button>
         </div>
+        {gcalAccts.length > 0 && (
+          <div className="md-search" style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+            <label className="label">🎂 Geburtstage-Kalender</label>
+            <select value={bdayCal} onChange={(e) => chooseBdayCal(e.target.value)} style={{ width: "100%" }}>
+              <option value="">Aus (nur in SelfMailer anzeigen)</option>
+              {gcalAccts.map((a) => {
+                const cals = (calsByAcc[a.id] || []).filter((c) => c.writable);
+                if (cals.length === 0) return null;
+                return (
+                  <optgroup key={a.id} label={a.label || a.username}>
+                    {cals.map((c) => <option key={c.id} value={`${a.id}::${c.id}`}>{c.name}{c.primary ? " ★" : ""}</option>)}
+                  </optgroup>
+                );
+              })}
+            </select>
+            <div className="row" style={{ gap: 6 }}>
+              {bdayCal && <button className="ghost" style={{ flex: 1 }} onClick={syncBdays}>Jetzt übertragen</button>}
+            </div>
+            {bdayNote && <div className="muted" style={{ fontSize: "0.78rem" }}>{bdayNote}</div>}
+          </div>
+        )}
         <div className="md-search">
           <span aria-hidden>🔍</span>
           <input value={q} onChange={(e) => { setQ(e.target.value); load(e.target.value); }} placeholder={t("contacts.search")} />

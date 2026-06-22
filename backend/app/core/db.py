@@ -53,6 +53,8 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("totp_secret", "VARCHAR"),
         ("totp_enabled", "INTEGER DEFAULT 0"),
         ("totp_last_step", "INTEGER DEFAULT 0"),
+        ("bday_cal_account_id", "INTEGER"),
+        ("bday_cal_id", "VARCHAR"),
     ],
     "mailaccount": [("signature", "VARCHAR"), ("last_notified_unseen", "INTEGER DEFAULT -1")],
     "cachedmessage": [("detail_json", "VARCHAR")],
@@ -77,6 +79,7 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("postal_code", "VARCHAR"),
         ("city", "VARCHAR"),
         ("country", "VARCHAR"),
+        ("bday_event_id", "VARCHAR"),
     ],
 }
 
