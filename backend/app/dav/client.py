@@ -227,6 +227,27 @@ def discover_collections(base_url: str, username: str, password: str, *, want_co
         return _parse_collections(r.text, str(r.url), want_contacts)
 
 
+def fetch_ics(url: str, username: str = "", password: str = "") -> str:
+    """Liest einen einzelnen iCal-Feed (eine .ics-Datei) per GET.
+
+    Fuer read-only Abos wie Googles geheime iCal-URL (kein OAuth noetig). Folgt
+    Redirects MANUELL und prueft jede Ziel-URL gegen die SSRF-Blockliste.
+    BasicAuth nur, wenn ein Benutzer gesetzt ist (Google-Feed braucht keinen).
+    """
+    auth = httpx.BasicAuth(username, password) if username else None
+    cur = url
+    with httpx.Client(auth=auth, timeout=_TIMEOUT, follow_redirects=False) as http:
+        for _ in range(5):
+            _validate_dav_url(cur)
+            r = http.get(cur)
+            if r.status_code in (301, 302, 307, 308) and "location" in r.headers:
+                cur = urljoin(str(r.url), r.headers["location"])
+                continue
+            r.raise_for_status()
+            return r.text
+    raise httpx.HTTPError("Zu viele Weiterleitungen")
+
+
 def fetch_collection(url: str, username: str, password: str) -> list[tuple[str, str]]:
     """Liest alle Ressourcen einer CalDAV/CardDAV-Collection.
 

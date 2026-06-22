@@ -106,7 +106,7 @@ export type Task = {
   done: boolean; position: number;
 };
 
-export type DavKind = "caldav" | "carddav";
+export type DavKind = "caldav" | "carddav" | "ics";
 export type DavAccount = {
   id: number; kind: DavKind; label: string; url: string;
   username: string; last_sync: string | null; last_status: string;

@@ -28,6 +28,7 @@ class Protocol(str, Enum):
 class DavKind(str, Enum):
     caldav = "caldav"
     carddav = "carddav"
+    ics = "ics"          # read-only Abo einer einzelnen iCal-Feed-URL (z. B. Google secret .ics)
 
 
 class User(SQLModel, table=True):

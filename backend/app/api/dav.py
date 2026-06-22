@@ -218,7 +218,12 @@ def sync_dav_account(
     """Holt die externe Collection und gleicht sie in den lokalen Store ab."""
     acc = _owned(account_id, user, session)
     try:
-        resources = client.fetch_collection(acc.url, acc.username, decrypt(acc.secret_enc))
+        if acc.kind == DavKind.ics:
+            # Einzelner iCal-Feed (z. B. Google secret .ics) — direkter GET.
+            text = client.fetch_ics(acc.url, acc.username, decrypt(acc.secret_enc))
+            resources = [(acc.url, text)]
+        else:
+            resources = client.fetch_collection(acc.url, acc.username, decrypt(acc.secret_enc))
     except DavUrlError as exc:
         # SSRF-Schutz hat die Ziel-URL abgelehnt — generische, sichere Meldung
         # (kein interner Host/IP-Leak); Detail nur ins Server-Log.
@@ -235,7 +240,7 @@ def sync_dav_account(
         session.commit()
         return SyncResult(ok=False, error="Verbindungsfehler zum DAV-Server")
 
-    if acc.kind == DavKind.caldav:
+    if acc.kind in (DavKind.caldav, DavKind.ics):
         result = _sync_events(acc, resources, user, session)
     else:
         result = _sync_contacts(acc, resources, user, session)
