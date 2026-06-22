@@ -351,7 +351,7 @@ export function Calendar() {
                 </section>
               );
             })()}
-            <section className="cal-panel">
+            <section className="cal-panel cal-aside-scroll">
               <div className="cal-panel-head">{t("cal.thisMonth")}</div>
               {monthAgenda.length === 0 && <div className="muted" style={{ fontSize: "0.82rem" }}>{t("cal.noneThisMonth")}</div>}
               {monthAgenda.map((it, i) => (
