@@ -11,10 +11,12 @@ aware-Datetimes werden hier normalisiert.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..core.crypto import decrypt
@@ -96,6 +98,40 @@ def _owned(event_id: int, user: User, session: Session) -> CalendarEvent:
     if ev is None or ev.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Termin nicht gefunden")
     return ev
+
+
+class HiddenCals(BaseModel):
+    """Geteilte Liste ausgeblendeter Kalender (Quell-Keys, z. B. Google-Cal-IDs)."""
+
+    keys: list[str] = []
+
+
+@router.get("/hidden", response_model=HiddenCals)
+def get_hidden(user: User = Depends(feed_or_bearer_user)) -> HiddenCals:
+    """Server-seitig ausgeblendete Kalender des Users — geteilt von WebUI und App."""
+    try:
+        keys = json.loads(user.hidden_cals or "[]")
+        keys = [str(k) for k in keys] if isinstance(keys, list) else []
+    except (ValueError, TypeError):
+        keys = []
+    return HiddenCals(keys=keys)
+
+
+@router.put("/hidden", response_model=HiddenCals)
+def put_hidden(
+    data: HiddenCals,
+    user: User = Depends(feed_or_bearer_user),
+    session: Session = Depends(get_session),
+) -> HiddenCals:
+    """Setzt die ausgeblendeten Kalender (ersetzt die Liste vollstaendig)."""
+    keys = sorted({str(k) for k in data.keys if str(k)})
+    db_user = session.get(User, user.id)
+    if db_user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User nicht gefunden")
+    db_user.hidden_cals = json.dumps(keys)
+    session.add(db_user)
+    session.commit()
+    return HiddenCals(keys=keys)
 
 
 @router.get("/events", response_model=list[EventOut])

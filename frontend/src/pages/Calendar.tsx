@@ -65,9 +65,9 @@ export function Calendar() {
   const [newTask, setNewTask] = useState("");
   const [newTaskDue, setNewTaskDue] = useState("");
   const [err, setErr] = useState("");
-  // Ausgeblendete Kalender (Verwaltung in „Sync & Export", geteilter localStorage).
-  // Nur lesend — beim Seitenwechsel neu eingelesen.
-  const [hiddenCals] = useState<Set<string>>(() => {
+  // Ausgeblendete Kalender kommen jetzt vom Server (geteilt mit der App); der
+  // localStorage dient nur noch als Sofort-Cache fürs erste Rendern.
+  const [hiddenCals, setHiddenCals] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("selfmailer.hiddenCals") || "[]")); } catch { return new Set(); }
   });
   // Quell-Kalender eines Termins (Schluessel/Name/Farbe) — mit Fallbacks.
@@ -106,6 +106,12 @@ export function Calendar() {
         catch { return [a.id, [] as GcalCalendar[]] as const; }
       }));
       setCalsByAcc(Object.fromEntries(entries));
+      // Ausgeblendete Kalender vom Server (geteilt mit der App).
+      try {
+        const h = await api.get<{ keys: string[] }>("/calendar/hidden");
+        setHiddenCals(new Set(h.keys));
+        localStorage.setItem("selfmailer.hiddenCals", JSON.stringify(h.keys));
+      } catch { /* Server-Hidden optional */ }
       // Ist ein Geburtstage-Kalender gesetzt? Dann sind die Geburtstage ECHTE
       // Termine → die virtuelle Kontakt-Anzeige NICHT zusätzlich zeichnen (sonst doppelt).
       try {

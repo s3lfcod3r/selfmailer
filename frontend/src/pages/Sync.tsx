@@ -37,13 +37,36 @@ export function Sync() {
   const [hiddenCals, setHiddenCals] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("selfmailer.hiddenCals") || "[]")); } catch { return new Set(); }
   });
+  // Schreibt die Auswahl in localStorage (Sofort-Cache) UND auf den Server,
+  // damit die App denselben Stand sieht.
+  function persistHidden(n: Set<string>) {
+    const arr = [...n];
+    localStorage.setItem("selfmailer.hiddenCals", JSON.stringify(arr));
+    api.put("/calendar/hidden", { keys: arr }).catch(() => {});
+  }
   function toggleCal(id: string) {
     setHiddenCals((s) => {
       const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id);
-      localStorage.setItem("selfmailer.hiddenCals", JSON.stringify([...n]));
+      persistHidden(n);
       return n;
     });
   }
+  // Beim Öffnen Server-Stand laden; bestehende Browser-Auswahl einmalig übernehmen.
+  useEffect(() => {
+    (async () => {
+      try {
+        const h = await api.get<{ keys: string[] }>("/calendar/hidden");
+        const server = new Set(h.keys);
+        const local = new Set<string>(
+          JSON.parse(localStorage.getItem("selfmailer.hiddenCals") || "[]"),
+        );
+        const union = new Set([...server, ...local]);
+        setHiddenCals(union);
+        localStorage.setItem("selfmailer.hiddenCals", JSON.stringify([...union]));
+        if (union.size !== server.size) api.put("/calendar/hidden", { keys: [...union] }).catch(() => {});
+      } catch { /* Server optional */ }
+    })();
+  }, []);
   // Standardkalender für neue Termine (Wert "accId::calId" oder "local").
   const [defaultCal, setDefaultCalState] = useState<string>(() => localStorage.getItem("selfmailer.defaultCal") || "");
   function setDefaultCal(val: string) {

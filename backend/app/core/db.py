@@ -55,6 +55,7 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("totp_last_step", "INTEGER DEFAULT 0"),
         ("bday_cal_account_id", "INTEGER"),
         ("bday_cal_id", "VARCHAR"),
+        ("hidden_cals", "VARCHAR"),
     ],
     "mailaccount": [("signature", "VARCHAR"), ("last_notified_unseen", "INTEGER DEFAULT -1")],
     "cachedmessage": [("detail_json", "VARCHAR")],

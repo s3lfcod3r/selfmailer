@@ -48,6 +48,9 @@ class User(SQLModel, table=True):
     # Kontakten als jährliche Termine geschrieben werden (leer = aus).
     bday_cal_account_id: int | None = None
     bday_cal_id: str = ""
+    # In WebUI/App ausgeblendete Kalender (JSON-Array von Quell-Keys, z. B. Google-
+    # Kalender-IDs). Server-seitig, damit WebUI und App denselben Stand teilen.
+    hidden_cals: str = ""
     created_at: dt.datetime = Field(default_factory=_now)
 
 
