@@ -54,8 +54,12 @@ function hasRemoteContent(html: string): boolean {
 // Auto-Dunkelmodus fuer helle Mails: das ganze Dokument wird invertiert
 // (Weiss -> dunkel, dunkler Text -> hell), und Medien (Bilder/Logos/Hintergrund-
 // bilder) werden ein zweites Mal invertiert, damit sie wieder normal aussehen.
+// WICHTIG: Hintergrund VOR dem Invertieren auf WEISS setzen — er wird mitinvertiert
+// und damit dunkel. (Frueher dunkel gesetzt -> invertierte zu hell -> Mails ohne
+// eigenen Hintergrund + dunkler Text wurden hell-auf-hell = unlesbar.) So werden
+// ALLE Mails (auch schlichte/interne ohne eigenen Hintergrund) korrekt dunkel.
 const _DARK_STYLE =
-  `<style>:root{color-scheme:dark}html{background:#0d1117}html{filter:invert(1) hue-rotate(180deg)}` +
+  `<style>:root{color-scheme:dark}html,body{background:#ffffff}html{filter:invert(1) hue-rotate(180deg)}` +
   `img,picture,video,canvas,svg,image,[background],[style*="background-image"]{filter:invert(1) hue-rotate(180deg)}</style>`;
 function buildSrcDoc(html: string, block: boolean, dark: boolean): string {
   return `<!DOCTYPE html><meta charset="utf-8">${block ? _CSP_BLOCK : ""}${dark ? _DARK_STYLE : ""}<base target="_blank">${html}`;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Account, type DavAccount, type DavKind, type FeedToken, type MigrateResult, type SyncResult } from "../lib/api";
+import { api, type Account, type DavAccount, type DavKind, type FeedToken, type GcalCalendar, type MigrateResult, type SyncResult } from "../lib/api";
 import { useLang, dateLocale, type Lang, type TFunc } from "../lib/i18n";
 import { confirmDialog } from "../lib/dialog";
 
@@ -31,6 +31,19 @@ export function Sync() {
   // Google-Kalender via OAuth (refresh_token-Verfahren)
   const [goog, setGoog] = useState({ email: "", client_id: "", client_secret: "", refresh_token: "", label: "" });
   const [googBusy, setGoogBusy] = useState(false);
+  // Kalender ein-/ausblenden (pro Google-Konto dessen Kalender; teilt sich den
+  // localStorage-Schlüssel mit dem Kalender-Filter → Ausblenden wirkt überall).
+  const [calsByAcc, setCalsByAcc] = useState<Record<number, GcalCalendar[]>>({});
+  const [hiddenCals, setHiddenCals] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("selfmailer.hiddenCals") || "[]")); } catch { return new Set(); }
+  });
+  function toggleCal(id: string) {
+    setHiddenCals((s) => {
+      const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id);
+      localStorage.setItem("selfmailer.hiddenCals", JSON.stringify([...n]));
+      return n;
+    });
+  }
   // Postfach-Migration (Synology → passende Zielkonten)
   const [mailAccounts, setMailAccounts] = useState<Account[]>([]);
   const [mig, setMig] = useState({ sourceId: 0, destId: 0, prefix: "", limit: 5000 });
@@ -40,8 +53,15 @@ export function Sync() {
   async function load() {
     try {
       setFeed(await api.get<FeedToken>("/feeds/token"));
-      setAccounts(await api.get<DavAccount[]>("/dav/accounts"));
+      const accs = await api.get<DavAccount[]>("/dav/accounts");
+      setAccounts(accs);
       setMailAccounts(await api.get<Account[]>("/accounts"));
+      // Kalender je Google-Konto laden (für die Ein-/Ausblenden-Verwaltung).
+      const map: Record<number, GcalCalendar[]> = {};
+      for (const a of accs.filter((x) => x.kind === "gcal")) {
+        try { map[a.id] = await api.get<GcalCalendar[]>(`/dav/accounts/${a.id}/calendars`); } catch { /* egal */ }
+      }
+      setCalsByAcc(map);
     } catch (e) { setErr((e as Error).message); }
   }
 
@@ -328,6 +348,31 @@ export function Sync() {
           </div>
         </form>
       </section>
+
+      {/* Kalender ein-/ausblenden (z. B. „Kalenderwochen" weg) */}
+      {Object.values(calsByAcc).some((c) => c.length > 0) && (
+        <section className="stack">
+          <div className="label">Kalender anzeigen / ausblenden</div>
+          <p className="muted" style={{ margin: 0 }}>
+            Häkchen entfernen blendet einen Kalender überall aus (Web + App), z. B. „Kalenderwochen" oder „Feiertage".
+          </p>
+          {accounts.filter((a) => a.kind === "gcal").map((a) => (
+            <div className="card stack" style={{ padding: "0.8rem 1rem" }} key={a.id}>
+              <div style={{ fontWeight: 600 }}>{a.label || a.username}</div>
+              {(calsByAcc[a.id] || []).map((c) => {
+                const on = !hiddenCals.has(c.id);
+                return (
+                  <label key={c.id} className="row" style={{ gap: "0.6rem", cursor: "pointer", alignItems: "center" }}>
+                    <input type="checkbox" checked={on} onChange={() => toggleCal(c.id)} />
+                    <span className="cal-filter-dot" style={{ background: c.color || "var(--self-teal)", width: 12, height: 12, borderRadius: "50%", display: "inline-block" }} />
+                    <span style={{ flex: 1, opacity: on ? 1 : 0.5 }}>{c.name}{c.primary ? " ★" : ""}</span>
+                  </label>
+                );
+              })}
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Externe CalDAV/CardDAV-Konten */}
       <section className="stack">

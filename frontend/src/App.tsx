@@ -118,10 +118,9 @@ export function App() {
   // Externe Bilder (Tracking-Pixel) standardmaessig blockieren — Datenschutz/Sicherheit.
   const [blockImages, setBlockImages] = useState<boolean>(() => localStorage.getItem("selfmailer.blockImages") !== "0");
   // Helle Mails automatisch in den dunklen Look umfaerben (global; pro Mail uebersteuerbar).
-  // Default AUS: das Invertieren beliebiger Marketing-HTML-Mails macht die Schrift
-  // teils unleserlich (dunkel auf dunkel). Original (helle Karte) ist immer lesbar;
-  // wer den dunklen Look will, schaltet ihn im Menue bzw. pro Mail per 🌙 ein.
-  const [darkMail, setDarkMail] = useState<boolean>(() => localStorage.getItem("selfmailer.darkMail") === "1");
+  // Default AN: der frueher unlesbare Fall (hell-auf-hell) lag an einem Bug im Dunkel-Stil
+  // (Hintergrund wurde mitinvertiert) — behoben. Pro Mail per 🌙/☀️ umschaltbar.
+  const [darkMail, setDarkMail] = useState<boolean>(() => localStorage.getItem("selfmailer.darkMail") !== "0");
   // App-eigene Textgroesse (skaliert alle rem-Einheiten ueber die Wurzel-Schrift),
   // damit Lesbarkeit OHNE Browser-Zoom (der die Layout-Breite schrumpft) moeglich ist.
   const [uiScale, setUiScale] = useState<number>(() => {
