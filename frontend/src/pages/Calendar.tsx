@@ -52,6 +52,8 @@ export function Calendar() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [gcalAccounts, setGcalAccounts] = useState<DavAccount[]>([]);
   const [calsByAcc, setCalsByAcc] = useState<Record<number, GcalCalendar[]>>({});
+  // Geburtstage als echte Termine im Kalender? Dann virtuelle Anzeige weglassen.
+  const [bdayActive, setBdayActive] = useState(false);
   const [mode, setMode] = useState<"month" | "agenda" | "tasks">("month");
   const now = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
@@ -104,6 +106,12 @@ export function Calendar() {
         catch { return [a.id, [] as GcalCalendar[]] as const; }
       }));
       setCalsByAcc(Object.fromEntries(entries));
+      // Ist ein Geburtstage-Kalender gesetzt? Dann sind die Geburtstage ECHTE
+      // Termine → die virtuelle Kontakt-Anzeige NICHT zusätzlich zeichnen (sonst doppelt).
+      try {
+        const bc = await api.get<{ dav_account_id: number | null; gcal_calendar_id: string }>("/contacts/birthday-calendar");
+        setBdayActive(!!(bc.dav_account_id && bc.gcal_calendar_id));
+      } catch { /* egal */ }
     } catch (e) { setErr((e as Error).message); }
   }
   useEffect(() => { load(); }, []);
@@ -209,9 +217,10 @@ export function Calendar() {
   }, [shownEvents]);
   const birthdaysByDay = useMemo(() => {
     const m: Record<string, Birthday[]> = {};
+    if (bdayActive) return m;   // Geburtstage sind echte Termine → nicht doppelt anzeigen
     for (const b of birthdaysForYear(contacts, cursor.year)) (m[b.day] ??= []).push(b);
     return m;
-  }, [contacts, cursor.year]);
+  }, [contacts, cursor.year, bdayActive]);
 
   // „Diesen Monat": Termine + Geburtstage des sichtbaren Monats, nach Tag sortiert.
   const monthAgenda = useMemo(() => {
@@ -221,7 +230,7 @@ export function Calendar() {
       if (d.getFullYear() === cursor.year && d.getMonth() === cursor.month)
         items.push({ day: d.getDate(), label: ev.title, time: fmtTime(ev.start, lang), ev });
     }
-    for (const b of birthdaysForYear(contacts, cursor.year)) {
+    if (!bdayActive) for (const b of birthdaysForYear(contacts, cursor.year)) {
       const parts = b.day.split("-");
       if (Number(parts[1]) - 1 === cursor.month)
         items.push({ day: Number(parts[2]), label: `🎂 ${b.name}${b.age != null ? ` (${b.age})` : ""}`, birthday: true });
@@ -231,7 +240,7 @@ export function Calendar() {
     const isCurrentMonth = cursor.year === now.getFullYear() && cursor.month === now.getMonth();
     const fromDay = isCurrentMonth ? now.getDate() : 0;
     return items.filter((it) => it.day >= fromDay).sort((a, z) => a.day - z.day);
-  }, [shownEvents, contacts, cursor, lang, now]);
+  }, [shownEvents, contacts, cursor, lang, now, bdayActive]);
 
   const openTasks = tasks.filter((tk) => !tk.done);
   const doneTasks = tasks.filter((tk) => tk.done);
