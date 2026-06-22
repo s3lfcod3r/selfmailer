@@ -328,6 +328,10 @@ class EventOut(BaseModel):
     # (Google). Das Frontend markiert solche Termine und schreibt Aenderungen
     # zurueck.
     dav_account_id: int | None = None
+    # Quell-Kalender (fuer Farben/Filter pro Unterkalender):
+    source_key: str = ""
+    source_name: str = ""
+    source_color: str = ""
 
     @field_serializer("start", "end")
     def _serialize_utc(self, value: dt.datetime) -> str:

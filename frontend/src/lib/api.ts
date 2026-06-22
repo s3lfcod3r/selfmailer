@@ -94,6 +94,7 @@ export type CalEvent = {
   id: number; title: string; description: string; location: string;
   start: string; end: string; all_day: boolean;
   dav_account_id?: number | null;
+  source_key?: string; source_name?: string; source_color?: string;
 };
 export type GcalCalendar = { id: string; name: string; primary: boolean };
 export type Contact = {

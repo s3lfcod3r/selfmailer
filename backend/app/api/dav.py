@@ -218,6 +218,11 @@ def _upsert_events(
             target.start = ev["start"]
             target.end = ev["end"]
             target.all_day = ev["all_day"]
+            # Quell-Kalender fuer Farben/Filter: gcal liefert cal_id/calendar/color,
+            # CalDAV/iCal fallen auf das Konto zurueck.
+            target.source_key = ev.get("cal_id") or f"dav:{acc.id}"
+            target.source_name = ev.get("calendar") or acc.label
+            target.source_color = ev.get("color") or ""
             target.updated_at = dt.datetime.now(dt.timezone.utc)
             session.add(target)
             updated += 1 if existing else 0

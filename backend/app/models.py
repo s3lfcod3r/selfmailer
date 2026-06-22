@@ -108,6 +108,13 @@ class CalendarEvent(SQLModel, table=True):
     # Herkunft: gesetzt, wenn der Termin aus einem externen CalDAV-Konto stammt.
     dav_account_id: int | None = Field(default=None, index=True, foreign_key="davaccount.id")
     external_uid: str = Field(default="", index=True)
+    # Quell-Kalender fuer Farben/Filter pro (Unter-)Kalender:
+    #   source_key  = "local" | Google-Kalender-ID | "dav:{accountId}"
+    #   source_name = Anzeigename des Kalenders (z. B. "Familie", "Geburtstage")
+    #   source_color= Hex-Farbe des Kalenders (von Google), z. B. "#7986cb"
+    source_key: str = Field(default="", index=True)
+    source_name: str = Field(default="")
+    source_color: str = Field(default="")
     created_at: dt.datetime = Field(default_factory=_now)
     updated_at: dt.datetime = Field(default_factory=_now)
 

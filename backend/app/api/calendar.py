@@ -128,6 +128,7 @@ def create_event(
         title=data.title, description=data.description, location=data.location,
         start=_to_utc_naive(data.start), end=_to_utc_naive(data.end),
         all_day=data.all_day,
+        source_key="local", source_name="",  # lokal; Frontend zeigt "Lokal"
     )
 
     # Zwei-Wege: optional gleich in einen Google-Kalender zurueckschreiben.
@@ -142,6 +143,8 @@ def create_event(
             raise _push_error(exc)
         ev.dav_account_id = acc.id
         ev.external_uid = f"{cal_id}::{event_id}"
+        # Quell-Kalender direkt setzen (Name/Farbe ergaenzt der naechste Pull).
+        ev.source_key = cal_id
 
     session.add(ev)
     session.commit()

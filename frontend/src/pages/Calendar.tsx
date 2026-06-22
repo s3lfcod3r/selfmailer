@@ -55,6 +55,29 @@ export function Calendar() {
   const [newTask, setNewTask] = useState("");
   const [newTaskDue, setNewTaskDue] = useState("");
   const [err, setErr] = useState("");
+  // Filter pro (Unter-)Kalender: ausgeblendete Quell-Schluessel (localStorage).
+  const [hiddenCals, setHiddenCals] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("selfmailer.hiddenCals") || "[]")); } catch { return new Set(); }
+  });
+  function toggleCal(key: string) {
+    setHiddenCals((s) => {
+      const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key);
+      localStorage.setItem("selfmailer.hiddenCals", JSON.stringify([...n]));
+      return n;
+    });
+  }
+  // Quell-Kalender eines Termins (Schluessel/Name/Farbe) — mit Fallbacks.
+  const keyOf = (ev: CalEvent) => ev.source_key || (ev.dav_account_id ? `dav:${ev.dav_account_id}` : "local");
+  const nameOf = (ev: CalEvent) => ev.source_name || (keyOf(ev) === "local" ? "Lokal" : keyOf(ev));
+  const sources = useMemo(() => {
+    const m = new Map<string, { key: string; name: string; color: string }>();
+    for (const ev of events) {
+      const k = keyOf(ev);
+      if (!m.has(k)) m.set(k, { key: k, name: nameOf(ev), color: ev.source_color || "" });
+    }
+    return [...m.values()].sort((a, z) => a.name.localeCompare(z.name));
+  }, [events]);
+  const shownEvents = useMemo(() => events.filter((e) => !hiddenCals.has(keyOf(e))), [events, hiddenCals]);
 
   async function load() {
     try {
@@ -160,9 +183,9 @@ export function Calendar() {
 
   const eventsByDay = useMemo(() => {
     const m: Record<string, CalEvent[]> = {};
-    for (const ev of events) (m[ymd(new Date(ev.start))] ??= []).push(ev);
+    for (const ev of shownEvents) (m[ymd(new Date(ev.start))] ??= []).push(ev);
     return m;
-  }, [events]);
+  }, [shownEvents]);
   const birthdaysByDay = useMemo(() => {
     const m: Record<string, Birthday[]> = {};
     for (const b of birthdaysForYear(contacts, cursor.year)) (m[b.day] ??= []).push(b);
@@ -172,7 +195,7 @@ export function Calendar() {
   // „Diesen Monat": Termine + Geburtstage des sichtbaren Monats, nach Tag sortiert.
   const monthAgenda = useMemo(() => {
     const items: { day: number; label: string; time?: string; ev?: CalEvent; birthday?: boolean }[] = [];
-    for (const ev of events) {
+    for (const ev of shownEvents) {
       const d = new Date(ev.start);
       if (d.getFullYear() === cursor.year && d.getMonth() === cursor.month)
         items.push({ day: d.getDate(), label: ev.title, time: fmtTime(ev.start, lang), ev });
@@ -183,7 +206,7 @@ export function Calendar() {
         items.push({ day: Number(parts[2]), label: `🎂 ${b.name}${b.age != null ? ` (${b.age})` : ""}`, birthday: true });
     }
     return items.sort((a, z) => a.day - z.day);
-  }, [events, contacts, cursor, lang]);
+  }, [shownEvents, contacts, cursor, lang]);
 
   const openTasks = tasks.filter((tk) => !tk.done);
   const doneTasks = tasks.filter((tk) => tk.done);
@@ -237,7 +260,9 @@ export function Calendar() {
                         <div key={`b${i}`} className="cal-chip birthday" title={`${t("cal.birthday")}: ${b.name}`}>🎂 {b.name}{b.age != null ? ` (${b.age})` : ""}</div>
                       ))}
                       {evs.map((ev) => (
-                        <div key={ev.id} className="cal-chip" title={ev.title} onClick={(e) => { e.stopPropagation(); setDetail(ev); }}>{ev.dav_account_id ? "🔄 " : ""}{ev.title}</div>
+                        <div key={ev.id} className="cal-chip" title={`${nameOf(ev)}: ${ev.title}`}
+                          style={ev.source_color ? { borderLeft: `3px solid ${ev.source_color}`, paddingLeft: "5px" } : undefined}
+                          onClick={(e) => { e.stopPropagation(); setDetail(ev); }}>{ev.title}</div>
                       ))}
                     </div>
                   </div>
@@ -245,11 +270,26 @@ export function Calendar() {
               })}
             </div>
           ) : (
-            <AgendaList events={events} lang={lang} t={t} onOpen={setDetail} />
+            <AgendaList events={shownEvents} lang={lang} t={t} onOpen={setDetail} />
           )}
         </div>
 
         <aside className="cal-aside">
+          {sources.length > 1 && (
+            <section className="cal-panel">
+              <div className="cal-panel-head">Kalender</div>
+              {sources.map((s) => {
+                const on = !hiddenCals.has(s.key);
+                return (
+                  <button key={s.key} className="cal-filter-item" onClick={() => toggleCal(s.key)} title={s.name}>
+                    <span className="cal-filter-dot" style={{ background: s.color || "var(--self-teal)", opacity: on ? 1 : 0.25 }} />
+                    <span className="cal-filter-name" style={{ opacity: on ? 1 : 0.5, textDecoration: on ? "none" : "line-through" }}>{s.name}</span>
+                    <span className="cal-filter-check">{on ? "✓" : ""}</span>
+                  </button>
+                );
+              })}
+            </section>
+          )}
           <section className="cal-panel">
             <div className="cal-panel-head">{t("cal.thisMonth")}</div>
             {monthAgenda.length === 0 && <div className="muted" style={{ fontSize: "0.82rem" }}>{t("cal.noneThisMonth")}</div>}

@@ -104,6 +104,7 @@ def calendars(access_tok: str) -> list[dict[str, Any]]:
                         "name": item.get("summary", "") or cid,
                         "primary": bool(item.get("primary")),
                         "access_role": item.get("accessRole", "") or "",
+                        "color": item.get("backgroundColor", "") or "",
                     })
             page = data.get("nextPageToken")
             if not page:
@@ -225,6 +226,8 @@ def all_events(access_tok: str) -> list[dict[str, Any]]:
         for ev in events(access_tok, cal["id"]):
             ev = dict(ev)
             ev["uid"] = f'{cal["id"]}::{ev["uid"]}'
+            ev["cal_id"] = cal["id"]
             ev["calendar"] = cal["name"]
+            ev["color"] = cal.get("color", "")
             out.append(ev)
     return out
