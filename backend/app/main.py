@@ -95,7 +95,7 @@ app.include_router(events.router)
 
 # Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
-APP_BUILD = "2026-06-22-google-oauth"
+APP_BUILD = "2026-06-22-google-restapi"
 
 
 @app.get("/api/health")
