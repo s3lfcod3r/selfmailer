@@ -463,6 +463,17 @@ class DiscoveredCollection(BaseModel):
     name: str
 
 
+class TranslateRequest(BaseModel):
+    text: str
+    target: str = "de"
+    source: str = "auto"
+
+
+class TranslateResponse(BaseModel):
+    translated: str
+    source: str = ""          # erkannte Ausgangssprache
+
+
 class GoogleCalCreate(BaseModel):
     """Google-Kalender via OAuth (refresh_token-Verfahren). Klartext nur im
     Request; client_secret + refresh_token werden verschluesselt gespeichert."""

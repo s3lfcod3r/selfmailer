@@ -148,6 +148,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [contactSaved, setContactSaved] = useState(false);
   // Pro geoeffneter Mail: hat der Nutzer externe Bilder freigegeben?
   const [showImages, setShowImages] = useState(false);
+  // Übersetzung der aktuell geöffneten Mail (null = nicht übersetzt).
+  const [translated, setTranslated] = useState<string | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [translateEnabled, setTranslateEnabled] = useState(false);
   // Doppelklick auf eine Mail oeffnet sie zusaetzlich in einem eigenen Popup-Fenster.
   const [popup, setPopup] = useState(false);
   // Echtheits-Details (SPF/DKIM/DMARC + Volltext) zum kompakten Status-Chip aufgeklappt?
@@ -484,6 +488,24 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollMin, accounts, sel?.acc, sel?.folder]);
 
+  // Ist die Übersetzung serverseitig konfiguriert? (Button nur dann zeigen.)
+  useEffect(() => {
+    api.get<{ enabled: boolean }>("/translate/status").then((r) => setTranslateEnabled(!!r.enabled)).catch(() => {});
+  }, []);
+
+  // Aktuelle Mail nach Deutsch übersetzen (Toggle: nochmal = Original).
+  async function doTranslate(msg: MsgDetail) {
+    if (translated != null) { setTranslated(null); return; }
+    const src = (msg.text && msg.text.trim()) ? msg.text : msg.html.replace(/<[^>]+>/g, " ");
+    if (!src.trim()) return;
+    setTranslating(true);
+    try {
+      const r = await api.post<{ translated: string; source: string }>("/translate", { text: src, target: "de", source: "auto" });
+      setTranslated(r.translated || "(keine Übersetzung)");
+    } catch (e) { setErr((e as Error).message); }
+    finally { setTranslating(false); }
+  }
+
   // Live-Sync (SSE): sobald irgendwer (anderes Gerät / Web-Tab) etwas ändert
   // oder neue Mail eintrifft, schickt der Server ein Event → aktiver Ordner +
   // Zähler frischen sofort auf. EventSource reconnectet automatisch.
@@ -529,6 +551,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       setAuthOpen(false);
       setReadMenu(false);
       setShowImages(false);
+      setTranslated(null);
       setDarkBody(darkMail);
       if (!msg.seen) {
         api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=true`).catch(() => {});
@@ -817,7 +840,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function authCluster(msg: MsgDetail): ReactNode {
     const v = authView(msg.auth ?? null, de);
     const imagesBlocked = !!msg.html && blockImages && !showImages && hasRemoteContent(msg.html);
-    if (!msg.auth && !imagesBlocked) return null;
+    if (!msg.auth && !imagesBlocked && !translateEnabled) return null;
     return (
       <>
         {msg.auth && (
@@ -847,7 +870,29 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             {darkBody ? (de ? "☀️ Original" : "☀️ Original") : (de ? "🌙 Dunkel" : "🌙 Dark")}
           </button>
         )}
+        {translateEnabled && (
+          <button
+            className="ghost"
+            style={{ flex: "0 0 auto", whiteSpace: "nowrap" }}
+            disabled={translating}
+            title={de ? "Mail nach Deutsch übersetzen" : "Translate to German"}
+            onClick={() => doTranslate(msg)}
+          >
+            {translating ? "⏳" : "🌐"} {translated != null ? (de ? "Original" : "Original") : (de ? "Übersetzen" : "Translate")}
+          </button>
+        )}
       </>
+    );
+  }
+
+  // Übersetzungs-Panel (über dem Mailtext), wenn eine Übersetzung vorliegt.
+  function translatePanel(): ReactNode {
+    if (translated == null) return null;
+    return (
+      <div style={{ margin: "0 0 10px", padding: "10px 12px", borderRadius: 8, background: "var(--self-bg-3)", border: "1px solid var(--self-line)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+        <div style={{ fontSize: "0.75rem", color: "var(--self-text-3)", marginBottom: 6 }}>🌐 {de ? "Übersetzung (Deutsch)" : "Translation (German)"}</div>
+        {translated}
+      </div>
     );
   }
   // Ausgeklappter Volltext zum Echtheits-Chip (Warnung/Bestätigung + SPF/DKIM/DMARC).
@@ -1124,6 +1169,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               )}
             </div>
             <hr style={{ borderColor: "var(--self-line)", margin: "0.5rem 0 0.55rem" }} />
+            {translatePanel()}
             {open.html ? (
               <iframe title="mail-body" sandbox="" className="mail-body-frame"
                 srcDoc={buildSrcDoc(open.html, blockImages && !showImages, darkBody)} />
@@ -1302,6 +1348,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               <div style={{ padding: "0 16px" }}>{authDetail(open)}</div>
             )}
             <div style={{ overflow: "auto", padding: 16, flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
+              {translatePanel()}
               {open.html ? (
                 <iframe title="mail-body-popup" sandbox="" className="mail-body-frame"
                   srcDoc={buildSrcDoc(open.html, blockImages && !showImages, darkBody)} />

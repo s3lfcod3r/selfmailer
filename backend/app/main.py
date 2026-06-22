@@ -30,6 +30,7 @@ from .api import (
     push,
     rules,
     tasks,
+    translate,
 )
 
 settings = get_settings()
@@ -91,11 +92,12 @@ app.include_router(dav.router)
 app.include_router(dashboard.router)
 app.include_router(push.router)
 app.include_router(events.router)
+app.include_router(translate.router)
 
 
 # Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
-APP_BUILD = "2026-06-22-darkmail-fix+calmgmt"
+APP_BUILD = "2026-06-22-translate"
 
 
 @app.get("/api/health")

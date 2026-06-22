@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     # First-Run: optionaler Admin-Token, sonst Web-Setup beim ersten Start.
     admin_token: str = ""
 
+    # Übersetzung (LibreTranslate, self-hosted). Leer = Funktion aus.
+    # z. B. http://192.168.1.10:5050  (eigener LibreTranslate-Container)
+    translate_url: str = ""
+    translate_api_key: str = ""   # nur falls die Instanz einen Key verlangt
+
     # JWT
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 Tage
