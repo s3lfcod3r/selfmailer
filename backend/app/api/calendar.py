@@ -24,7 +24,6 @@ from ..dav.ical import build_calendar
 from ..models import CalendarEvent, DavAccount, DavKind, User
 from ..schemas import EventCreate, EventOut, EventUpdate
 from .dav import gcal_token
-from .deps import get_current_user
 from .feeds import feed_or_bearer_user
 
 logger = logging.getLogger(__name__)
@@ -103,7 +102,7 @@ def _owned(event_id: int, user: User, session: Session) -> CalendarEvent:
 def list_events(
     start_from: dt.datetime | None = Query(default=None),
     start_to: dt.datetime | None = Query(default=None),
-    user: User = Depends(get_current_user),
+    user: User = Depends(feed_or_bearer_user),
     session: Session = Depends(get_session),
 ) -> list[CalendarEvent]:
     stmt = select(CalendarEvent).where(CalendarEvent.user_id == user.id)
@@ -115,12 +114,10 @@ def list_events(
     return list(session.exec(stmt).all())
 
 
-@router.post("/events", response_model=EventOut, status_code=status.HTTP_201_CREATED)
-def create_event(
-    data: EventCreate,
-    user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
-) -> CalendarEvent:
+def _persist_event(data: EventCreate, user: User, session: Session) -> CalendarEvent:
+    """Legt einen Termin im lokalen Store an und schreibt ihn optional in einen
+    Google-Kalender zurueck (Zwei-Wege-Push). Kern von ``POST /events`` — egal ob
+    der Aufruf per Login (WebUI) oder per Feed-Token (Dashboard) kommt."""
     if data.end < data.start:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ende liegt vor Beginn")
     ev = CalendarEvent(
@@ -152,11 +149,20 @@ def create_event(
     return ev
 
 
+@router.post("/events", response_model=EventOut, status_code=status.HTTP_201_CREATED)
+def create_event(
+    data: EventCreate,
+    user: User = Depends(feed_or_bearer_user),
+    session: Session = Depends(get_session),
+) -> CalendarEvent:
+    return _persist_event(data, user, session)
+
+
 @router.patch("/events/{event_id}", response_model=EventOut)
 def update_event(
     event_id: int,
     data: EventUpdate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(feed_or_bearer_user),
     session: Session = Depends(get_session),
 ) -> CalendarEvent:
     ev = _owned(event_id, user, session)
@@ -187,7 +193,7 @@ def update_event(
 @router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_event(
     event_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(feed_or_bearer_user),
     session: Session = Depends(get_session),
 ) -> None:
     ev = _owned(event_id, user, session)
@@ -206,3 +212,49 @@ def delete_event(
 
     session.delete(ev)
     session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Externe Dashboard-Schnittstelle: waehlbare Ziel-Kalender (Feed-Token-Auth)
+# ---------------------------------------------------------------------------
+# Die Event-CRUD oben akzeptiert bereits ``?token=`` (feed_or_bearer_user),
+# also kann ein Dashboard ueber denselben Mechanismus wie die Mail-Uebersicht
+# (``api/dashboard.py``) Termine lesen/anlegen/aendern/loeschen — der Google-
+# Push haengt an der CRUD-Logik. Hier fehlt nur noch die Liste der moeglichen
+# Ziel-Kalender, damit ein externes Widget ein "in welchen Kalender?"-Dropdown
+# bauen kann (Lokal + beschreibbare Google-Kalender).
+
+
+@router.get("/targets")
+def targets(
+    user: User = Depends(feed_or_bearer_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Waehlbare Ziel-Kalender fuers Anlegen: ``Lokal`` plus alle beschreibbaren
+    Google-Kalender des Users. Der ``key`` wird beim Anlegen zerlegt: ``local``
+    → rein lokal, ``{accId}::{calId}`` → ``dav_account_id`` + ``gcal_calendar_id``
+    in ``POST /events``. Ein Konto, das gerade nicht erreichbar ist, wird
+    uebersprungen statt die Liste zu kippen. Heavier (Google-Call) → vom Widget
+    nur beim Oeffnen des Anlege-Dialogs holen, nicht beim Polling."""
+    out: list[dict] = [
+        {"key": "local", "label": "Lokal", "color": "", "primary": False},
+    ]
+    accounts = session.exec(
+        select(DavAccount).where(
+            DavAccount.user_id == user.id, DavAccount.kind == DavKind.gcal
+        )
+    ).all()
+    for acc in accounts:
+        try:
+            cals = google.writable_calendars(gcal_token(acc))
+        except httpx.HTTPError as exc:
+            logger.warning("Targets: Google-Konto %s nicht erreichbar: %s", acc.id, exc)
+            continue
+        for c in cals:
+            out.append({
+                "key": f"{acc.id}::{c['id']}",
+                "label": c["name"],
+                "color": c.get("color", ""),
+                "primary": c.get("primary", False),
+            })
+    return {"targets": out}
