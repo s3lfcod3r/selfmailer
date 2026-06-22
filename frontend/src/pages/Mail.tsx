@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, auth, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult } from "../lib/api";
+import { api, auth, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
@@ -51,16 +51,19 @@ const _CSP_BLOCK =
 function hasRemoteContent(html: string): boolean {
   return /(?:src|background)\s*=\s*["']?\s*https?:/i.test(html) || /url\(\s*['"]?\s*https?:/i.test(html);
 }
-// Auto-Dunkelmodus fuer helle Mails: das ganze Dokument wird invertiert
-// (Weiss -> dunkel, dunkler Text -> hell), und Medien (Bilder/Logos/Hintergrund-
-// bilder) werden ein zweites Mal invertiert, damit sie wieder normal aussehen.
-// WICHTIG: Hintergrund VOR dem Invertieren auf WEISS setzen — er wird mitinvertiert
-// und damit dunkel. (Frueher dunkel gesetzt -> invertierte zu hell -> Mails ohne
-// eigenen Hintergrund + dunkler Text wurden hell-auf-hell = unlesbar.) So werden
-// ALLE Mails (auch schlichte/interne ohne eigenen Hintergrund) korrekt dunkel.
+// Dunkelmodus fuer Mails: KEIN Invertieren mehr (scheitert bei Design-Mails wie
+// Bosch — Hintergrund dunkel, aber Schrift blieb dunkel/unlesbar). Stattdessen
+// "Lese-Dunkelmodus": dunkler Hintergrund + Schrift IMMER hell erzwingen
+// (!important schlaegt die Mail-eigenen Farben), eigene Hintergruende neutralisieren,
+// Links hell, Bilder unveraendert. So ist JEDE Mail dunkel mit lesbarer heller Schrift.
 const _DARK_STYLE =
-  `<style>:root{color-scheme:dark}html,body{background:#ffffff}html{filter:invert(1) hue-rotate(180deg)}` +
-  `img,picture,video,canvas,svg,image,[background],[style*="background-image"]{filter:invert(1) hue-rotate(180deg)}</style>`;
+  `<style>:root{color-scheme:dark}` +
+  `html,body{background:#0d1117 !important;color:#e6edf3 !important;}` +
+  `*{background-color:transparent !important;border-color:#30363d !important;}` +
+  `*:not(a){color:#e6edf3 !important;}` +
+  `a{color:#6cb6ff !important;}` +
+  `img,picture,video,svg,canvas{filter:none !important;}` +
+  `</style>`;
 function buildSrcDoc(html: string, block: boolean, dark: boolean): string {
   return `<!DOCTYPE html><meta charset="utf-8">${block ? _CSP_BLOCK : ""}${dark ? _DARK_STYLE : ""}<base target="_blank">${html}`;
 }
@@ -1171,7 +1174,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             <hr style={{ borderColor: "var(--self-line)", margin: "0.5rem 0 0.55rem" }} />
             {translatePanel()}
             {open.html ? (
-              <iframe title="mail-body" sandbox="" className="mail-body-frame"
+              <iframe title="mail-body" sandbox="allow-popups allow-popups-to-escape-sandbox" className="mail-body-frame"
                 srcDoc={buildSrcDoc(open.html, blockImages && !showImages, darkBody)} />
             ) : open.text ? (
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>
@@ -1311,7 +1314,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--self-line)" }}>
               <strong style={{ fontSize: 14, color: "var(--self-text)" }}>{de ? "Original (Quelltext)" : "Original (source)"}</strong>
               <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className="ghost" onClick={() => { void navigator.clipboard?.writeText(rawText); }}>{de ? "Kopieren" : "Copy"}</button>
+                <button type="button" className="ghost" onClick={async () => { const ok = await copyText(rawText); setErr(ok ? (de ? "Kopiert ✓" : "Copied ✓") : (de ? "Kopieren fehlgeschlagen" : "Copy failed")); }}>{de ? "Kopieren" : "Copy"}</button>
                 <button type="button" className="ghost" onClick={() => setRawText(null)}>{de ? "Schließen" : "Close"}</button>
               </div>
             </div>
@@ -1350,7 +1353,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             <div style={{ overflow: "auto", padding: 16, flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
               {translatePanel()}
               {open.html ? (
-                <iframe title="mail-body-popup" sandbox="" className="mail-body-frame"
+                <iframe title="mail-body-popup" sandbox="allow-popups allow-popups-to-escape-sandbox" className="mail-body-frame"
                   srcDoc={buildSrcDoc(open.html, blockImages && !showImages, darkBody)} />
               ) : open.text ? (
                 <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{open.text}</div>

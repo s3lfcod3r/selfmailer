@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Account, type DavAccount, type DavKind, type FeedToken, type GcalCalendar, type MigrateResult, type SyncResult } from "../lib/api";
+import { api, copyText, type Account, type DavAccount, type DavKind, type FeedToken, type GcalCalendar, type MigrateResult, type SyncResult } from "../lib/api";
 import { useLang, dateLocale, type Lang, type TFunc } from "../lib/i18n";
 import { confirmDialog } from "../lib/dialog";
 
@@ -85,8 +85,8 @@ export function Sync() {
   }
 
   async function copy(url: string) {
-    try { await navigator.clipboard.writeText(absolute(url)); setNote(t("sync.copied")); }
-    catch { setNote(absolute(url)); }
+    const ok = await copyText(absolute(url));
+    setNote(ok ? t("sync.copied") : absolute(url));
   }
   async function rotate() {
     if (!(await confirmDialog(t("sync.rotateConfirm")))) return;
@@ -362,10 +362,10 @@ export function Sync() {
               {(calsByAcc[a.id] || []).map((c) => {
                 const on = !hiddenCals.has(c.id);
                 return (
-                  <label key={c.id} className="row" style={{ gap: "0.6rem", cursor: "pointer", alignItems: "center" }}>
-                    <input type="checkbox" checked={on} onChange={() => toggleCal(c.id)} />
-                    <span className="cal-filter-dot" style={{ background: c.color || "var(--self-teal)", width: 12, height: 12, borderRadius: "50%", display: "inline-block" }} />
-                    <span style={{ flex: 1, opacity: on ? 1 : 0.5 }}>{c.name}{c.primary ? " ★" : ""}</span>
+                  <label key={c.id} style={{ display: "flex", alignItems: "center", gap: "0.7rem", cursor: "pointer", padding: "0.35rem 0.1rem" }}>
+                    <span style={{ width: 11, height: 11, borderRadius: "50%", background: c.color || "var(--self-teal)", flex: "0 0 auto" }} />
+                    <span style={{ flex: 1, opacity: on ? 1 : 0.45, textDecoration: on ? "none" : "line-through" }}>{c.name}{c.primary ? " ★" : ""}</span>
+                    <input type="checkbox" checked={on} onChange={() => toggleCal(c.id)} style={{ flex: "0 0 auto", width: 18, height: 18 }} />
                   </label>
                 );
               })}
