@@ -118,6 +118,22 @@ export function Calendar() {
 
   function set<K extends keyof Form>(k: K, v: Form[K]) { setForm((f) => ({ ...f, [k]: v })); }
 
+  // Alter bei Geburtstags-Terminen ("🎂 Vorname Nachname") aus dem Kontakt ableiten.
+  function bdayAge(ev: CalEvent): number | null {
+    if (!ev.title.includes("🎂")) return null;
+    const name = ev.title.replace("🎂", "").trim().toLowerCase();
+    const c = contacts.find((x) => [x.first_name, x.last_name].filter(Boolean).join(" ").trim().toLowerCase() === name);
+    if (!c?.birthday) return null;
+    const by = Number(c.birthday.split("-")[0]);
+    if (!by || by <= 1900) return null;
+    const age = new Date(ev.start).getFullYear() - by;
+    return age >= 0 && age < 130 ? age : null;
+  }
+  function evLabel(ev: CalEvent): string {
+    const a = bdayAge(ev);
+    return a != null ? `${ev.title} (${a})` : ev.title;
+  }
+
   // Standard-Ziel: zuerst der selbst gewählte Standardkalender (Sync & Export),
   // sonst der Google-Hauptkalender, sonst lokal.
   function defaultTarget(): { target: string; calendarId: string } {
@@ -228,7 +244,7 @@ export function Calendar() {
     for (const ev of shownEvents) {
       const d = new Date(ev.start);
       if (d.getFullYear() === cursor.year && d.getMonth() === cursor.month)
-        items.push({ day: d.getDate(), label: ev.title, time: fmtTime(ev.start, lang), ev });
+        items.push({ day: d.getDate(), label: evLabel(ev), time: fmtTime(ev.start, lang), ev });
     }
     if (!bdayActive) for (const b of birthdaysForYear(contacts, cursor.year)) {
       const parts = b.day.split("-");
@@ -255,6 +271,7 @@ export function Calendar() {
     return Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return d; });
   }, [cursor]);
   const todayKey = ymd(now);
+  const startOfToday = useMemo(() => { const d = new Date(now); d.setHours(0, 0, 0, 0); return d; }, [now]);
 
   return (
     <div className="cal-wrap">
@@ -278,21 +295,27 @@ export function Calendar() {
       {err && !creating && <div className="err">{err}</div>}
 
       {mode === "tasks" ? (
-        <div className="cal-body" style={{ gridTemplateColumns: "1fr" }}>
-          <section className="cal-panel cal-main" style={{ overflow: "auto" }}>
+        <div className="cal-body">
+          {/* Liste links (scrollt), Eingabe rechts */}
+          <section className="cal-panel cal-main cal-aside-scroll">
             <div className="cal-panel-head">✓ {t("cal.tasks")}</div>
-            <form className="cal-task-add" onSubmit={addTask}>
-              <input placeholder={t("cal.taskPlaceholder")} value={newTask} onChange={(e) => setNewTask(e.target.value)} />
-              <div className="row" style={{ gap: "0.3rem" }}>
-                <input type="date" value={newTaskDue} onChange={(e) => setNewTaskDue(e.target.value)} style={{ flex: 1 }} />
-                <button className="primary" style={{ padding: "0 0.7rem" }}>＋</button>
-              </div>
-            </form>
             {openTasks.length === 0 && doneTasks.length === 0 && <div className="muted" style={{ fontSize: "0.82rem" }}>{t("cal.noTasks")}</div>}
             {openTasks.map((tk) => <TaskRow key={tk.id} tk={tk} lang={lang} onToggle={toggleTask} onRemove={removeTask} />)}
             {doneTasks.length > 0 && <div className="cal-done-head">{t("cal.doneTasks")} ({doneTasks.length})</div>}
             {doneTasks.map((tk) => <TaskRow key={tk.id} tk={tk} lang={lang} onToggle={toggleTask} onRemove={removeTask} />)}
           </section>
+          <aside className="cal-aside">
+            <section className="cal-panel">
+              <div className="cal-panel-head">{t("cal.taskPlaceholder")}</div>
+              <form className="cal-task-add" onSubmit={addTask}>
+                <input placeholder={t("cal.taskPlaceholder")} value={newTask} onChange={(e) => setNewTask(e.target.value)} />
+                <div className="row" style={{ gap: "0.3rem" }}>
+                  <input type="date" value={newTaskDue} onChange={(e) => setNewTaskDue(e.target.value)} style={{ flex: 1 }} />
+                  <button className="primary" style={{ padding: "0 0.7rem" }}>＋</button>
+                </div>
+              </form>
+            </section>
+          </aside>
         </div>
       ) : (
         <div className="cal-body">
@@ -318,7 +341,7 @@ export function Calendar() {
                         {evs.map((ev) => (
                           <div key={ev.id} className="cal-chip" title={`${nameOf(ev)}: ${ev.title}`}
                             style={ev.source_color ? { borderLeft: `3px solid ${ev.source_color}`, paddingLeft: "5px" } : undefined}
-                            onClick={(e) => { e.stopPropagation(); setDetail(ev); }}>{ev.title}</div>
+                            onClick={(e) => { e.stopPropagation(); setDetail(ev); }}>{evLabel(ev)}</div>
                         ))}
                       </div>
                     </div>
@@ -326,7 +349,7 @@ export function Calendar() {
                 })}
               </div>
             ) : (
-              <AgendaList events={shownEvents} lang={lang} t={t} onOpen={setDetail} />
+              <AgendaList events={shownEvents.filter((e) => new Date(e.start) >= startOfToday)} label={evLabel} lang={lang} t={t} onOpen={setDetail} />
             )}
           </div>
 
@@ -460,7 +483,7 @@ function TaskRow({ tk, lang, onToggle, onRemove }: { tk: Task; lang: Lang; onTog
   );
 }
 
-function AgendaList({ events, lang, t, onOpen }: { events: CalEvent[]; lang: Lang; t: TFunc; onOpen: (e: CalEvent) => void }) {
+function AgendaList({ events, label, lang, t, onOpen }: { events: CalEvent[]; label: (e: CalEvent) => string; lang: Lang; t: TFunc; onOpen: (e: CalEvent) => void }) {
   if (events.length === 0) return <p className="muted">{t("cal.empty")}</p>;
   const groups: Record<string, CalEvent[]> = {};
   for (const ev of events) (groups[dayKey(ev.start, lang)] ??= []).push(ev);
@@ -473,7 +496,7 @@ function AgendaList({ events, lang, t, onOpen }: { events: CalEvent[]; lang: Lan
             {evs.map((ev) => (
               <div className="card row" style={{ padding: "0.7rem 1rem", cursor: "pointer" }} key={ev.id} onClick={() => onOpen(ev)}>
                 <div className="grow">
-                  <div style={{ fontWeight: 600 }}>{ev.dav_account_id ? "🔄 " : ""}{ev.title}</div>
+                  <div style={{ fontWeight: 600 }}>{ev.dav_account_id ? "🔄 " : ""}{label(ev)}</div>
                   <div className="mail-from">{fmt(ev.start, lang)} – {fmt(ev.end, lang)}{ev.location ? ` · ${ev.location}` : ""}</div>
                 </div>
               </div>

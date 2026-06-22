@@ -199,14 +199,23 @@ def split_uid(external_uid: str) -> tuple[str, str]:
 
 
 def events(access_tok: str, calendar_id: str = "primary") -> list[dict[str, Any]]:
-    """Holt alle Termine EINES Google-Kalenders (paginierte REST-Abfrage)."""
+    """Holt Termine EINES Google-Kalenders in einem sinnvollen Zeitfenster
+    (1 Jahr zurück bis 2 Jahre voraus). WICHTIG bei wiederkehrenden Terminen
+    (Geburtstage!): ohne Fenster expandiert Google z. B. ab Geburtsjahr 1945 in
+    ~80 Instanzen und flutet den Kalender."""
     headers = {"Authorization": f"Bearer {access_tok}"}
     url = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
+    now = dt.datetime.now(dt.timezone.utc)
+    time_min = (now - dt.timedelta(days=366)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    time_max = (now + dt.timedelta(days=730)).strftime("%Y-%m-%dT%H:%M:%SZ")
     out: list[dict[str, Any]] = []
     page: str | None = None
     with httpx.Client(timeout=_TIMEOUT) as http:
         while True:
-            params: dict[str, str] = {"singleEvents": "true", "maxResults": "2500", "showDeleted": "false"}
+            params: dict[str, str] = {
+                "singleEvents": "true", "maxResults": "2500", "showDeleted": "false",
+                "timeMin": time_min, "timeMax": time_max, "orderBy": "startTime",
+            }
             if page:
                 params["pageToken"] = page
             r = http.get(url, headers=headers, params=params)
