@@ -1,21 +1,16 @@
-// Schmaler API-Client. Token im localStorage; alle Aufrufe gehen an /api/v1.
-const TOKEN_KEY = "selfmailer.token";
-
-export const auth = {
-  get: () => localStorage.getItem(TOKEN_KEY),
-  set: (t: string) => localStorage.setItem(TOKEN_KEY, t),
-  clear: () => localStorage.removeItem(TOKEN_KEY),
-};
+// Schmaler API-Client. Auth laeuft im Web ueber ein httpOnly-Session-Cookie
+// (vom Browser automatisch mitgesendet) — KEIN Token im localStorage mehr, damit
+// es per XSS nicht ausgelesen werden kann. Die native APK nutzt weiterhin den
+// Bearer-Header; das Backend akzeptiert beides.
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
-  const token = auth.get();
-  if (token) headers["Authorization"] = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
   const res = await fetch(`/api/v1${path}`, {
     method,
     headers,
+    credentials: "same-origin", // sendet das httpOnly-Session-Cookie mit
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
@@ -61,12 +56,10 @@ export async function copyText(text: string): Promise<boolean> {
   } catch { return false; }
 }
 
-// Binaer-Download mit Auth-Header (ein <a href> kann keinen Bearer setzen).
+// Binaer-Download — Auth ueber das Session-Cookie (ein <a href> kann keinen
+// Bearer setzen, das Cookie wird aber automatisch mitgesendet).
 export async function download(path: string): Promise<void> {
-  const token = auth.get();
-  const res = await fetch(`/api/v1${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const res = await fetch(`/api/v1${path}`, { credentials: "same-origin" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const blob = await res.blob();
   const cd = res.headers.get("content-disposition") || "";

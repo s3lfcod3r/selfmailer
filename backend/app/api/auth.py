@@ -1,7 +1,7 @@
 """Auth: First-Run-Setup, Login (+2FA/TOTP), eigenes Profil, 2FA-Verwaltung."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlmodel import Session, func, select
 
 from ..core.config import get_settings
@@ -9,10 +9,12 @@ from ..core.crypto import decrypt, encrypt
 from ..core.db import get_session
 from ..core.ratelimit import check_rate_limit, client_ip
 from ..core.security import (
+    clear_session_cookie,
     create_access_token,
     create_mfa_token,
     decode_token,
     hash_password,
+    set_session_cookie,
     verify_password,
 )
 from ..core import totp as totp_lib
@@ -102,7 +104,7 @@ def setup_status(session: Session = Depends(get_session)) -> dict:
 
 @router.post("/setup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 def setup(
-    data: SetupRequest, request: Request, session: Session = Depends(get_session)
+    data: SetupRequest, request: Request, response: Response, session: Session = Depends(get_session)
 ) -> TokenResponse:
     check_rate_limit(f"setup:{client_ip(request)}", limit=5, window_s=60)
     if _user_count(session) > 0:
@@ -122,12 +124,14 @@ def setup(
     session.add(admin)
     session.commit()
     session.refresh(admin)
-    return TokenResponse(access_token=create_access_token(admin.username, admin.role.value))
+    token = create_access_token(admin.username, admin.role.value)
+    set_session_cookie(response, token)
+    return TokenResponse(access_token=token)
 
 
 @router.post("/login", response_model=LoginResponse)
 def login(
-    data: LoginRequest, request: Request, session: Session = Depends(get_session)
+    data: LoginRequest, request: Request, response: Response, session: Session = Depends(get_session)
 ) -> LoginResponse:
     check_rate_limit(f"login:{client_ip(request)}", limit=10, window_s=60)
     user = session.exec(select(User).where(User.username == data.username)).first()
@@ -138,15 +142,18 @@ def login(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Anmeldedaten falsch")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Konto gesperrt")
-    # 2FA aktiv -> Passwort allein reicht nicht; Zwischen-Token ausstellen.
+    # 2FA aktiv -> Passwort allein reicht nicht; Zwischen-Token ausstellen
+    # (noch KEIN Session-Cookie — erst nach erfolgreichem zweiten Faktor).
     if user.totp_enabled and user.totp_secret:
         return LoginResponse(needs_totp=True, mfa_token=create_mfa_token(user.username))
-    return LoginResponse(access_token=create_access_token(user.username, user.role.value))
+    token = create_access_token(user.username, user.role.value)
+    set_session_cookie(response, token)
+    return LoginResponse(access_token=token)
 
 
 @router.post("/login/totp", response_model=TokenResponse)
 def login_totp(
-    data: TotpLoginRequest, request: Request, session: Session = Depends(get_session)
+    data: TotpLoginRequest, request: Request, response: Response, session: Session = Depends(get_session)
 ) -> TokenResponse:
     """Zweiter Login-Schritt: TOTP- oder Backup-Code gegen den mfa_token."""
     # Strenger als der Passwort-Login: ein 6-stelliger TOTP-Code hat nur 10^6
@@ -160,7 +167,17 @@ def login_totp(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA-Sitzung ungueltig")
     if not _verify_second_factor(session, user, data.code):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Code falsch")
-    return TokenResponse(access_token=create_access_token(user.username, user.role.value))
+    token = create_access_token(user.username, user.role.value)
+    set_session_cookie(response, token)
+    return TokenResponse(access_token=token)
+
+
+@router.post("/logout")
+def logout(response: Response) -> dict:
+    """Loescht das Session-Cookie (Web). Bearer-Tokens der APK sind davon nicht
+    betroffen — die App verwirft ihr Token lokal."""
+    clear_session_cookie(response)
+    return {"ok": True}
 
 
 @router.get("/me", response_model=UserOut)

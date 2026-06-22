@@ -1,8 +1,9 @@
 """Server-Sent-Events-Stream für Live-Sync. Hält pro Client eine dünne
 Dauerverbindung; der Server schickt „aktualisieren"-Events.
 
-Auth: Bearer-Header ODER ``?token=`` (EventSource im Browser kann keine
-Header setzen)."""
+Auth (in dieser Reihenfolge): ``?token=`` · Bearer-Header (APK) · httpOnly-
+Session-Cookie (Web). Das Web nutzt das Cookie, damit das Token NICHT mehr in
+der URL (und damit in Server-/Proxy-Logs) landet."""
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
+from ..core.config import get_settings
 from ..core.db import engine
 from ..core.security import decode_token
 from ..events import bus
@@ -26,6 +28,8 @@ def _stream_user(request: Request, token: str | None = Query(default=None)) -> U
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
             raw = auth[7:]
+    if not raw:
+        raw = request.cookies.get(get_settings().cookie_name)
     if not raw:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Nicht angemeldet")
     payload = decode_token(raw)

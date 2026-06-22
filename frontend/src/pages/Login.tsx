@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, auth, type LoginResponse } from "../lib/api";
+import { api, type LoginResponse } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { Wordmark } from "../components/Wordmark";
-
-type Token = { access_token: string };
 
 export function Login({ onAuthed }: { onAuthed: () => void }) {
   const { t, lang, setLang } = useLang();
@@ -40,10 +38,10 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
     setBusy(true);
     try {
       if (needsSetup) {
-        const res = await api.post<Token>("/auth/setup", {
+        // Backend setzt das Session-Cookie selbst (Set-Cookie). Kein Token-Handling im JS.
+        await api.post("/auth/setup", {
           username, password, display_name: displayName, admin_token: adminToken,
         });
-        auth.set(res.access_token);
         onAuthed();
         return;
       }
@@ -52,7 +50,6 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
         setMfaToken(res.mfa_token);   // zweiter Schritt: Code abfragen
         return;
       }
-      auth.set(res.access_token);
       onAuthed();
     } catch (e) {
       setErr((e as Error).message);
@@ -66,8 +63,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
     setErr("");
     setBusy(true);
     try {
-      const res = await api.post<Token>("/auth/login/totp", { mfa_token: mfaToken, code });
-      auth.set(res.access_token);
+      await api.post("/auth/login/totp", { mfa_token: mfaToken, code });
       onAuthed();
     } catch (e) {
       setErr((e as Error).message);

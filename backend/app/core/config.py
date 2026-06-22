@@ -1,8 +1,9 @@
 """Zentrale Konfiguration. Werte kommen aus Environment-Variablen.
 
-Sicherheits-Hinweis: SELFMAILER_SECRET ist der Master-Key fuer JWT-Signatur
-UND fuer die At-Rest-Verschluesselung der Mailkonto-Passwoerter. Niemals ins
-Image oder in die DB schreiben.
+Sicherheits-Hinweis: SELFMAILER_SECRET ist das Master-Secret. Daraus werden per
+HKDF (siehe core/crypto.py) zwei kryptografisch UNABHAENGIGE Unterschluessel
+abgeleitet — einer fuer die JWT-Signatur, einer fuer die At-Rest-Verschluesselung
+der Mailkonto-Passwoerter. Niemals ins Image oder in die DB schreiben.
 """
 from __future__ import annotations
 
@@ -39,6 +40,15 @@ class Settings(BaseSettings):
     # JWT
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 Tage
+
+    # Session-Cookie (Web-Login). HttpOnly = JavaScript kann das Token NICHT lesen
+    # (Schutz gegen Token-Diebstahl per XSS). Die native APK nutzt weiterhin den
+    # Bearer-Header — das Backend akzeptiert beides.
+    # cookie_secure NUR aktivieren, wenn die WebUI ausschliesslich ueber HTTPS
+    # laeuft: ueber LAN-http (http://192.168.x:8090) wuerde ein Secure-Cookie
+    # vom Browser NICHT gesendet → Login-Schleife.
+    cookie_name: str = "sm_session"
+    cookie_secure: bool = False
 
     # DAV-Pull SSRF-Schutz: link-local/loopback/metadata werden IMMER blockiert.
     # Private/LAN-Ziele (10/8, 172.16/12, 192.168/16, fc00::/7, 100.64/10 CGNAT)

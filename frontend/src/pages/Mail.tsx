@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, auth, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult } from "../lib/api";
+import { api, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
@@ -513,9 +513,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // oder neue Mail eintrifft, schickt der Server ein Event → aktiver Ordner +
   // Zähler frischen sofort auf. EventSource reconnectet automatisch.
   useEffect(() => {
-    const token = auth.get();
-    if (!token) return;
-    const es = new EventSource(`/api/v1/events/stream?token=${encodeURIComponent(token)}`);
+    // Auth über das httpOnly-Session-Cookie (same-origin automatisch mitgesendet) —
+    // das Token steht nicht mehr in der URL (kein Leck in Server-/Proxy-Logs).
+    const es = new EventSource("/api/v1/events/stream");
     es.onmessage = (e) => {
       try {
         const ev = JSON.parse(e.data) as { type?: string; account_id?: number };

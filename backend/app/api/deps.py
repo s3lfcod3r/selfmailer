@@ -1,10 +1,11 @@
 """Gemeinsame Dependencies: aktuellen User aus JWT lesen, Adminrolle erzwingen."""
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
 
+from ..core.config import get_settings
 from ..core.db import get_session
 from ..core.security import decode_token
 from ..models import Role, User
@@ -13,12 +14,15 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
+    request: Request,
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     session: Session = Depends(get_session),
 ) -> User:
-    if creds is None:
+    # Token aus Bearer-Header (APK) ODER httpOnly-Cookie (Web).
+    token = creds.credentials if creds else request.cookies.get(get_settings().cookie_name)
+    if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Nicht angemeldet")
-    payload = decode_token(creds.credentials)
+    payload = decode_token(token)
     if not payload:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token ungueltig")
     # Der 2FA-Zwischen-Token (stage=mfa) gewaehrt KEINEN Vollzugriff.

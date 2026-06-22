@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
-import { api, auth, type User } from "./lib/api";
+import { api, type User } from "./lib/api";
 import { useLang } from "./lib/i18n";
 import { DialogHost } from "./lib/dialog";
 import { Login } from "./pages/Login";
@@ -162,10 +162,11 @@ export function App() {
   }, [themeCustomAll, tmode]);
 
   function loadMe() {
-    if (!auth.get()) { setUser(null); setReady(true); return; }
+    // Eingeloggt? Das Cookie ist httpOnly (für JS unsichtbar) — daher fragen wir
+    // einfach /auth/me. 200 = angemeldet, 401 = Login anzeigen.
     api.get<User>("/auth/me")
       .then(setUser)
-      .catch(() => { auth.clear(); setUser(null); })
+      .catch(() => setUser(null))
       .finally(() => setReady(true));
   }
   useEffect(() => { loadMe(); }, []);
@@ -178,7 +179,12 @@ export function App() {
   const settings = SETTINGS.filter((s) => !s.adminOnly || isAdmin);
 
   function go(v: View) { setView(v); setMenu(null); }
-  function logout() { auth.clear(); setUser(null); }
+  function logout() {
+    // Cookie serverseitig löschen; UI sofort ausloggen (Fehler ignorieren).
+    api.post("/auth/logout").catch(() => {});
+    localStorage.removeItem("selfmailer.token"); // Alt-Token aus früherer Version aufräumen
+    setUser(null);
+  }
   function openPw() { setMenu(null); setPwErr(""); setPwMsg(""); setPwCur(""); setPwNew(""); setPwOpen(true); }
   async function changePw(e: React.FormEvent) {
     e.preventDefault();
