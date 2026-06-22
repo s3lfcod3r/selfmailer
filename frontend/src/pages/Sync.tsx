@@ -313,12 +313,10 @@ export function Sync() {
           <code>https://www.googleapis.com/auth/calendar</code> ein <strong>refresh_token</strong> holen und hier eintragen.
         </p>
         <form className="card stack" style={{ padding: "1rem" }} onSubmit={addGoogle}>
-          <div className="row">
-            <input className="grow" placeholder="Google-E-Mail" value={goog.email}
-                   onChange={(e) => setGoog((g) => ({ ...g, email: e.target.value }))} required />
-            <input placeholder="Name (optional)" value={goog.label}
-                   onChange={(e) => setGoog((g) => ({ ...g, label: e.target.value }))} />
-          </div>
+          <input placeholder="Google-E-Mail" value={goog.email}
+                 onChange={(e) => setGoog((g) => ({ ...g, email: e.target.value }))} required />
+          <input placeholder="Name (optional)" value={goog.label}
+                 onChange={(e) => setGoog((g) => ({ ...g, label: e.target.value }))} />
           <input placeholder="client_id" value={goog.client_id}
                  onChange={(e) => setGoog((g) => ({ ...g, client_id: e.target.value }))} required />
           <input placeholder="client_secret" value={goog.client_secret}
