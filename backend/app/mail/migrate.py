@@ -19,7 +19,7 @@ import datetime as _dt
 from imap_tools import AND, MailBox
 
 from ..models import MailAccount
-from .imap import _delimiter
+from .imap import _IMAP_TIMEOUT, _delimiter
 
 SEEN = r"\Seen"
 
@@ -33,8 +33,17 @@ def _aware(d: _dt.datetime | None) -> _dt.datetime | None:
 
 
 def _open(acc: MailAccount, password: str, folder: str = "INBOX") -> MailBox:
-    box = MailBox(acc.imap_host, port=acc.imap_port)
+    # Timeout wie in imap._connect: ein toter/haengender Server darf den
+    # Migrations-/Transfer-Worker nicht UNENDLICH blockieren.
+    try:
+        box = MailBox(acc.imap_host, port=acc.imap_port, timeout=_IMAP_TIMEOUT)
+    except TypeError:  # aeltere imap_tools-Version ohne timeout-Param
+        box = MailBox(acc.imap_host, port=acc.imap_port)
     box.login(acc.auth_user or acc.email, password, initial_folder=folder)
+    try:
+        box.client.sock.settimeout(_IMAP_TIMEOUT)
+    except Exception:  # noqa: BLE001 - best effort, falls Socket anders heisst
+        pass
     return box
 
 

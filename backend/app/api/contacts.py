@@ -92,13 +92,16 @@ def list_contacts(
 ) -> list[Contact]:
     stmt = select(Contact).where(Contact.user_id == user.id)
     if q:
-        like = f"%{q}%"
+        # %/_ (und den Escape-Char selbst) escapen, damit Nutzereingaben nicht als
+        # LIKE-Wildcards wirken ("%" = alle Kontakte, teure Scans / Info-Leak).
+        esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{esc}%"
         stmt = stmt.where(
             or_(
-                Contact.first_name.ilike(like),
-                Contact.last_name.ilike(like),
-                Contact.email.ilike(like),
-                Contact.organization.ilike(like),
+                Contact.first_name.ilike(like, escape="\\"),
+                Contact.last_name.ilike(like, escape="\\"),
+                Contact.email.ilike(like, escape="\\"),
+                Contact.organization.ilike(like, escape="\\"),
             )
         )
     stmt = stmt.order_by(Contact.last_name, Contact.first_name)

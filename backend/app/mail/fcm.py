@@ -35,15 +35,20 @@ def _load_sa() -> dict | None:
     global _sa, _sa_loaded
     if _sa_loaded:
         return _sa
-    _sa_loaded = True
-    path = get_settings().fcm_credentials
-    if path and os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                _sa = json.load(f)
-        except Exception:  # noqa: BLE001
-            logger.warning("FCM: Service-Account-JSON nicht lesbar (%s)", path, exc_info=True)
-            _sa = None
+    # Lock + zweite Prüfung: bei gleichzeitigem ersten Zugriff (Scheduler + API)
+    # lädt sonst jeder Thread die Datei und überschreibt _sa.
+    with _lock:
+        if _sa_loaded:
+            return _sa
+        path = get_settings().fcm_credentials
+        if path and os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    _sa = json.load(f)
+            except Exception:  # noqa: BLE001
+                logger.warning("FCM: Service-Account-JSON nicht lesbar (%s)", path, exc_info=True)
+                _sa = None
+        _sa_loaded = True
     return _sa
 
 

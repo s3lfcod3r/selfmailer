@@ -6,11 +6,12 @@ Zugangsdaten werden ebenfalls verschluesselt gespeichert (secret_enc).
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import delete as sa_delete
 from sqlmodel import Session, select
 
 from ..core.crypto import encrypt
 from ..core.db import get_session
-from ..models import MailAccount, User
+from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount, MailRule, User
 from ..schemas import AccountCreate, AccountOut
 from .deps import require_admin
 
@@ -72,5 +73,9 @@ def delete_user_account(
     acc = session.get(MailAccount, account_id)
     if acc is None or acc.user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Konto nicht gefunden")
+    # Kinder-Zeilen zuerst entfernen (sonst verwaiste Cache-/Regel-Daten) —
+    # identisch zu accounts.delete_account.
+    for model in (CachedMessage, FolderSync, CachedFolder, MailRule):
+        session.execute(sa_delete(model).where(model.account_id == account_id))
     session.delete(acc)
     session.commit()
