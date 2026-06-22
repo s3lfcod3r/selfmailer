@@ -342,10 +342,13 @@ class EventOut(BaseModel):
 
 
 class GcalCalendarOut(BaseModel):
-    """Ein beschreibbarer Google-Kalender (Ziel-Auswahl beim Anlegen)."""
+    """Ein Google-Kalender (fuer Filter + Ziel-Auswahl). ``writable`` = beschreibbar
+    (owner/writer) → nur solche taugen als Ziel beim Anlegen."""
     id: str
     name: str
     primary: bool = False
+    color: str = ""
+    writable: bool = False
 
 
 # ---- Kontakte -----------------------------------------------------------

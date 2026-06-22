@@ -20,6 +20,14 @@ function ymd(d: Date): string {
 function localInput(d: Date): string {
   return `${ymd(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+// ISO-8601-Kalenderwoche (Mo-basiert, KW1 enthaelt den 4. Januar).
+function isoWeek(d: Date): number {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7) + 3);
+  const firstThu = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+  firstThu.setUTCDate(firstThu.getUTCDate() - ((firstThu.getUTCDay() + 6) % 7) + 3);
+  return 1 + Math.round((t.getTime() - firstThu.getTime()) / 6048e5);
+}
 
 type Birthday = { day: string; name: string; age: number | null };
 
@@ -71,12 +79,17 @@ export function Calendar() {
   const nameOf = (ev: CalEvent) => ev.source_name || (keyOf(ev) === "local" ? "Lokal" : keyOf(ev));
   const sources = useMemo(() => {
     const m = new Map<string, { key: string; name: string; color: string }>();
+    // 1) ALLE Google-Kalender (auch ohne Termine) aus der Kalenderliste
+    for (const cals of Object.values(calsByAcc)) {
+      for (const c of cals) if (!m.has(c.id)) m.set(c.id, { key: c.id, name: c.name, color: c.color || "" });
+    }
+    // 2) lokale/CalDAV-Quellen aus den Events ergänzen
     for (const ev of events) {
       const k = keyOf(ev);
       if (!m.has(k)) m.set(k, { key: k, name: nameOf(ev), color: ev.source_color || "" });
     }
     return [...m.values()].sort((a, z) => a.name.localeCompare(z.name));
-  }, [events]);
+  }, [calsByAcc, events]);
   const shownEvents = useMemo(() => events.filter((e) => !hiddenCals.has(keyOf(e))), [events, hiddenCals]);
 
   async function load() {
@@ -88,26 +101,20 @@ export function Calendar() {
         api.get<DavAccount[]>("/dav/accounts"),
       ]);
       setEvents(evs); setContacts(cts); setTasks(tks);
-      setGcalAccounts(dav.filter((d) => d.kind === "gcal"));
+      const gcals = dav.filter((d) => d.kind === "gcal");
+      setGcalAccounts(gcals);
+      // ALLE Kalender je Google-Konto laden (für Filter-Panel + Ziel-Auswahl),
+      // auch leere — sonst tauchen Kalender ohne Termine nirgends auf.
+      const entries = await Promise.all(gcals.map(async (a) => {
+        try { return [a.id, await api.get<GcalCalendar[]>(`/dav/accounts/${a.id}/calendars`)] as const; }
+        catch { return [a.id, [] as GcalCalendar[]] as const; }
+      }));
+      setCalsByAcc(Object.fromEntries(entries));
     } catch (e) { setErr((e as Error).message); }
   }
   useEffect(() => { load(); }, []);
 
   function set<K extends keyof Form>(k: K, v: Form[K]) { setForm((f) => ({ ...f, [k]: v })); }
-
-  // Beim Wechsel des Ziel-Kontos die beschreibbaren Google-Kalender laden (gecacht).
-  async function chooseTarget(value: string) {
-    setForm((f) => ({ ...f, target: value, calendarId: "" }));
-    if (value === "local") return;
-    const accId = Number(value);
-    if (calsByAcc[accId]) return;
-    try {
-      const cals = await api.get<GcalCalendar[]>(`/dav/accounts/${accId}/calendars`);
-      setCalsByAcc((m) => ({ ...m, [accId]: cals }));
-      const primary = cals.find((c) => c.primary) ?? cals[0];
-      if (primary) setForm((f) => ({ ...f, calendarId: primary.id }));
-    } catch (e) { setErr((e as Error).message); }
-  }
 
   function openCreate(day?: Date) {
     const base = day ?? new Date();
@@ -254,7 +261,10 @@ export function Calendar() {
                 const outside = d.getMonth() !== cursor.month;
                 return (
                   <div key={key} className={`cal-cell ${outside ? "outside" : ""} ${key === todayKey ? "today" : ""}`} onClick={() => openCreate(d)}>
-                    <div className="cal-daynum">{d.getDate()}</div>
+                    <div className="cal-daynum">
+                      {d.getDay() === 1 && <span className="cal-kw" title="Kalenderwoche">KW {isoWeek(d)}</span>}
+                      {d.getDate()}
+                    </div>
                     <div className="cal-chips">
                       {bds.map((b, i) => (
                         <div key={`b${i}`} className="cal-chip birthday" title={`${t("cal.birthday")}: ${b.name}`}>🎂 {b.name}{b.age != null ? ` (${b.age})` : ""}</div>
@@ -338,25 +348,32 @@ export function Calendar() {
             </div>
             <textarea placeholder={t("cal.description")} value={form.description} onChange={(e) => set("description", e.target.value)} rows={2} />
 
-            {/* Ziel-Kalender nur beim Anlegen waehlbar (beim Bearbeiten bleibt die Herkunft). */}
+            {/* Ziel-Kalender direkt waehlbar (Lokal + alle beschreibbaren Google-Kalender). */}
             {editId == null && gcalAccounts.length > 0 && (
-              <>
-                <div className="row">
-                  <label className="label" style={{ minWidth: 56 }}>{t("cal.saveIn")}</label>
-                  <select value={form.target} onChange={(e) => chooseTarget(e.target.value)} style={{ flex: 1 }}>
-                    <option value="local">{t("cal.localOnly")}</option>
-                    {gcalAccounts.map((a) => <option key={a.id} value={String(a.id)}>{a.label || a.username}</option>)}
-                  </select>
-                </div>
-                {form.target !== "local" && (calsByAcc[Number(form.target)]?.length ?? 0) > 0 && (
-                  <div className="row">
-                    <label className="label" style={{ minWidth: 56 }}>{t("cal.calendar")}</label>
-                    <select value={form.calendarId} onChange={(e) => set("calendarId", e.target.value)} style={{ flex: 1 }}>
-                      {calsByAcc[Number(form.target)].map((c) => <option key={c.id} value={c.id}>{c.name}{c.primary ? " ★" : ""}</option>)}
-                    </select>
-                  </div>
-                )}
-              </>
+              <div className="row">
+                <label className="label" style={{ minWidth: 56 }}>{t("cal.saveIn")}</label>
+                <select
+                  value={form.target === "local" ? "local" : `${form.target}::${form.calendarId}`}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "local") { setForm((f) => ({ ...f, target: "local", calendarId: "" })); return; }
+                    const [accId, calId] = v.split("::");
+                    setForm((f) => ({ ...f, target: accId, calendarId: calId }));
+                  }}
+                  style={{ flex: 1 }}
+                >
+                  <option value="local">{t("cal.localOnly")}</option>
+                  {gcalAccounts.map((a) => {
+                    const cals = (calsByAcc[a.id] || []).filter((c) => c.writable);
+                    if (cals.length === 0) return null;
+                    return (
+                      <optgroup key={a.id} label={a.label || a.username}>
+                        {cals.map((c) => <option key={c.id} value={`${a.id}::${c.id}`}>{c.name}{c.primary ? " ★" : ""}</option>)}
+                      </optgroup>
+                    );
+                  })}
+                </select>
+              </div>
             )}
 
             {err && <div className="err">{err}</div>}

@@ -146,16 +146,24 @@ def list_gcal_calendars(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[dict]:
-    """Beschreibbare Google-Kalender eines gcal-Kontos (Ziel-Auswahl beim Anlegen)."""
+    """ALLE Google-Kalender eines gcal-Kontos (für Filter UND Ziel-Auswahl).
+    ``writable`` markiert die beschreibbaren (owner/writer) für das Anlegen."""
     acc = _owned(account_id, user, session)
     if acc.kind != DavKind.gcal:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Kein Google-Konto")
     try:
-        cals = google.writable_calendars(gcal_token(acc))
+        cals = google.calendars(gcal_token(acc))
     except httpx.HTTPError as exc:
         logger.warning("Google-Kalenderliste konto=%s: %s", account_id, exc)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Google-Kalender nicht abrufbar")
-    return [{"id": c["id"], "name": c["name"], "primary": c.get("primary", False)} for c in cals]
+    return [
+        {
+            "id": c["id"], "name": c["name"], "primary": c.get("primary", False),
+            "color": c.get("color", ""),
+            "writable": c.get("access_role") in ("owner", "writer"),
+        }
+        for c in cals
+    ]
 
 
 @router.delete("/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)

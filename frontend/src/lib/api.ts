@@ -96,7 +96,7 @@ export type CalEvent = {
   dav_account_id?: number | null;
   source_key?: string; source_name?: string; source_color?: string;
 };
-export type GcalCalendar = { id: string; name: string; primary: boolean };
+export type GcalCalendar = { id: string; name: string; primary: boolean; color?: string; writable?: boolean };
 export type Contact = {
   id: number; first_name: string; last_name: string; email: string;
   phone: string; mobile: string; work_phone: string;
