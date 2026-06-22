@@ -298,21 +298,24 @@ export function Calendar() {
         </div>
 
         <aside className="cal-aside">
-          {sources.length > 1 && (
-            <section className="cal-panel">
-              <div className="cal-panel-head">Kalender</div>
-              {sources.map((s) => {
-                const on = !hiddenCals.has(s.key);
-                return (
-                  <button key={s.key} className="cal-filter-item" onClick={() => toggleCal(s.key)} title={s.name}>
-                    <span className="cal-filter-dot" style={{ background: s.color || "var(--self-teal)", opacity: on ? 1 : 0.25 }} />
-                    <span className="cal-filter-name" style={{ opacity: on ? 1 : 0.5, textDecoration: on ? "none" : "line-through" }}>{s.name}</span>
-                    <span className="cal-filter-check">{on ? "✓" : ""}</span>
+          {(() => {
+            // Nur SICHTBARE Kalender listen — in „Sync & Export" ausgeblendete tauchen
+            // hier gar nicht mehr auf (dort werden sie wieder eingeblendet).
+            const visible = sources.filter((s) => !hiddenCals.has(s.key));
+            if (visible.length <= 1) return null;
+            return (
+              <section className="cal-panel">
+                <div className="cal-panel-head">Kalender</div>
+                {visible.map((s) => (
+                  <button key={s.key} className="cal-filter-item" onClick={() => toggleCal(s.key)} title={`${s.name} – ausblenden`}>
+                    <span className="cal-filter-dot" style={{ background: s.color || "var(--self-teal)" }} />
+                    <span className="cal-filter-name">{s.name}</span>
+                    <span className="cal-filter-check">✓</span>
                   </button>
-                );
-              })}
-            </section>
-          )}
+                ))}
+              </section>
+            );
+          })()}
           <section className="cal-panel">
             <div className="cal-panel-head">{t("cal.thisMonth")}</div>
             {monthAgenda.length === 0 && <div className="muted" style={{ fontSize: "0.82rem" }}>{t("cal.noneThisMonth")}</div>}
