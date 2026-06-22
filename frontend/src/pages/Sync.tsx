@@ -44,6 +44,13 @@ export function Sync() {
       return n;
     });
   }
+  // Standardkalender für neue Termine (Wert "accId::calId" oder "local").
+  const [defaultCal, setDefaultCalState] = useState<string>(() => localStorage.getItem("selfmailer.defaultCal") || "");
+  function setDefaultCal(val: string) {
+    setDefaultCalState(val);
+    localStorage.setItem("selfmailer.defaultCal", val);
+    setNote("Standardkalender gesetzt.");
+  }
   // Postfach-Migration (Synology → passende Zielkonten)
   const [mailAccounts, setMailAccounts] = useState<Account[]>([]);
   const [mig, setMig] = useState({ sourceId: 0, destId: 0, prefix: "", limit: 5000 });
@@ -354,19 +361,28 @@ export function Sync() {
         <section className="stack">
           <div className="label">Kalender anzeigen / ausblenden</div>
           <p className="muted" style={{ margin: 0 }}>
-            Häkchen entfernen blendet einen Kalender überall aus (Web + App), z. B. „Kalenderwochen" oder „Feiertage".
+            Häkchen entfernt = Kalender ausgeblendet (z. B. „Kalenderwochen"/„Feiertage").
+            Der ★ markiert den <strong>Standardkalender</strong> — dort landen neue Termine vorausgewählt.
           </p>
           {accounts.filter((a) => a.kind === "gcal").map((a) => (
             <div className="card stack" style={{ padding: "0.8rem 1rem" }} key={a.id}>
               <div style={{ fontWeight: 600 }}>{a.label || a.username}</div>
               {(calsByAcc[a.id] || []).map((c) => {
                 const on = !hiddenCals.has(c.id);
+                const val = `${a.id}::${c.id}`;
+                const isDefault = defaultCal === val;
                 return (
-                  <label key={c.id} style={{ display: "flex", alignItems: "center", gap: "0.7rem", cursor: "pointer", padding: "0.35rem 0.1rem" }}>
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.35rem 0.1rem" }}>
                     <span style={{ width: 11, height: 11, borderRadius: "50%", background: c.color || "var(--self-teal)", flex: "0 0 auto" }} />
-                    <span style={{ flex: 1, opacity: on ? 1 : 0.45, textDecoration: on ? "none" : "line-through" }}>{c.name}{c.primary ? " ★" : ""}</span>
-                    <input type="checkbox" checked={on} onChange={() => toggleCal(c.id)} style={{ flex: "0 0 auto", width: 18, height: 18 }} />
-                  </label>
+                    <span style={{ flex: 1, opacity: on ? 1 : 0.45, textDecoration: on ? "none" : "line-through" }}>{c.name}</span>
+                    {c.writable && (
+                      <button type="button" className="ghost" title={isDefault ? "Standardkalender" : "Als Standard für neue Termine"}
+                              onClick={() => setDefaultCal(val)} style={{ padding: "0 0.4rem", color: isDefault ? "var(--self-teal-bright)" : "var(--self-text-3)" }}>
+                        {isDefault ? "★" : "☆"}
+                      </button>
+                    )}
+                    <input type="checkbox" checked={on} onChange={() => toggleCal(c.id)} style={{ flex: "0 0 auto", width: 18, height: 18 }} title="Anzeigen/Ausblenden" />
+                  </div>
                 );
               })}
             </div>

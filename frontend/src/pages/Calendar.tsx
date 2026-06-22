@@ -116,9 +116,16 @@ export function Calendar() {
 
   function set<K extends keyof Form>(k: K, v: Form[K]) { setForm((f) => ({ ...f, [k]: v })); }
 
-  // Standard-Ziel: bevorzugt den Google-Hauptkalender (alles soll synchron laufen),
-  // nur wenn kein Google-Konto da ist, lokal.
+  // Standard-Ziel: zuerst der selbst gewählte Standardkalender (Sync & Export),
+  // sonst der Google-Hauptkalender, sonst lokal.
   function defaultTarget(): { target: string; calendarId: string } {
+    const saved = localStorage.getItem("selfmailer.defaultCal") || "";
+    if (saved === "local") return { target: "local", calendarId: "" };
+    if (saved.includes("::")) {
+      const [accId, calId] = saved.split("::");
+      const cals = calsByAcc[Number(accId)] || [];
+      if (cals.some((c) => c.id === calId && c.writable)) return { target: accId, calendarId: calId };
+    }
     for (const a of gcalAccounts) {
       const cals = (calsByAcc[a.id] || []).filter((c) => c.writable);
       if (cals.length) {
