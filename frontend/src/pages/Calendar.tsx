@@ -59,6 +59,10 @@ export function Calendar() {
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
   const [form, setForm] = useState<Form>({ ...EMPTY });
   const [editId, setEditId] = useState<number | null>(null);   // null = Anlegen, sonst Bearbeiten
+  // Ziel-Auswahl beim Bearbeiten: Anfangswert merken (nur bei Änderung verschieben)
+  // und ob der Termin überhaupt umzielbar ist (lokal/Google ja, fremdes CalDAV nein).
+  const [initialTarget, setInitialTarget] = useState("local");
+  const [canRetarget, setCanRetarget] = useState(true);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<CalEvent | null>(null);
@@ -160,22 +164,37 @@ export function Calendar() {
     return { target: "local", calendarId: "" };
   }
 
+  // Select-Wert aus (target, calendarId) — "local" oder "{accId}::{calId}".
+  function selValue(target: string, calendarId: string): string {
+    return target === "local" ? "local" : `${target}::${calendarId}`;
+  }
+
   function openCreate(day?: Date) {
     const base = day ?? new Date();
     const start = new Date(base); start.setHours(9, 0, 0, 0);
     const end = new Date(base); end.setHours(10, 0, 0, 0);
-    setForm({ ...EMPTY, ...defaultTarget(), start: localInput(start), end: localInput(end) });
+    const dt = defaultTarget();
+    setForm({ ...EMPTY, ...dt, start: localInput(start), end: localInput(end) });
+    setInitialTarget(selValue(dt.target, dt.calendarId));
+    setCanRetarget(true);
     setEditId(null); setErr(""); setCreating(true);
   }
 
   function openEdit(ev: CalEvent) {
+    // Aktuelles Ziel rekonstruieren: lokal, oder Google-Konto + Kalender-ID
+    // (source_key ist bei Google-Terminen die Kalender-ID).
+    const target = ev.dav_account_id ? String(ev.dav_account_id) : "local";
+    const calendarId = ev.dav_account_id ? (ev.source_key || "") : "";
+    // Umzielbar nur, wenn lokal ODER der Termin zu einem Google-Konto gehört.
+    // Fremde CalDAV-Termine bleiben unverändert (kein Move-Support → Dropdown aus).
+    const isGcalOrLocal = !ev.dav_account_id || gcalAccounts.some((a) => a.id === ev.dav_account_id);
     setForm({
       title: ev.title, location: ev.location, description: ev.description,
       start: localInput(new Date(ev.start)), end: localInput(new Date(ev.end)),
-      all_day: ev.all_day,
-      target: ev.dav_account_id ? String(ev.dav_account_id) : "local",
-      calendarId: "",
+      all_day: ev.all_day, target, calendarId,
     });
+    setInitialTarget(selValue(target, calendarId));
+    setCanRetarget(isGcalOrLocal);
     setEditId(ev.id); setDetail(null); setErr(""); setCreating(true);
   }
 
@@ -192,6 +211,16 @@ export function Calendar() {
     setBusy(true);
     try {
       if (editId != null) {
+        // Ziel-Kalender nur mitschicken, wenn der Nutzer ihn wirklich geändert hat
+        // (sonst bleibt es bei reinem Feld-Update — kein versehentlicher Move).
+        if (canRetarget && selValue(form.target, form.calendarId) !== initialTarget) {
+          if (form.target === "local") {
+            payload.dav_account_id = null;        // → zurück nach Lokal
+          } else {
+            payload.dav_account_id = Number(form.target);
+            payload.gcal_calendar_id = form.calendarId;
+          }
+        }
         await api.patch<CalEvent>(`/calendar/events/${editId}`, payload);
       } else {
         if (form.target !== "local") {
@@ -414,8 +443,9 @@ export function Calendar() {
             </div>
             <textarea placeholder={t("cal.description")} value={form.description} onChange={(e) => set("description", e.target.value)} rows={8} style={{ minHeight: "11rem" }} />
 
-            {/* Ziel-Kalender direkt waehlbar (Lokal + alle beschreibbaren Google-Kalender). */}
-            {editId == null && gcalAccounts.length > 0 && (
+            {/* Ziel-Kalender direkt waehlbar (Lokal + alle beschreibbaren Google-Kalender).
+                Beim Bearbeiten nur, wenn der Termin umzielbar ist (nicht fremdes CalDAV). */}
+            {gcalAccounts.length > 0 && canRetarget && (
               <div className="row">
                 <label className="label" style={{ minWidth: 56 }}>{t("cal.saveIn")}</label>
                 <select
