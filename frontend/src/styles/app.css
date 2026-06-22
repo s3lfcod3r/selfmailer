@@ -501,10 +501,18 @@ select.bulk-btn { max-width: 170px; }
   backdrop-filter: blur(3px);
 }
 .modal {
-  width: min(780px, 96vw); min-width: 420px; max-width: 96vw;
-  max-height: 90vh; overflow: auto; resize: both; padding: 1.2rem 1.3rem;
+  width: min(860px, 96vw); min-width: 420px; max-width: 96vw;
+  max-height: 90vh; overflow: auto; resize: both;
+  padding: 1.6rem 1.8rem; gap: 1rem; border-radius: 16px;
 }
-.modal textarea { resize: vertical; }
+.modal .topbar { padding-bottom: 0.9rem; border-bottom: 1px solid var(--self-line); margin-bottom: 0.2rem; }
+.modal .topbar h2 { font-size: 1.25rem !important; font-weight: 700; }
+/* Komfortable, gleich hohe Eingaben in Dialogen (Kalender-Termin etc.) */
+.modal input, .modal textarea, .modal select {
+  padding: 0.7rem 0.85rem; font-size: 0.98rem; border-radius: 10px;
+}
+.modal textarea { resize: vertical; min-height: 4.5rem; }
+.modal .label { font-size: 0.82rem; letter-spacing: 0.04em; }
 
 /* --- Kalender: Monatsgitter + Agenda-Umschalter --- */
 .cal-wrap { display: flex; flex-direction: column; gap: 0.9rem; height: 100%; min-height: 0; }
