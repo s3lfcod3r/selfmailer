@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
+import { safeLinkUrl } from "../lib/url";
 
 /**
  * Kleiner Rich-Text-Editor (contentEditable + Formatier-Toolbar via
@@ -40,7 +41,7 @@ export function RichEditor({
     onChange(ref.current?.innerHTML ?? "");
   }
   async function addLink() {
-    const url = await promptDialog(t("compose.linkPrompt"));
+    const url = safeLinkUrl(await promptDialog(t("compose.linkPrompt")));
     if (url) { document.execCommand("createLink", false, url); onChange(ref.current?.innerHTML ?? ""); }
   }
 

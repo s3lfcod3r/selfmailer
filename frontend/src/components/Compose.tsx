@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import DOMPurify from "dompurify";
 import { api, type Account } from "../lib/api";
 import { useLang, type TFunc } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
+import { safeLinkUrl } from "../lib/url";
 import { RecipientField } from "./RecipientField";
 
 export type Draft = {
@@ -128,7 +130,7 @@ export function Compose({
     editorRef.current?.focus();
   }
   async function addLink() {
-    const url = await promptDialog(t("compose.linkPrompt"));
+    const url = safeLinkUrl(await promptDialog(t("compose.linkPrompt")));
     if (url) exec("createLink", url);
   }
 
@@ -232,7 +234,7 @@ export function Compose({
             return sig ? (
               <div className="compose-sig">
                 <span className="label">{t("accounts.signature")}</span>
-                <div dangerouslySetInnerHTML={{ __html: "-- <br>" + sigHtml(sig).replace(/^<br><br>-- <br>/, "") }} />
+                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize("-- <br>" + sigHtml(sig).replace(/^<br><br>-- <br>/, "")) }} />
               </div>
             ) : null;
           })()}

@@ -12,6 +12,7 @@ import logging
 import httpx
 from sqlmodel import Session, select
 
+from ..dav.client import DavUrlError, validate_external_url
 from ..models import CachedMessage, MailAccount, PushConfig
 from . import fcm as fcm_mod
 
@@ -48,6 +49,12 @@ def _preview(session: Session, account: MailAccount, folder: str, count: int) ->
 def _push_ntfy(session: Session, account: MailAccount, title: str, text: str) -> None:
     cfg = session.exec(select(PushConfig).where(PushConfig.user_id == account.user_id)).first()
     if cfg is None or not cfg.enabled or not cfg.ntfy_url or not cfg.topic:
+        return
+    # SSRF-Schutz: Altbestand-URLs (vor Validierung gespeichert) defensiv pruefen.
+    try:
+        validate_external_url(cfg.ntfy_url.rstrip("/"))
+    except DavUrlError:
+        logger.warning("ntfy-URL blockiert (SSRF-Schutz, user_id=%s)", account.user_id)
         return
     payload = {"topic": cfg.topic, "title": title, "message": text, "tags": ["email"]}
     try:

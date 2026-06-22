@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from ..core.db import get_session
+from ..dav.client import DavUrlError, validate_external_url
 from ..mail import fcm as fcm_mod
 from ..models import DeviceToken, FolderNotify, MailAccount, PushConfig, User
 from ..schemas import DeviceTokenIn, FolderNotifyIn, PushConfigIn, PushConfigOut
@@ -46,6 +47,13 @@ def set_push(
         cfg = PushConfig(user_id=user.id)
     cfg.ntfy_url = data.ntfy_url.rstrip("/")
     cfg.topic = data.topic.strip()
+    # SSRF-Schutz: ntfy-URL wird serverseitig abgerufen — interne/Metadata-Ziele
+    # ablehnen, bevor sie persistiert werden.
+    if cfg.ntfy_url:
+        try:
+            validate_external_url(cfg.ntfy_url)
+        except DavUrlError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"ntfy-URL nicht erlaubt: {exc}") from exc
     cfg.enabled = data.enabled and bool(cfg.ntfy_url) and bool(cfg.topic)
     session.add(cfg)
     session.commit()
@@ -137,6 +145,7 @@ def test_push(
             logger.warning("Test-FCM fehlgeschlagen (user_id=%s)", user.id, exc_info=True)
     if ntfy_on and cfg is not None:
         try:
+            validate_external_url(cfg.ntfy_url.rstrip("/"))  # defensiv (Altbestand)
             httpx.post(cfg.ntfy_url.rstrip("/"),
                        json={"topic": cfg.topic, "title": "SelfMailer Test", "message": "Push funktioniert ✅", "tags": ["white_check_mark"]},
                        timeout=10.0)

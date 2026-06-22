@@ -66,6 +66,16 @@ def _validate_dav_url(url: str) -> None:
         if _ip_blocked(ip, block_private):
             raise DavUrlError(f"Interne/gesperrte Adresse blockiert: {host} → {ip}")
 
+def validate_external_url(url: str) -> None:
+    """Oeffentliche SSRF-Pruefung fuer beliebige user-konfigurierte Ziel-URLs.
+
+    Wird neben DAV auch fuer den ntfy-Push genutzt. Blockt immer
+    loopback/link-local/Cloud-Metadata; private LAN-Ziele nur bei
+    ``SELFMAILER_DAV_BLOCK_PRIVATE=true``. Raises ``DavUrlError``.
+    """
+    _validate_dav_url(url)
+
+
 _PROPFIND_BODY = (
     '<?xml version="1.0" encoding="utf-8"?>'
     '<d:propfind xmlns:d="DAV:">'
