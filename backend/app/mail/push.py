@@ -63,3 +63,12 @@ def push_new_mail(session: Session, account: MailAccount, folder: str, count: in
         fcm_mod.notify(session, account.user_id, title, text, account_id=account.id, folder=folder)
     except Exception:  # noqa: BLE001 - FCM ist best-effort
         logger.warning("FCM-Push fehlgeschlagen (user_id=%s)", account.user_id, exc_info=True)
+
+
+def push_refresh(session: Session, user_id: int) -> None:
+    """Stiller Refresh-Push (FCM), damit Geräte gelesene Benachrichtigungen
+    aufräumen. ntfy kann nicht aufräumen → nur FCM."""
+    try:
+        fcm_mod.push_refresh(session, user_id)
+    except Exception:  # noqa: BLE001 - best-effort
+        logger.warning("FCM-Refresh fehlgeschlagen (user_id=%s)", user_id, exc_info=True)

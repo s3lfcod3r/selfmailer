@@ -83,6 +83,7 @@ def _sync_account(acc: MailAccount) -> None:
                 if rows:
                     by_name = {str(c.get("name", "")): int(c.get("unseen", 0) or 0) for c in counts}
                     changed = False
+                    decreased = False
                     for row in rows:
                         unseen = by_name.get(row.folder)
                         if unseen is None:
@@ -90,6 +91,8 @@ def _sync_account(acc: MailAccount) -> None:
                         base = row.last_unseen
                         if base >= 0 and unseen > base:
                             push_mod.push_new_mail(s, acc, row.folder, unseen - base)
+                        if base >= 0 and unseen < base:
+                            decreased = True   # woanders gelesen → Geräte aufräumen lassen
                         if unseen != base:
                             row.last_unseen = unseen
                             s.add(row)
@@ -98,6 +101,9 @@ def _sync_account(acc: MailAccount) -> None:
                             bus.publish(acc.user_id, {"type": "mail", "account_id": acc.id, "folder": row.folder})
                     if changed:
                         s.commit()
+                    if decreased:
+                        # Stiller FCM-Refresh → Handy entfernt erledigte Benachrichtigungen.
+                        push_mod.push_refresh(s, acc.user_id)
         except Exception:  # noqa: BLE001 - Push darf den Sync nie kippen
             logger.warning("Push-Check fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 

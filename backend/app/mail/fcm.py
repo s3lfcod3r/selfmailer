@@ -79,14 +79,13 @@ def _access_token(sa: dict) -> str:
         return _token
 
 
-def notify(
-    session: Session,
-    user_id: int,
-    title: str,
-    body: str,
-    account_id: int | None = None,
-    folder: str | None = None,
-) -> None:
+def _send_all(session: Session, user_id: int, data: dict[str, str]) -> None:
+    """Sendet eine DATA-ONLY-FCM-Nachricht an alle Geräte des Users (best-effort).
+
+    Data-only (kein notification-Block) → die App baut die Benachrichtigung in
+    onMessageReceived selbst, mit STABILER ID, und kann sie damit auch wieder
+    entfernen (Auto-Aufräumen). High-Priority, damit es auch im Hintergrund ankommt.
+    """
     sa = _load_sa()
     if not enabled() or sa is None:
         return
@@ -101,23 +100,9 @@ def notify(
 
     url = f"https://fcm.googleapis.com/v1/projects/{sa['project_id']}/messages:send"
     headers = {"Authorization": f"Bearer {access}", "Content-Type": "application/json"}
-    # Deep-Link-Daten: damit ein Tipp auf die Benachrichtigung ins richtige Postfach führt.
-    data: dict[str, str] = {}
-    if account_id is not None:
-        data["account_id"] = str(account_id)
-    if folder:
-        data["folder"] = folder
-
     dead: list[DeviceToken] = []
     for row in rows:
-        message_body: dict = {
-            "token": row.token,
-            "notification": {"title": title, "body": body},
-            "android": {"priority": "high", "notification": {"channel_id": "mail_new"}},
-        }
-        if data:
-            message_body["data"] = data
-        msg = {"message": message_body}
+        msg = {"message": {"token": row.token, "data": data, "android": {"priority": "high"}}}
         try:
             resp = httpx.post(url, headers=headers, json=msg, timeout=10.0)
             if resp.status_code == 404 or (resp.status_code == 400 and "UNREGISTERED" in resp.text):
@@ -130,3 +115,26 @@ def notify(
         session.delete(row)
     if dead:
         session.commit()
+
+
+def notify(
+    session: Session,
+    user_id: int,
+    title: str,
+    body: str,
+    account_id: int | None = None,
+    folder: str | None = None,
+) -> None:
+    """Neue-Mail-Push (data-only)."""
+    data: dict[str, str] = {"type": "mail", "title": title, "body": body}
+    if account_id is not None:
+        data["account_id"] = str(account_id)
+    if folder:
+        data["folder"] = folder
+    _send_all(session, user_id, data)
+
+
+def push_refresh(session: Session, user_id: int) -> None:
+    """Stiller Hinweis an die Geräte: Benachrichtigungen auffrischen/aufräumen
+    (z. B. nachdem Mails woanders gelesen wurden) — zeigt KEINE neue Notification."""
+    _send_all(session, user_id, {"type": "refresh"})

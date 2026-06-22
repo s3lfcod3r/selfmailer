@@ -97,7 +97,7 @@ app.include_router(translate.router)
 
 # Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
-APP_BUILD = "2026-06-22-birthday-calendar"
+APP_BUILD = "2026-06-22-fcm-dataonly-autoclear"
 
 
 @app.get("/api/health")
