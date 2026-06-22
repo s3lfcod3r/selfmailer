@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlmodel import Session, select
 
@@ -50,21 +50,23 @@ def user_for_feed_token(token: str, session: Session) -> User | None:
 
 
 def feed_or_bearer_user(
+    request: Request,
     token: str = Query(default=""),
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     session: Session = Depends(get_session),
 ) -> User:
-    """Auth fuer Export-Endpoints: erst ``?token=``, sonst Bearer-Login.
+    """Auth fuer Export-Endpoints: erst ``?token=``, sonst Login (Cookie/Bearer).
 
     So funktioniert derselbe Endpoint als abonnierbarer Feed (Token in der URL)
-    und als direkter Download aus der WebUI (Bearer-Header).
+    und als direkter Aufruf aus der WebUI (httpOnly-Cookie) oder der APK (Bearer).
     """
     if token:
         user = user_for_feed_token(token, session)
         if user is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Feed-Token ungueltig")
         return user
-    return get_current_user(creds, session)
+    # get_current_user erwartet (request, creds, session) — request fuer den Cookie-Fallback.
+    return get_current_user(request, creds, session)
 
 
 def _payload(token: str) -> FeedTokenOut:
