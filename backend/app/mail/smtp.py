@@ -33,7 +33,9 @@ async def send_message(
     html: str = "",
     read_receipt: bool = False,
     delivery_receipt: bool = False,
-) -> None:
+) -> bytes:
+    """Versendet die Mail und gibt die ROHE Nachricht (Bytes) zurueck — damit der
+    Aufrufer eine Kopie in den Gesendet-Ordner legen kann (IMAP APPEND)."""
     msg = EmailMessage()
     msg["From"] = account.email
     msg["To"] = ", ".join(to)
@@ -80,3 +82,4 @@ async def send_message(
         start_tls=account.smtp_starttls and not use_implicit_tls,
         recipients=recipients,
     )
+    return msg.as_bytes()

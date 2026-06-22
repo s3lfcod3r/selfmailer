@@ -526,6 +526,37 @@ def _draft_folder(box: MailBox) -> str:
     return matches[0] if matches else ""
 
 
+def _sent_folder(box: MailBox) -> str:
+    """Findet den Gesendet-Ordner (SPECIAL-USE \\Sent oder Namensheuristik).
+
+    Bevorzugt den SERVER-eigenen Ordner vor einem evtl. von uns angelegten."""
+    delim = _delimiter(box)
+    ours = {f"INBOX{delim}{s}" for s in DEFAULT_SUBFOLDERS}
+    matches: list[str] = []
+    for f in box.folder.list():
+        flags = " ".join(getattr(f, "flags", ()) or ()).lower()
+        if "\\sent" in flags:
+            return f.name
+        low = f.name.lower()
+        if any(k in low for k in ("sent", "gesendet", "gesendete")):
+            matches.append(f.name)
+    for name in matches:  # Server-eigenen Ordner bevorzugen
+        if name not in ours:
+            return name
+    return matches[0] if matches else ""
+
+
+def save_to_sent(account: MailAccount, password: str, raw: bytes) -> bool:
+    """Legt eine Kopie einer GESENDETEN Mail in den Gesendet-Ordner (IMAP APPEND,
+    als gelesen markiert). Best-effort: ohne Gesendet-Ordner passiert nichts."""
+    with _mailbox(account, password) as box:
+        folder = _sent_folder(box)
+        if not folder:
+            return False
+        box.append(raw, folder, flag_set=["\\Seen"])
+        return True
+
+
 def save_draft(
     account: MailAccount,
     password: str,

@@ -7,6 +7,7 @@ from urllib.parse import quote
 from aiosmtplib.errors import SMTPRecipientsRefused
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from starlette.concurrency import run_in_threadpool
 from sqlmodel import Session
 
 from ..core.crypto import decrypt
@@ -534,10 +535,11 @@ async def send(
     session: Session = Depends(get_session),
 ) -> dict:
     acc = _account(account_id, user, session)
+    pw = decrypt(acc.secret_enc)
     try:
-        await smtp_mod.send_message(
+        raw = await smtp_mod.send_message(
             acc,
-            decrypt(acc.secret_enc),
+            pw,
             to=[str(x) for x in data.to],
             subject=data.subject,
             body=data.body,
@@ -561,4 +563,11 @@ async def send(
     except Exception:  # noqa: BLE001
         logger.warning("Versand fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Versand fehlgeschlagen")
+
+    # Kopie in „Gesendet" ablegen (best-effort; IMAP ist blockierend → Threadpool).
+    # Schlaegt das fehl, gilt der Versand trotzdem als erfolgreich.
+    try:
+        await run_in_threadpool(imap_mod.save_to_sent, acc, pw, raw)
+    except Exception:  # noqa: BLE001
+        logger.warning("Gesendete Mail nicht in 'Gesendet' ablegbar (account_id=%s)", account_id, exc_info=True)
     return {"sent": True}
