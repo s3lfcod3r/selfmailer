@@ -5,6 +5,15 @@ import { confirmDialog } from "../lib/dialog";
 
 const EMPTY = { kind: "caldav" as DavKind, label: "", url: "", username: "", password: "" };
 
+// Anbieter-Vorlagen für die automatische Kalender-Erkennung (Basis-URLs).
+const PROVIDERS: { id: string; name: string; url: string }[] = [
+  { id: "webde", name: "web.de", url: "https://caldav.web.de" },
+  { id: "gmx", name: "GMX", url: "https://caldav.gmx.net" },
+  { id: "google", name: "Google", url: "https://apps.google.com" },
+  { id: "icloud", name: "iCloud", url: "https://caldav.icloud.com" },
+  { id: "", name: "Anderer Server …", url: "" },
+];
+
 // Macht eine ggf. relative Feed-URL fuer Kopieren/Abo absolut.
 function absolute(url: string): string {
   return url.startsWith("http") ? url : window.location.origin + url;
@@ -22,6 +31,10 @@ export function Sync() {
   const [busy, setBusy] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [err, setErr] = useState("");
+  // Automatische Kalender-Erkennung (Discovery)
+  const [disc, setDisc] = useState({ provider: "webde", kind: "caldav" as DavKind, url: "https://caldav.web.de", username: "", password: "" });
+  const [found, setFound] = useState<{ url: string; name: string }[] | null>(null);
+  const [discBusy, setDiscBusy] = useState(false);
   // Postfach-Migration (Synology → passende Zielkonten)
   const [mailAccounts, setMailAccounts] = useState<Account[]>([]);
   const [mig, setMig] = useState({ sourceId: 0, destId: 0, prefix: "", limit: 5000 });
@@ -89,6 +102,43 @@ export function Sync() {
     if (!(await confirmDialog(t("sync.removeConfirm", { label: acc.label })))) return;
     try { await api.del(`/dav/accounts/${acc.id}`); load(); }
     catch (e) { setErr((e as Error).message); }
+  }
+
+  function pickProvider(id: string) {
+    const p = PROVIDERS.find((x) => x.id === id);
+    setDisc((d) => ({ ...d, provider: id, url: p && p.url ? p.url : d.url }));
+  }
+  async function runDiscover(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(""); setNote(""); setFound(null);
+    if (!disc.url || !disc.password) { setErr("Server-Adresse und Passwort werden benötigt."); return; }
+    setDiscBusy(true);
+    try {
+      const cols = await api.post<{ url: string; name: string }[]>("/dav/discover", {
+        kind: disc.kind, url: disc.url, username: disc.username, password: disc.password,
+      });
+      setFound(cols);
+      if (cols.length === 0) setNote("Keine Kalender gefunden — Server-Adresse/Zugang prüfen oder die Collection-URL unten manuell eintragen.");
+    } catch (e) { setErr((e as Error).message); }
+    finally { setDiscBusy(false); }
+  }
+  async function connect(col: { url: string; name: string }) {
+    setErr(""); setNote("");
+    try {
+      await api.post<DavAccount>("/dav/accounts", {
+        kind: disc.kind, label: col.name, url: col.url, username: disc.username, password: disc.password,
+      });
+      setNote(`„${col.name}" verbunden — jetzt unten „Abgleichen" antippen.`);
+      setFound((f) => (f ? f.filter((c) => c.url !== col.url) : f));
+      load();
+    } catch (e) { setErr((e as Error).message); }
+  }
+  async function syncAll() {
+    setErr(""); setNote("");
+    for (const acc of accounts) {
+      try { await api.post<SyncResult>(`/dav/accounts/${acc.id}/sync`); } catch { /* einzeln ignorieren */ }
+    }
+    setNote("Alle Kalender/Adressbücher abgeglichen."); load();
   }
 
   return (
@@ -168,9 +218,55 @@ export function Sync() {
         )}
       </section>
 
+      {/* Automatische Kalender-Erkennung (Discovery) */}
+      <section className="stack">
+        <div className="label">Kalender automatisch finden</div>
+        <p className="muted" style={{ margin: 0 }}>
+          Anbieter wählen (oder Server-Adresse eingeben), dann E-Mail + Passwort.
+          SelfMailer sucht die Kalender selbst. Bei <strong>Google</strong> und <strong>iCloud</strong> ein
+          App-Passwort verwenden (nicht das normale Login-Passwort).
+        </p>
+        <form className="card stack" style={{ padding: "1rem" }} onSubmit={runDiscover}>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            <select value={disc.provider} onChange={(e) => pickProvider(e.target.value)}>
+              {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <select value={disc.kind} onChange={(e) => setDisc((d) => ({ ...d, kind: e.target.value as DavKind }))}>
+              <option value="caldav">Kalender</option>
+              <option value="carddav">Kontakte</option>
+            </select>
+          </div>
+          <input placeholder="Server-Adresse (z. B. https://caldav.web.de)"
+                 value={disc.url} onChange={(e) => setDisc((d) => ({ ...d, url: e.target.value }))} required />
+          <div className="row">
+            <input placeholder="E-Mail / Benutzer" value={disc.username}
+                   onChange={(e) => setDisc((d) => ({ ...d, username: e.target.value }))} />
+            <input type="password" placeholder="Passwort / App-Passwort" value={disc.password}
+                   onChange={(e) => setDisc((d) => ({ ...d, password: e.target.value }))} required />
+            <button className="primary" disabled={discBusy}>{discBusy ? "Suche…" : "Suchen"}</button>
+          </div>
+        </form>
+        {found && found.length > 0 && (
+          <div className="stack">
+            {found.map((c) => (
+              <div className="card row" style={{ padding: "0.7rem 1rem" }} key={c.url}>
+                <div className="grow">
+                  <div style={{ fontWeight: 600 }}>{c.name}</div>
+                  <div className="mail-from" style={{ wordBreak: "break-all" }}>{c.url}</div>
+                </div>
+                <button className="primary" onClick={() => connect(c)}>Verbinden</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* Externe CalDAV/CardDAV-Konten */}
       <section className="stack">
-        <div className="label">{t("sync.externalHeading")}</div>
+        <div className="row">
+          <div className="label grow">{t("sync.externalHeading")}</div>
+          {accounts.length > 0 && <button className="ghost" onClick={syncAll}>Alle abgleichen</button>}
+        </div>
         <form className="card stack" style={{ padding: "1rem" }} onSubmit={add}>
           <div className="row">
             <select value={form.kind} onChange={(e) => set("kind", e.target.value as DavKind)}>

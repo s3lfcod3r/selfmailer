@@ -26,10 +26,42 @@ logger = logging.getLogger(__name__)
 from ..dav.ical import parse_events
 from ..dav.vcard import parse_vcards
 from ..models import CalendarEvent, Contact, DavAccount, DavKind, User
-from ..schemas import DavAccountCreate, DavAccountOut, SyncResult
+from ..schemas import (
+    DavAccountCreate,
+    DavAccountOut,
+    DavDiscoverRequest,
+    DiscoveredCollection,
+    SyncResult,
+)
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/dav", tags=["dav"])
+
+
+@router.post("/discover", response_model=list[DiscoveredCollection])
+def discover(
+    data: DavDiscoverRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """Findet die Kalender/Adressbücher eines Servers (Zugang wird NICHT gespeichert)."""
+    try:
+        cols = client.discover_collections(
+            data.url, data.username, data.password,
+            want_contacts=data.kind == DavKind.carddav,
+        )
+    except DavUrlError as exc:
+        logger.warning("DAV-Discover SSRF-Block: %s", exc)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ziel-URL nicht erlaubt")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (401, 403):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Anmeldung fehlgeschlagen")
+        logger.warning("DAV-Discover HTTP-Fehler: %s", exc)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Server-Antwort nicht verwertbar")
+    except httpx.HTTPError as exc:
+        logger.warning("DAV-Discover Verbindungsfehler: %s", exc)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Verbindungsfehler zum DAV-Server")
+    return cols
 
 
 def _owned(account_id: int, user: User, session: Session) -> DavAccount:

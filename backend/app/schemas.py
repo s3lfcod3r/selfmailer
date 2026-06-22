@@ -421,6 +421,19 @@ class DavAccountOut(BaseModel):
     last_status: str
 
 
+class DavDiscoverRequest(BaseModel):
+    """Auto-Erkennung: Server-Basis-URL + Zugang → Liste der Collections."""
+    kind: DavKind = DavKind.caldav
+    url: str               # Server-Basis (z. B. https://caldav.web.de)
+    username: str = ""
+    password: str          # Klartext nur im Request, wird NICHT gespeichert
+
+
+class DiscoveredCollection(BaseModel):
+    url: str
+    name: str
+
+
 class SyncResult(BaseModel):
     ok: bool
     imported: int = 0      # neu angelegt
