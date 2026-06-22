@@ -52,7 +52,7 @@ export function Calendar() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [gcalAccounts, setGcalAccounts] = useState<DavAccount[]>([]);
   const [calsByAcc, setCalsByAcc] = useState<Record<number, GcalCalendar[]>>({});
-  const [mode, setMode] = useState<"month" | "agenda">("month");
+  const [mode, setMode] = useState<"month" | "agenda" | "tasks">("month");
   const now = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
   const [form, setForm] = useState<Form>({ ...EMPTY });
@@ -63,17 +63,11 @@ export function Calendar() {
   const [newTask, setNewTask] = useState("");
   const [newTaskDue, setNewTaskDue] = useState("");
   const [err, setErr] = useState("");
-  // Filter pro (Unter-)Kalender: ausgeblendete Quell-Schluessel (localStorage).
-  const [hiddenCals, setHiddenCals] = useState<Set<string>>(() => {
+  // Ausgeblendete Kalender (Verwaltung in „Sync & Export", geteilter localStorage).
+  // Nur lesend — beim Seitenwechsel neu eingelesen.
+  const [hiddenCals] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("selfmailer.hiddenCals") || "[]")); } catch { return new Set(); }
   });
-  function toggleCal(key: string) {
-    setHiddenCals((s) => {
-      const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key);
-      localStorage.setItem("selfmailer.hiddenCals", JSON.stringify([...n]));
-      return n;
-    });
-  }
   // Quell-Kalender eines Termins (Schluessel/Name/Farbe) — mit Fallbacks.
   const keyOf = (ev: CalEvent) => ev.source_key || (ev.dav_account_id ? `dav:${ev.dav_account_id}` : "local");
   const nameOf = (ev: CalEvent) => ev.source_name || (keyOf(ev) === "local" ? "Lokal" : keyOf(ev));
@@ -232,8 +226,12 @@ export function Calendar() {
       if (Number(parts[1]) - 1 === cursor.month)
         items.push({ day: Number(parts[2]), label: `🎂 ${b.name}${b.age != null ? ` (${b.age})` : ""}`, birthday: true });
     }
-    return items.sort((a, z) => a.day - z.day);
-  }, [shownEvents, contacts, cursor, lang]);
+    // Im aktuellen Monat nur ab HEUTE zeigen (Vergangenes ausblenden → kurze
+    // Liste, heutiger Tag oben, kein Scrollbalken nötig).
+    const isCurrentMonth = cursor.year === now.getFullYear() && cursor.month === now.getMonth();
+    const fromDay = isCurrentMonth ? now.getDate() : 0;
+    return items.filter((it) => it.day >= fromDay).sort((a, z) => a.day - z.day);
+  }, [shownEvents, contacts, cursor, lang, now]);
 
   const openTasks = tasks.filter((tk) => !tk.done);
   const doneTasks = tasks.filter((tk) => tk.done);
@@ -262,80 +260,17 @@ export function Calendar() {
           <div className="cal-switch">
             <button className={mode === "month" ? "on" : ""} onClick={() => setMode("month")}>{t("cal.month")}</button>
             <button className={mode === "agenda" ? "on" : ""} onClick={() => setMode("agenda")}>{t("cal.agenda")}</button>
+            <button className={mode === "tasks" ? "on" : ""} onClick={() => setMode("tasks")}>✓ {t("cal.tasks")}</button>
           </div>
-          <button className="primary" onClick={() => openCreate()}>＋ {t("cal.newEvent")}</button>
+          {mode !== "tasks" && <button className="primary" onClick={() => openCreate()}>＋ {t("cal.newEvent")}</button>}
         </div>
       </div>
 
       {err && !creating && <div className="err">{err}</div>}
 
-      <div className="cal-body">
-        <div className="cal-main">
-          {mode === "month" ? (
-            <div className="cal-grid">
-              {weekdays.map((w) => <div key={w} className="cal-wd">{w}</div>)}
-              {cells.map((d) => {
-                const key = ymd(d);
-                const evs = eventsByDay[key] ?? [];
-                const bds = birthdaysByDay[key] ?? [];
-                const outside = d.getMonth() !== cursor.month;
-                return (
-                  <div key={key} className={`cal-cell ${outside ? "outside" : ""} ${key === todayKey ? "today" : ""}`} onClick={() => openCreate(d)}>
-                    <div className="cal-daynum">
-                      {d.getDay() === 1 && <span className="cal-kw" title="Kalenderwoche">KW {isoWeek(d)}</span>}
-                      {d.getDate()}
-                    </div>
-                    <div className="cal-chips">
-                      {bds.map((b, i) => (
-                        <div key={`b${i}`} className="cal-chip birthday" title={`${t("cal.birthday")}: ${b.name}`}>🎂 {b.name}{b.age != null ? ` (${b.age})` : ""}</div>
-                      ))}
-                      {evs.map((ev) => (
-                        <div key={ev.id} className="cal-chip" title={`${nameOf(ev)}: ${ev.title}`}
-                          style={ev.source_color ? { borderLeft: `3px solid ${ev.source_color}`, paddingLeft: "5px" } : undefined}
-                          onClick={(e) => { e.stopPropagation(); setDetail(ev); }}>{ev.title}</div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <AgendaList events={shownEvents} lang={lang} t={t} onOpen={setDetail} />
-          )}
-        </div>
-
-        <aside className="cal-aside">
-          {(() => {
-            // Nur SICHTBARE Kalender listen — in „Sync & Export" ausgeblendete tauchen
-            // hier gar nicht mehr auf (dort werden sie wieder eingeblendet).
-            const visible = sources.filter((s) => !hiddenCals.has(s.key));
-            if (visible.length <= 1) return null;
-            return (
-              <section className="cal-panel">
-                <div className="cal-panel-head">Kalender</div>
-                {visible.map((s) => (
-                  <button key={s.key} className="cal-filter-item" onClick={() => toggleCal(s.key)} title={`${s.name} – ausblenden`}>
-                    <span className="cal-filter-dot" style={{ background: s.color || "var(--self-teal)" }} />
-                    <span className="cal-filter-name">{s.name}</span>
-                    <span className="cal-filter-check">✓</span>
-                  </button>
-                ))}
-              </section>
-            );
-          })()}
-          <section className="cal-panel">
-            <div className="cal-panel-head">{t("cal.thisMonth")}</div>
-            {monthAgenda.length === 0 && <div className="muted" style={{ fontSize: "0.82rem" }}>{t("cal.noneThisMonth")}</div>}
-            {monthAgenda.map((it, i) => (
-              <button key={i} className={`cal-agenda-item ${it.birthday ? "is-birthday" : ""}`} onClick={() => it.ev && setDetail(it.ev)} disabled={!it.ev}>
-                <span className="cal-agenda-day">{String(it.day).padStart(2, "0")}</span>
-                <span className="cal-agenda-label">{it.label}</span>
-                {it.time && <span className="cal-agenda-time">{it.time}</span>}
-              </button>
-            ))}
-          </section>
-
-          <section className="cal-panel">
+      {mode === "tasks" ? (
+        <div className="cal-body" style={{ gridTemplateColumns: "1fr" }}>
+          <section className="cal-panel cal-main" style={{ overflow: "auto" }}>
             <div className="cal-panel-head">✓ {t("cal.tasks")}</div>
             <form className="cal-task-add" onSubmit={addTask}>
               <input placeholder={t("cal.taskPlaceholder")} value={newTask} onChange={(e) => setNewTask(e.target.value)} />
@@ -349,8 +284,78 @@ export function Calendar() {
             {doneTasks.length > 0 && <div className="cal-done-head">{t("cal.doneTasks")} ({doneTasks.length})</div>}
             {doneTasks.map((tk) => <TaskRow key={tk.id} tk={tk} lang={lang} onToggle={toggleTask} onRemove={removeTask} />)}
           </section>
-        </aside>
-      </div>
+        </div>
+      ) : (
+        <div className="cal-body">
+          <div className="cal-main">
+            {mode === "month" ? (
+              <div className="cal-grid">
+                {weekdays.map((w) => <div key={w} className="cal-wd">{w}</div>)}
+                {cells.map((d) => {
+                  const key = ymd(d);
+                  const evs = eventsByDay[key] ?? [];
+                  const bds = birthdaysByDay[key] ?? [];
+                  const outside = d.getMonth() !== cursor.month;
+                  return (
+                    <div key={key} className={`cal-cell ${outside ? "outside" : ""} ${key === todayKey ? "today" : ""}`} onClick={() => openCreate(d)}>
+                      <div className="cal-daynum">
+                        {d.getDay() === 1 && <span className="cal-kw" title="Kalenderwoche">KW {isoWeek(d)}</span>}
+                        {d.getDate()}
+                      </div>
+                      <div className="cal-chips">
+                        {bds.map((b, i) => (
+                          <div key={`b${i}`} className="cal-chip birthday" title={`${t("cal.birthday")}: ${b.name}`}>🎂 {b.name}{b.age != null ? ` (${b.age})` : ""}</div>
+                        ))}
+                        {evs.map((ev) => (
+                          <div key={ev.id} className="cal-chip" title={`${nameOf(ev)}: ${ev.title}`}
+                            style={ev.source_color ? { borderLeft: `3px solid ${ev.source_color}`, paddingLeft: "5px" } : undefined}
+                            onClick={(e) => { e.stopPropagation(); setDetail(ev); }}>{ev.title}</div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <AgendaList events={shownEvents} lang={lang} t={t} onOpen={setDetail} />
+            )}
+          </div>
+
+          <aside className="cal-aside">
+            {(() => {
+              // Kompakte LEGENDE der sichtbaren Kalender — Ein-/Ausblenden läuft
+              // über „Sync & Export" (Klick hier blendet bewusst NICHT aus).
+              const visible = sources.filter((s) => !hiddenCals.has(s.key));
+              if (visible.length === 0) return null;
+              return (
+                <section className="cal-panel">
+                  <div className="cal-panel-head">Kalender</div>
+                  <div className="cal-legend">
+                    {visible.map((s) => (
+                      <span key={s.key} className="cal-legend-item">
+                        <span className="cal-filter-dot" style={{ background: s.color || "var(--self-teal)" }} />
+                        {s.name}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="muted" style={{ fontSize: "0.72rem", marginTop: "0.45rem" }}>Ein-/ausblenden in „Sync & Export".</div>
+                </section>
+              );
+            })()}
+            <section className="cal-panel">
+              <div className="cal-panel-head">{t("cal.thisMonth")}</div>
+              {monthAgenda.length === 0 && <div className="muted" style={{ fontSize: "0.82rem" }}>{t("cal.noneThisMonth")}</div>}
+              {monthAgenda.map((it, i) => (
+                <button key={i} className={`cal-agenda-item ${it.birthday ? "is-birthday" : ""}`} onClick={() => it.ev && setDetail(it.ev)} disabled={!it.ev}>
+                  <span className="cal-agenda-day">{String(it.day).padStart(2, "0")}</span>
+                  <span className="cal-agenda-label">{it.label}</span>
+                  {it.time && <span className="cal-agenda-time">{it.time}</span>}
+                </button>
+              ))}
+            </section>
+          </aside>
+        </div>
+      )}
 
       {creating && (
         <div className="modal-backdrop" onClick={() => setCreating(false)}>

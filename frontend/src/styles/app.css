@@ -527,9 +527,11 @@ select.bulk-btn { max-width: 170px; }
 .cal-switch button { padding: 0.35rem 0.8rem; background: transparent; border: none; color: var(--self-text-2); cursor: pointer; }
 .cal-switch button.on { background: var(--self-teal); color: #04130f; font-weight: 600; }
 
-.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-template-rows: auto repeat(6, 1fr); gap: 1px; background: var(--self-line); border: 1px solid var(--self-line); border-radius: var(--self-radius); overflow: hidden; flex: 1 1 auto; min-height: 0; }
+/* minmax(0,1fr): Zeilen bleiben GLEICH hoch und wachsen NICHT mit dem Inhalt
+   (sonst verschiebt sich das Gitter bei vielen Terminen). Inhalt wird geklippt. */
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-template-rows: auto repeat(6, minmax(0, 1fr)); gap: 1px; background: var(--self-line); border: 1px solid var(--self-line); border-radius: var(--self-radius); overflow: hidden; flex: 1 1 auto; min-height: 0; }
 .cal-wd { background: var(--self-bg-2); padding: 0.45rem 0.5rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--self-text-3); text-align: center; }
-.cal-cell { background: var(--self-bg-1); min-height: 96px; padding: 0.3rem 0.35rem; cursor: pointer; transition: background var(--self-dur-fast) var(--self-ease); display: flex; flex-direction: column; gap: 0.2rem; }
+.cal-cell { background: var(--self-bg-1); min-height: 0; overflow: hidden; padding: 0.3rem 0.35rem; cursor: pointer; transition: background var(--self-dur-fast) var(--self-ease); display: flex; flex-direction: column; gap: 0.2rem; }
 .cal-cell:hover { background: var(--self-bg-3); }
 .cal-cell.outside { background: var(--self-bg-0); }
 .cal-cell.outside .cal-daynum { color: var(--self-text-3); }
@@ -539,9 +541,9 @@ select.bulk-btn { max-width: 170px; }
   width: 1.5rem; height: 1.5rem; border-radius: 50%; display: inline-flex;
   align-items: center; justify-content: center; margin-left: auto; padding: 0;
 }
-.cal-chips { display: flex; flex-direction: column; gap: 0.15rem; overflow: hidden; }
+.cal-chips { display: flex; flex-direction: column; gap: 0.15rem; overflow: hidden; flex: 1 1 auto; min-height: 0; }
 .cal-chip {
-  font-size: 0.72rem; line-height: 1.3; padding: 0.1rem 0.35rem; border-radius: 4px;
+  font-size: 0.76rem; line-height: 1.35; padding: 0.12rem 0.4rem; border-radius: 4px;
   background: var(--self-teal-deep); color: var(--self-text); cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -549,8 +551,7 @@ select.bulk-btn { max-width: 170px; }
 .cal-chip.birthday { background: transparent; color: var(--self-ice-bright); cursor: default; padding-left: 0; }
 .cal-chip.birthday:hover { background: transparent; color: var(--self-ice-bright); }
 @media (max-width: 700px) {
-  .cal-cell { min-height: 64px; }
-  .cal-chip { font-size: 0.62rem; }
+  .cal-chip { font-size: 0.64rem; }
 }
 
 /* --- Kalender: 2-spaltiges Layout mit Seitenpanel --- */
@@ -569,6 +570,10 @@ select.bulk-btn { max-width: 170px; }
 .cal-filter-dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; }
 .cal-filter-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cal-filter-check { color: var(--self-teal-bright); font-size: 0.8rem; width: 0.9rem; }
+/* Kompakte, NICHT klickbare Kalender-Legende (Verwaltung läuft über Sync & Export) */
+.cal-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.8rem; }
+.cal-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--self-text-2); }
+.cal-legend-item .cal-filter-dot { width: 10px; height: 10px; }
 /* Kalenderwoche-Label in der Montagszelle */
 .cal-kw { float: right; font-size: 0.62rem; font-weight: 600; color: var(--self-text-3); letter-spacing: 0.02em; }
 .cal-agenda-item {
