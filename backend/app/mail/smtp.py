@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import binascii
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 
 import aiosmtplib
 
@@ -42,6 +43,11 @@ async def send_message(
     if cc:
         msg["Cc"] = ", ".join(cc)
     msg["Subject"] = subject
+    # Date + Message-ID explizit setzen: sonst fehlt der Kopie im Gesendet-Ordner
+    # das Datum (Liste zeigt sonst keine Uhrzeit) und eine eindeutige ID.
+    msg["Date"] = formatdate(localtime=True)
+    _domain = account.email.rsplit("@", 1)[-1] if "@" in account.email else "selfmailer"
+    msg["Message-ID"] = make_msgid(domain=_domain)
     if in_reply_to:
         # Verknuepft die Antwort mit dem Originalthread (Threading in Clients).
         msg["In-Reply-To"] = in_reply_to
