@@ -1,13 +1,16 @@
-name: Build & Push Container
+name: Build & Push Container (manual)
 
 # Baut das Single-Container-Image (Frontend + Backend) und pusht es nach GHCR.
 # Der Dockerfile liegt in backend/, braucht aber das Repo-Root als Context
 # (er kopiert sowohl frontend/ als auch backend/).
+#
+# HINWEIS: Der automatische Deploy auf `main`/Tags laeuft jetzt ueber ci.yml
+# HINTER dem Test-Gate (backend-test + frontend-check). Dieser Workflow bleibt
+# nur als MANUELLER Notfall-Build erhalten (workflow_dispatch) und triggert
+# bewusst NICHT mehr automatisch auf Push — sonst wuerde doppelt gebaut/gepusht
+# und das Test-Gate umgangen.
 
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 env:
