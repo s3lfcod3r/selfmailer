@@ -47,7 +47,6 @@ jobs:
         # in der Build-Umgebung). Ein ruff-Fund soll den ersten Deploy daher
         # NICHT blockieren. Sobald der Lauf nachweislich gruen ist, kann
         # `continue-on-error` entfernt werden, um Lint blockierend zu machen.
-        continue-on-error: true
         run: |
           pip install ruff
           ruff check .
