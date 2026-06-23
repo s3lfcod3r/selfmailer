@@ -1109,6 +1109,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                 <div className="mail-head-actions">
                   <button className="icon-btn" onClick={() => setDraft(replyDraft(open, t))} title={t("mail.reply")}>↩</button>
                   <button className="icon-btn" onClick={() => setDraft(forwardDraft(open, t))} title={t("mail.forward")}>↪</button>
+                  {spamFolder && folder !== spamFolder && (
+                    <button className="icon-btn" onClick={() => moveMsg(open.uid, spamFolder)} title={t("mail.spam")}>🚫</button>
+                  )}
+                  <button className="icon-btn read-del" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
                   <button className={`icon-btn ${readMenu ? "on" : ""}`} onClick={() => setReadMenu((v) => !v)} title={t("mail.more")}>⋯</button>
                   <button className="icon-btn" onClick={() => { setOpen(null); setMobilePane("list"); }} title={t("mail.back")}>✕</button>
                   {readMenu && (
@@ -1119,9 +1123,6 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                           {contactSaved ? "✓" : "👤"} {contactSaved ? t("mail.contactSaved") : t("mail.addContact")}
                         </button>
                         <button onClick={() => { markUnread(open.uid); setReadMenu(false); }}>● {t("mail.markUnread")}</button>
-                        {spamFolder && folder !== spamFolder && (
-                          <button onClick={() => { moveMsg(open.uid, spamFolder); setReadMenu(false); }}>🚫 {t("mail.spam")}</button>
-                        )}
                         <button onClick={() => { setReadMenu(false); if (activeId != null) openTransfer(activeId, folder, [open.uid]); }}>↪ {t("xfer.toAccount")}</button>
                         {folderNames.length > 1 && (
                           <label className="read-menu-move">
@@ -1133,8 +1134,6 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                           </label>
                         )}
                         <button onClick={() => { setReadMenu(false); showRaw(open.uid); }}>📄 {de ? "Original anzeigen" : "View source"}</button>
-                        <hr />
-                        <button className="read-menu-del" onClick={() => { setReadMenu(false); del(open); }}>🗑 {t("mail.delete")}</button>
                       </div>
                     </>
                   )}
