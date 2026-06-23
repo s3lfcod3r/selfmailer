@@ -6,7 +6,7 @@
 
 **Self-hosted, multi-user e-mail client — with calendar, contacts, notes, a native Android app, and real-time sync. Your own alternative to Synology MailPlus.**
 
-[![Build](https://github.com/kabelsalatundklartext/selfmailer/actions/workflows/docker.yml/badge.svg)](https://github.com/kabelsalatundklartext/selfmailer/actions/workflows/docker.yml)
+[![Build](https://github.com/s3lfcod3r/selfmailer/actions/workflows/docker.yml/badge.svg)](https://github.com/s3lfcod3r/selfmailer/actions/workflows/docker.yml)
 ![Version](https://img.shields.io/badge/version-1.12.0-33A78C)
 ![License](https://img.shields.io/badge/license-private-8A9CAA)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-009688)
@@ -140,7 +140,7 @@ Open `http://<host>:8090` → the **first-run setup** creates the admin account 
 ### 📦 Unraid
 
 Add the template from
-`https://raw.githubusercontent.com/kabelsalatundklartext/selfmailer/main/unraid/selfmailer.xml`
+`https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/unraid/selfmailer.xml`
 or import it under *Docker → Add Container → Template*. Set the **Master Secret**, leave the rest on defaults.
 
 > **Master Secret:** never change `SELFMAILER_SECRET` after first run — it encrypts the stored mailbox passwords. Changing it makes them unreadable.
@@ -360,7 +360,7 @@ docker compose up -d
 ### 📦 Unraid
 
 Template über
-`https://raw.githubusercontent.com/kabelsalatundklartext/selfmailer/main/unraid/selfmailer.xml`
+`https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/unraid/selfmailer.xml`
 hinzufügen oder unter *Docker → Add Container → Template* importieren. **Master Secret** setzen, Rest auf Standard.
 
 > **Master Secret:** `SELFMAILER_SECRET` nach dem ersten Start **nie ändern** — er verschlüsselt die gespeicherten Postfach-Passwörter. Ändern macht sie unlesbar.

@@ -1,15 +1,15 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>SelfMailer</Name>
-  <Repository>ghcr.io/kabelsalatundklartext/selfmailer:latest</Repository>
-  <Registry>https://github.com/kabelsalatundklartext/selfmailer/pkgs/container/selfmailer</Registry>
-  <Project>https://github.com/kabelsalatundklartext/selfmailer</Project>
-  <Support>https://github.com/kabelsalatundklartext/selfmailer/issues</Support>
+  <Repository>ghcr.io/s3lfcod3r/selfmailer:latest</Repository>
+  <Registry>https://github.com/s3lfcod3r/selfmailer/pkgs/container/selfmailer</Registry>
+  <Project>https://github.com/s3lfcod3r/selfmailer</Project>
+  <Support>https://github.com/s3lfcod3r/selfmailer/issues</Support>
   <Overview>Self-hosted, multi-user e-mail client (not a mail server). Connects to existing IMAP/POP3/SMTP accounts, with calendar, contacts and notes. Admin can create users and pre-configure their accounts; users can also add accounts themselves. Single Docker container with SQLite - no external database.</Overview>
   <Category>Tools: Network:Other</Category>
   <WebUI>http://[IP]:[PORT:8090]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/kabelsalatundklartext/selfmailer/main/unraid/selfmailer.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/kabelsalatundklartext/selfmailer/main/frontend/public/icon.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/unraid/selfmailer.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/frontend/public/icon.png</Icon>
   <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>

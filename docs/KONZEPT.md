@@ -149,7 +149,7 @@ Machbar über Androids `VpnService`-API.
 
 ## 6. Deployment (Unraid, wie SelfStream/SelfArchiver)
 
-- Single-Container, GHCR: `ghcr.io/kabelsalatundklartext/selfmailer`.
+- Single-Container, GHCR: `ghcr.io/s3lfcod3r/selfmailer`.
 - Volume `/data` → SQLite + Cache.
 - Ports: ein WebUI/API-Port (z. B. 8090).
 - Env: `SELFMAILER_SECRET` (Pflicht, Crypto-Key), `ADMIN_TOKEN` (First-Run),
@@ -216,7 +216,7 @@ Sicherheits-Review, Unraid-Template, GHCR-Build, README/Doku.
    → Empfehlung B fürs MVP.
 2. **Auth-Mechanik:** Session-Cookies vs. JWT — JWT bevorzugt wegen APK.
 3. **OAuth für Gmail/Outlook** (statt App-Passwörtern) — Phase 2 oder später?
-4. **GitHub-Org/Repo-Name:** `kabelsalatundklartext/selfmailer`?
+4. **GitHub-Org/Repo-Name:** `s3lfcod3r/selfmailer`?
 5. **APK-Sprache:** Kotlin (nativ, empfohlen) — bestätigen.
 
 ---
