@@ -41,12 +41,8 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Lint (ruff)
-        # Konservative Config in backend/pyproject.toml (nur E/F-Regeln,
-        # line-length 145). NICHT-BLOCKIEREND: Die Gruenheit auf dem aktuellen
-        # Code konnte beim Einrichten nicht lokal verifiziert werden (kein ruff
-        # in der Build-Umgebung). Ein ruff-Fund soll den ersten Deploy daher
-        # NICHT blockieren. Sobald der Lauf nachweislich gruen ist, kann
-        # `continue-on-error` entfernt werden, um Lint blockierend zu machen.
+        # Blockierend (Lint-Gate): ruff-Config in backend/pyproject.toml
+        # (E/F-Regeln, line-length 145). Ein ruff-Fund blockiert den Deploy.
         run: |
           pip install ruff
           ruff check .
