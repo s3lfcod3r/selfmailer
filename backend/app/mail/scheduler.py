@@ -7,14 +7,20 @@ immer SOFORT aus dem Cache und muss nie auf einen langsamen IMAP-Provider warten
 Bewusst SYNCHRON in einem eigenen Thread (passt zu imap_tools/SQLite). Je Konto
 eine eigene kurze Session; ein defektes/langsames Konto kippt den Lauf nie. Per
 Env steuerbar:
-  SELFMAILER_SYNC_DISABLE=1     -> aus
-  SELFMAILER_SYNC_INTERVAL=300  -> Sekunden zwischen den Laeufen (Default 300)
+  SELFMAILER_SYNC_DISABLE=1        -> aus
+  SELFMAILER_SYNC_INTERVAL=300     -> Sekunden zwischen den Mail-Laeufen (Default 300)
+  SELFMAILER_DAV_SYNC_INTERVAL=120 -> Kalender/Adressbuch getrennt + haeufiger (Default 120)
+
+Kalender/Adressbuecher (DAV) werden bewusst in einem EIGENEN, kuerzeren Takt
+abgeglichen als die IMAP-Postfaecher: ein Termin aus Google soll schneller
+auftauchen, ohne dafuer jeden IMAP-Provider oefter pollen zu muessen.
 """
 from __future__ import annotations
 
 import logging
 import os
 import threading
+import time
 from datetime import date, datetime
 
 from sqlmodel import Session, select
@@ -30,6 +36,10 @@ from . import push as push_mod
 logger = logging.getLogger(__name__)
 
 _INTERVAL = max(60, int(os.getenv("SELFMAILER_SYNC_INTERVAL", "300") or 300))
+# DAV (Kalender/Kontakte) laeuft getrennt + haeufiger; min 30s als Schutz vor
+# uebermaessigen Google-API-Calls.
+_DAV_INTERVAL = max(30, int(os.getenv("SELFMAILER_DAV_SYNC_INTERVAL", "120") or 120))
+_TICK = min(_INTERVAL, _DAV_INTERVAL)   # Basis-Takt des Loops (kleinstes Intervall)
 _WARM_FOLDERS = ["INBOX"]          # Ordner, deren NACHRICHTEN warmgehalten werden
 _STARTUP_DELAY = 15.0              # nicht direkt beim Boot loslegen
 _BACKUP_HOUR = 3                   # naechtliches DB-Backup ~03:00 Ortszeit
@@ -188,11 +198,21 @@ def _loop() -> None:
     # kleiner Anlauf, damit der Sync nicht mit dem App-Boot kollidiert
     if _stop.wait(_STARTUP_DELAY):
         return
+    # Getrennte Faelligkeits-Timer: der Loop tickt im kleinsten Intervall (_TICK),
+    # Mail und DAV feuern unabhaengig nach ihrem eigenen Intervall. Start bei 0.0
+    # => beide laufen direkt im ersten Tick (initialer Sync).
+    last_mail = 0.0
+    last_dav = 0.0
     while not _stop.is_set():
-        _sync_once()
-        _sync_dav()
+        now = time.monotonic()
+        if now - last_mail >= _INTERVAL:
+            _sync_once()
+            last_mail = time.monotonic()
+        if now - last_dav >= _DAV_INTERVAL:
+            _sync_dav()
+            last_dav = time.monotonic()
         _maybe_backup()
-        _stop.wait(_INTERVAL)
+        _stop.wait(_TICK)
 
 
 def start_scheduler() -> None:
