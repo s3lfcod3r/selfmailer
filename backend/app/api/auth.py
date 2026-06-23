@@ -1,6 +1,8 @@
 """Auth: First-Run-Setup, Login (+2FA/TOTP), eigenes Profil, 2FA-Verwaltung."""
 from __future__ import annotations
 
+import hmac
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlmodel import Session, func, select
 
@@ -112,7 +114,7 @@ def setup(
 
     settings = get_settings()
     # Wenn ein ADMIN_TOKEN per Env gesetzt ist, muss er stimmen.
-    if settings.admin_token and data.admin_token != settings.admin_token:
+    if settings.admin_token and not hmac.compare_digest(data.admin_token or "", settings.admin_token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin-Token falsch")
 
     admin = User(

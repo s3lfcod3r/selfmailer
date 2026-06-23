@@ -93,7 +93,7 @@ export function Calendar() {
   }, [calsByAcc, events]);
   const shownEvents = useMemo(() => events.filter((e) => !hiddenCals.has(keyOf(e))), [events, hiddenCals]);
 
-  async function load() {
+  async function load(isActive: () => boolean = () => true) {
     try {
       const [evs, cts, tks, dav] = await Promise.all([
         api.get<CalEvent[]>("/calendar/events"),
@@ -101,6 +101,7 @@ export function Calendar() {
         api.get<Task[]>("/tasks"),
         api.get<DavAccount[]>("/dav/accounts"),
       ]);
+      if (!isActive()) return;
       setEvents(evs); setContacts(cts); setTasks(tks);
       const gcals = dav.filter((d) => d.kind === "gcal");
       setGcalAccounts(gcals);
@@ -110,10 +111,12 @@ export function Calendar() {
         try { return [a.id, await api.get<GcalCalendar[]>(`/dav/accounts/${a.id}/calendars`)] as const; }
         catch { return [a.id, [] as GcalCalendar[]] as const; }
       }));
+      if (!isActive()) return;
       setCalsByAcc(Object.fromEntries(entries));
       // Ausgeblendete Kalender vom Server (geteilt mit der App).
       try {
         const h = await api.get<{ keys: string[] }>("/calendar/hidden");
+        if (!isActive()) return;
         setHiddenCals(new Set(h.keys));
         localStorage.setItem("selfmailer.hiddenCals", JSON.stringify(h.keys));
       } catch { /* Server-Hidden optional */ }
@@ -121,11 +124,16 @@ export function Calendar() {
       // Termine → die virtuelle Kontakt-Anzeige NICHT zusätzlich zeichnen (sonst doppelt).
       try {
         const bc = await api.get<{ dav_account_id: number | null; gcal_calendar_id: string }>("/contacts/birthday-calendar");
+        if (!isActive()) return;
         setBdayActive(!!(bc.dav_account_id && bc.gcal_calendar_id));
       } catch { /* egal */ }
-    } catch (e) { setErr((e as Error).message); }
+    } catch (e) { if (isActive()) setErr((e as Error).message); }
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let active = true;
+    load(() => active);
+    return () => { active = false; };
+  }, []);
 
   function set<K extends keyof Form>(k: K, v: Form[K]) { setForm((f) => ({ ...f, [k]: v })); }
 

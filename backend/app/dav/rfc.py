@@ -8,6 +8,7 @@ beim Export (Build) als auch beim Import (Parse) gebraucht.
 from __future__ import annotations
 
 import datetime as dt
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 CRLF = "\r\n"
 _MAX_OCTETS = 75
@@ -136,11 +137,20 @@ def fmt_date(value: dt.datetime) -> str:
     return value.strftime("%Y%m%d")
 
 
-def parse_dt(value: str) -> dt.datetime | None:
-    """Parst iCalendar DATE/DATE-TIME-Werte tolerant zu einem datetime.
+def parse_dt(value: str, tzid: str | None = None) -> dt.datetime | None:
+    """Parst iCalendar DATE/DATE-TIME-Werte tolerant zu einem aware datetime.
 
-    Akzeptiert ``YYYYMMDDTHHMMSSZ`` (UTC), ``YYYYMMDDTHHMMSS`` (floating, als
-    UTC interpretiert) und ``YYYYMMDD`` (Datum -> Mitternacht UTC).
+    - ``YYYYMMDDTHHMMSSZ`` (Suffix Z) -> UTC (unveraendert).
+    - ``YYYYMMDDTHHMMSS`` MIT ``tzid`` -> die benannte Zone wird angewandt und
+      nach UTC normalisiert (loest den DST-Verschiebungs-Bug bei floating Zeiten
+      ohne Z-Suffix).
+    - ``YYYYMMDDTHHMMSS`` OHNE Z und OHNE tzid -> echte floating Zeit; sie wird
+      NICHT faelschlich als UTC gestempelt, sondern lokal als UTC interpretiert
+      konsistent zum bisherigen Speicherformat — aber nur als letzter Fallback.
+    - ``YYYYMMDD`` (Datum) -> Mitternacht UTC.
+
+    Schlaegt ``tzid`` (unbekannte Zone) fehl, wird defensiv auf das bisherige
+    Verhalten (UTC) zurueckgefallen.
     """
     value = value.strip()
     try:
@@ -149,6 +159,14 @@ def parse_dt(value: str) -> dt.datetime | None:
             return naive.replace(tzinfo=dt.timezone.utc)
         if "T" in value:
             naive = dt.datetime.strptime(value, "%Y%m%dT%H%M%S")
+            if tzid:
+                try:
+                    zoned = naive.replace(tzinfo=ZoneInfo(tzid))
+                    return zoned.astimezone(dt.timezone.utc)
+                except (ZoneInfoNotFoundError, ValueError, KeyError):
+                    # Unbekannte/ungueltige Zone -> defensiv altes Verhalten.
+                    return naive.replace(tzinfo=dt.timezone.utc)
+            # Floating ohne Z und ohne TZID: konsistent zum Speicherformat (UTC).
             return naive.replace(tzinfo=dt.timezone.utc)
         naive = dt.datetime.strptime(value, "%Y%m%d")
         return naive.replace(tzinfo=dt.timezone.utc)

@@ -1,15 +1,15 @@
 """Server-Sent-Events-Stream für Live-Sync. Hält pro Client eine dünne
 Dauerverbindung; der Server schickt „aktualisieren"-Events.
 
-Auth (in dieser Reihenfolge): ``?token=`` · Bearer-Header (APK) · httpOnly-
-Session-Cookie (Web). Das Web nutzt das Cookie, damit das Token NICHT mehr in
-der URL (und damit in Server-/Proxy-Logs) landet."""
+Auth (in dieser Reihenfolge): Bearer-Header (APK) · httpOnly-Session-Cookie
+(Web). Bewusst KEIN ``?token=`` mehr — ein voller JWT in der URL landet sonst
+in Server-/Proxy-Logs. Das Web nutzt das Cookie, die APK den Bearer-Header."""
 from __future__ import annotations
 
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
@@ -22,12 +22,11 @@ from ..models import User
 router = APIRouter(prefix="/api/v1/events", tags=["events"])
 
 
-def _stream_user(request: Request, token: str | None = Query(default=None)) -> User:
-    raw = token
-    if not raw:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            raw = auth[7:]
+def _stream_user(request: Request) -> User:
+    raw: str | None = None
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        raw = auth[7:]
     if not raw:
         raw = request.cookies.get(get_settings().cookie_name)
     if not raw:

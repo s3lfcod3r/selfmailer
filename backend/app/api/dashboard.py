@@ -14,6 +14,7 @@ nie — es zaehlt dann eben 0.
 """
 from __future__ import annotations
 
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -27,6 +28,7 @@ from ..mail import imap as imap_mod
 from ..models import MailAccount, User
 from .feeds import feed_or_bearer_user
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 INBOX = "INBOX"
@@ -70,8 +72,11 @@ def _live_unseen(acc: MailAccount) -> tuple[int, int | None, str | None]:
     try:
         u = imap_mod.inbox_unseen(acc, decrypt(acc.secret_enc), INBOX)
         return u, int((time.monotonic() - t0) * 1000), None
-    except Exception as ex:  # noqa: BLE001
-        return -1, int((time.monotonic() - t0) * 1000), f"{type(ex).__name__}: {str(ex)[:140]}"
+    except Exception:  # noqa: BLE001
+        # Detail NUR ins Server-Log (account_id), dem Client nur eine generische
+        # Meldung — interne Exception-Texte koennten Host/Pfade/Interna verraten.
+        logger.warning("Dashboard-Live-Abruf fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+        return -1, int((time.monotonic() - t0) * 1000), "Abruf fehlgeschlagen"
 
 
 @router.get("/summary")

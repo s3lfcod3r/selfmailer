@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import DOMPurify from "dompurify";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { safeLinkUrl } from "../lib/url";
@@ -29,11 +30,15 @@ export function RichEditor({
   const { t } = useLang();
   const ref = useRef<HTMLDivElement>(null);
 
-  // Initialinhalt einmalig setzen (oder wenn extern komplett ersetzt).
+  // Externen Wert sanitisiert uebernehmen. Nur setzen, wenn der Editor nicht
+  // fokussiert ist und sich der Inhalt unterscheidet, damit der Cursor beim
+  // Tippen nicht springt.
   useEffect(() => {
-    if (ref.current && ref.current.innerHTML !== value) ref.current.innerHTML = value;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const el = ref.current;
+    if (!el) return;
+    const clean = DOMPurify.sanitize(value);
+    if (document.activeElement !== el && el.innerHTML !== clean) el.innerHTML = clean;
+  }, [value]);
 
   function exec(cmd: string) {
     document.execCommand(cmd, false);

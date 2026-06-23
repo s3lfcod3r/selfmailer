@@ -121,8 +121,9 @@ export function Notify() {
           const enabled = enabledByAcc[acc.id] ?? new Set<string>();
           return (
             <div key={acc.id} style={{ borderTop: "1px solid var(--self-bg-3)", padding: "10px 0" }}>
-              <div style={{ cursor: "pointer", color: "var(--self-text)", display: "flex", justifyContent: "space-between" }}
-                onClick={() => toggleAccount(acc)}>
+              <div role="button" tabIndex={0} aria-expanded={isOpen} style={{ cursor: "pointer", color: "var(--self-text)", display: "flex", justifyContent: "space-between" }}
+                onClick={() => toggleAccount(acc)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleAccount(acc); } }}>
                 <span><b>{acc.label}</b>{acc.label !== acc.email && <span style={{ opacity: 0.6 }}> · {acc.email}</span>}</span>
                 <span style={{ opacity: 0.6 }}>{isOpen ? "▾" : "▸"}</span>
               </div>

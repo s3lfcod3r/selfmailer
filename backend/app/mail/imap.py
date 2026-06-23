@@ -142,16 +142,17 @@ def _mailbox(account: MailAccount, password: str, folder: str = "INBOX") -> Iter
 
     entry.lock.acquire()
     try:
+        # _ensure_box MUSS im try stehen: scheitert es, nachdem entry.box gesetzt
+        # wurde (z. B. folder.set wirft), liefe sonst kein Cleanup.
         box = _ensure_box(entry, account, login, password, folder)
-        try:
-            yield box
-            entry.last_used = time.monotonic()
-        except Exception:
-            # Verbindung koennte nach einem Fehler in unklarem Zustand sein -> verwerfen.
-            _close(entry.box)
-            entry.box = None
-            entry.folder = None
-            raise
+        yield box
+        entry.last_used = time.monotonic()
+    except Exception:
+        # Verbindung koennte nach einem Fehler in unklarem Zustand sein -> verwerfen.
+        _close(entry.box)
+        entry.box = None
+        entry.folder = None
+        raise
     finally:
         entry.lock.release()
         _reap_idle()

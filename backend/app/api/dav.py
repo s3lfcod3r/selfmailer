@@ -202,17 +202,21 @@ def _upsert_events(
     """Übernimmt eine Liste Event-Dicts (uid/title/…/start/end/all_day) in den Store."""
     seen: set[str] = set()
     imported = updated = 0
+    # Vorab ALLE vorhandenen Events des Kontos in einem Query laden (statt ein
+    # SELECT je Event) und nach external_uid indizieren.
+    by_uid: dict[str, CalendarEvent] = {
+        e.external_uid: e
+        for e in session.exec(
+            select(CalendarEvent).where(CalendarEvent.dav_account_id == acc.id)
+        ).all()
+        if e.external_uid
+    }
     for ev in events:
             uid = ev["uid"]
             if not uid:
                 continue
             seen.add(uid)
-            existing = session.exec(
-                select(CalendarEvent).where(
-                    CalendarEvent.dav_account_id == acc.id,
-                    CalendarEvent.external_uid == uid,
-                )
-            ).first()
+            existing = by_uid.get(uid)
             target = existing or CalendarEvent(
                 user_id=acc.user_id,
                 dav_account_id=acc.id,
@@ -244,17 +248,22 @@ def _sync_contacts(
 ) -> SyncResult:
     seen: set[str] = set()
     imported = updated = 0
+    # Vorab ALLE vorhandenen Kontakte des Kontos in einem Query laden (statt ein
+    # SELECT je Kontakt) und nach external_uid indizieren.
+    by_uid: dict[str, Contact] = {
+        c.external_uid: c
+        for c in session.exec(
+            select(Contact).where(Contact.dav_account_id == acc.id)
+        ).all()
+        if c.external_uid
+    }
     for _href, body in resources:
         for card in parse_vcards(body):
             uid = card["uid"]
             if not uid:
                 continue
             seen.add(uid)
-            existing = session.exec(
-                select(Contact).where(
-                    Contact.dav_account_id == acc.id, Contact.external_uid == uid
-                )
-            ).first()
+            existing = by_uid.get(uid)
             target = existing or Contact(
                 user_id=acc.user_id, dav_account_id=acc.id, external_uid=uid
             )

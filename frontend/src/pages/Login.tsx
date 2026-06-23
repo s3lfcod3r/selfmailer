@@ -64,6 +64,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
     setBusy(true);
     try {
       await api.post("/auth/login/totp", { mfa_token: mfaToken, code });
+      setMfaToken(""); setCode("");
       onAuthed();
     } catch (e) {
       setErr((e as Error).message);
@@ -132,7 +133,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
 
         <div className="stack">
           <label className="label">{t("common.password")}</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
         </div>
 
         {needsSetup && (

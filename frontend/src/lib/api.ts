@@ -78,7 +78,7 @@ export async function download(path: string): Promise<void> {
 // ---- Typen ----
 export type User = { id: number; username: string; display_name: string; role: string; is_active: boolean };
 export type LoginResponse = {
-  access_token: string; token_type: string; needs_totp: boolean; mfa_token: string;
+  token_type: string; needs_totp: boolean; mfa_token: string;
 };
 export type TotpStatus = { enabled: boolean; backup_codes_remaining: number };
 export type TotpSetup = { secret: string; otpauth_uri: string };

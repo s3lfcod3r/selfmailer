@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, copyText, type Account, type DavAccount, type DavKind, type FeedToken, type GcalCalendar, type MigrateResult, type SyncResult } from "../lib/api";
 import { useLang, dateLocale, type Lang, type TFunc } from "../lib/i18n";
 import { confirmDialog } from "../lib/dialog";
+import { safeLinkUrl } from "../lib/url";
 
 const EMPTY = { kind: "caldav" as DavKind, label: "", url: "", username: "", password: "" };
 
@@ -276,7 +277,7 @@ export function Sync() {
                   <div className="mail-from" style={{ wordBreak: "break-all" }}>{absolute(f.url)}</div>
                 </div>
                 <button className="ghost" onClick={() => copy(f.url)}>{t("sync.copy")}</button>
-                <a className="ghost" href={absolute(f.url)} target="_blank" rel="noreferrer"
+                <a className="ghost" href={safeLinkUrl(absolute(f.url)) ?? "#"} target="_blank" rel="noreferrer"
                    style={{ textDecoration: "none" }}>{t("sync.open")}</a>
               </div>
             ))}

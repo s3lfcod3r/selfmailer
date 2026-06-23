@@ -97,10 +97,10 @@ def parse_events(text: str) -> list[dict[str, Any]]:
         elif name == "LOCATION":
             current["location"] = rfc.unescape_text(value)
         elif name == "DTSTART":
-            current["start"] = rfc.parse_dt(value)
+            current["start"] = rfc.parse_dt(value, params.get("TZID"))
             current["all_day"] = is_date
         elif name == "DTEND":
-            end = rfc.parse_dt(value)
+            end = rfc.parse_dt(value, params.get("TZID"))
             if end is not None and is_date:
                 # DTEND ist bei Ganztags exklusiv -> inklusiven letzten Tag speichern.
                 end = end - dt.timedelta(days=1)

@@ -404,6 +404,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // sichtbare Seite auffrischt (ohne den Effekt bei jedem Seitenwechsel neu zu setzen).
   const pageRef = useRef(1);
   useEffect(() => { pageRef.current = page; }, [page]);
+  // Versionszaehler fuer loadAllForSearch: verwirft veraltete Antworten,
+  // wenn waehrend des Ladens erneut (anderer Ordner/Suche) geladen wurde.
+  const searchLoadRef = useRef(0);
 
   // Holt genau eine Seite (offset = (p-1)*PAGE_SIZE). Cache-first im Backend.
   function fetchPage(acc: number, fol: string, p: number) {
@@ -449,11 +452,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function loadAllForSearch() {
     if (!sel) return;
     const acc = sel.acc, fol = sel.folder;
+    const ver = ++searchLoadRef.current;
     setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false);
     api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=1000`)
-      .then((ms) => { setMessages(ms); warmBodies(acc, fol, ms); })
-      .catch((e) => setErr((e as Error).message))
-      .finally(() => setLoading(false));
+      .then((ms) => { if (ver !== searchLoadRef.current) return; setMessages(ms); warmBodies(acc, fol, ms); })
+      .catch((e) => { if (ver !== searchLoadRef.current) return; setErr((e as Error).message); })
+      .finally(() => { if (ver === searchLoadRef.current) setLoading(false); });
   }
   // Bei Ordnerwechsel ODER Wechsel Suche an/aus passend laden.
   useEffect(() => {
@@ -1008,7 +1012,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               {pageNumbers(page, totalPages).map((p, i) =>
                 p === "…"
                   ? <span key={`e${i}`} className="pg-gap">…</span>
-                  : <button key={p} className={`pgbtn ${p === page ? "active" : ""}`} disabled={loadingMore} onClick={() => goPage(p)}>{p}</button>,
+                  : <button key={p} className={`pgbtn ${p === page ? "active" : ""}`} aria-current={p === page ? "page" : undefined} disabled={loadingMore} onClick={() => goPage(p)}>{p}</button>,
               )}
               <button className="pgbtn" disabled={page >= totalPages || loadingMore} onClick={() => goPage(page + 1)} title={t("mail.nextPage")}>›</button>
               <button className="pgbtn" disabled={page >= totalPages || loadingMore} onClick={() => goPage(totalPages)} title={t("mail.lastPage")}>»</button>
@@ -1068,7 +1072,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                 <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={() => toggleFlag(m)} title={t("mail.flag")}>
                   {m.flagged ? "★" : "☆"}
                 </button>
-                <div className="grow" style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)} onDoubleClick={() => openMsg(m.uid, true)} onMouseEnter={() => prefetchMsg(m.uid)}>
+                <div className="grow" role="button" tabIndex={0} style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openMsg(m.uid); } }} onDoubleClick={() => openMsg(m.uid, true)} onMouseEnter={() => prefetchMsg(m.uid)}>
                   <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
                     <span style={{ flex: 1, minWidth: 0, fontWeight: m.seen ? 400 : 700, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{m.from}</span>
                     <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(m.date)}</span>
@@ -1286,11 +1290,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         <div
           role="dialog"
           aria-modal="true"
+          aria-labelledby="mail-confirm-title"
           onClick={(e) => { if (e.target === e.currentTarget) { confirmBox.resolve(false); setConfirmBox(null); } }}
           style={{ position: "fixed", inset: 0, zIndex: 10060, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
         >
           <div style={{ width: "min(420px, 100%)", background: "var(--self-bg-2)", border: "1px solid var(--self-line)", borderRadius: 14, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", padding: 20 }}>
-            <p style={{ margin: 0, fontSize: 14, color: "var(--self-text)", lineHeight: 1.55 }}>{confirmBox.message}</p>
+            <p id="mail-confirm-title" style={{ margin: 0, fontSize: 14, color: "var(--self-text)", lineHeight: 1.55 }}>{confirmBox.message}</p>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
               <button type="button" className="ghost" onClick={() => { confirmBox.resolve(false); setConfirmBox(null); }}>
                 {t("common.cancel")}
@@ -1307,12 +1312,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         <div
           role="dialog"
           aria-modal="true"
+          aria-labelledby="mail-rawtext-title"
           onClick={(e) => { if (e.target === e.currentTarget) setRawText(null); }}
           style={{ position: "fixed", inset: 0, zIndex: 10065, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
         >
           <div style={{ width: "min(900px, 100%)", maxHeight: "85vh", background: "var(--self-bg-2)", border: "1px solid var(--self-line)", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--self-line)" }}>
-              <strong style={{ fontSize: 14, color: "var(--self-text)" }}>{de ? "Original (Quelltext)" : "Original (source)"}</strong>
+              <strong id="mail-rawtext-title" style={{ fontSize: 14, color: "var(--self-text)" }}>{de ? "Original (Quelltext)" : "Original (source)"}</strong>
               <div style={{ display: "flex", gap: 8 }}>
                 <button type="button" className="ghost" onClick={async () => { const ok = await copyText(rawText); setErr(ok ? (de ? "Kopiert ✓" : "Copied ✓") : (de ? "Kopieren fehlgeschlagen" : "Copy failed")); }}>{de ? "Kopieren" : "Copy"}</button>
                 <button type="button" className="ghost" onClick={() => setRawText(null)}>{de ? "Schließen" : "Close"}</button>
@@ -1328,12 +1334,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         <div
           role="dialog"
           aria-modal="true"
+          aria-labelledby="mail-popup-title"
           onClick={(e) => { if (e.target === e.currentTarget) setPopup(false); }}
           style={{ position: "fixed", inset: 0, zIndex: 10068, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
         >
           <div style={{ width: "min(900px, 100%)", maxHeight: "88vh", background: "var(--self-bg-2)", border: "1px solid var(--self-line)", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--self-line)" }}>
-              <h2 style={{ flex: 1, minWidth: 0, margin: 0, fontSize: "1.1rem", fontWeight: 700, lineHeight: 1.3, color: "var(--self-text)" }}>{open.subject || t("mail.noSubject")}</h2>
+              <h2 id="mail-popup-title" style={{ flex: 1, minWidth: 0, margin: 0, fontSize: "1.1rem", fontWeight: 700, lineHeight: 1.3, color: "var(--self-text)" }}>{open.subject || t("mail.noSubject")}</h2>
               <div style={{ display: "flex", gap: 6, flex: "0 0 auto" }}>
                 <button className="icon-btn" onClick={() => { setDraft(replyDraft(open, t)); setPopup(false); }} title={t("mail.reply")}>↩</button>
                 <button className="icon-btn" onClick={() => { setDraft(forwardDraft(open, t)); setPopup(false); }} title={t("mail.forward")}>↪</button>

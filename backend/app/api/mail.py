@@ -33,6 +33,16 @@ def _account(account_id: int, user: User, session: Session) -> MailAccount:
     return acc
 
 
+def _account_secret(acc: MailAccount) -> str:
+    """Entschluesselt das gespeicherte Konto-Passwort. Schlaegt die Entschluesselung
+    fehl (z. B. nach Schluesselwechsel/Datenkorruption), wird ein sauberes 400
+    statt eines unbehandelten 500 geliefert."""
+    try:
+        return decrypt(acc.secret_enc)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zugangsdaten nicht entschlüsselbar")
+
+
 @router.get("/{account_id}/folders")
 def folders(
     account_id: int,
@@ -40,7 +50,7 @@ def folders(
     session: Session = Depends(get_session),
 ) -> list[str]:
     acc = _account(account_id, user, session)
-    return imap_mod.list_folders(acc, decrypt(acc.secret_enc))
+    return imap_mod.list_folders(acc, _account_secret(acc))
 
 
 @router.get("/{account_id}/folders/counts")
@@ -62,7 +72,7 @@ def folder_counts(
         cached = cache_mod.read_folder_counts(session, account_id)
         if cached:
             return cached
-    out = imap_mod.folder_counts(acc, decrypt(acc.secret_enc))
+    out = imap_mod.folder_counts(acc, _account_secret(acc))
     try:
         cache_mod.write_folder_counts(session, account_id, out)
     except Exception:  # noqa: BLE001 - Cache-Pflege darf den Abruf nie kippen
@@ -80,7 +90,7 @@ def create_folder(
 ) -> dict:
     acc = _account(account_id, user, session)
     try:
-        full = imap_mod.create_folder(acc, decrypt(acc.secret_enc), name, parent=parent)
+        full = imap_mod.create_folder(acc, _account_secret(acc), name, parent=parent)
     except Exception:  # noqa: BLE001
         logger.warning("Ordner anlegen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Ordner anlegen fehlgeschlagen")
@@ -95,7 +105,7 @@ def ensure_default_folders(
 ) -> dict:
     acc = _account(account_id, user, session)
     try:
-        imap_mod.ensure_default_folders(acc, decrypt(acc.secret_enc))
+        imap_mod.ensure_default_folders(acc, _account_secret(acc))
     except Exception:  # noqa: BLE001
         logger.warning("Standard-Ordner anlegen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Standard-Ordner anlegen fehlgeschlagen")
@@ -112,7 +122,7 @@ def rename_folder(
 ) -> dict:
     acc = _account(account_id, user, session)
     try:
-        new_path = imap_mod.rename_folder(acc, decrypt(acc.secret_enc), name, new_name)
+        new_path = imap_mod.rename_folder(acc, _account_secret(acc), name, new_name)
     except Exception:  # noqa: BLE001
         logger.warning("Ordner umbenennen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Umbenennen fehlgeschlagen")
@@ -131,7 +141,7 @@ def move_folder(
     oberste Ebene) — Reorganisation der Ordnerhierarchie im selben Konto."""
     acc = _account(account_id, user, session)
     try:
-        new_path = imap_mod.move_folder(acc, decrypt(acc.secret_enc), name, parent)
+        new_path = imap_mod.move_folder(acc, _account_secret(acc), name, parent)
     except Exception:  # noqa: BLE001
         logger.warning("Ordner verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Ordner verschieben fehlgeschlagen")
@@ -147,7 +157,7 @@ def delete_folder(
 ) -> dict:
     acc = _account(account_id, user, session)
     try:
-        imap_mod.delete_folder(acc, decrypt(acc.secret_enc), name)
+        imap_mod.delete_folder(acc, _account_secret(acc), name)
     except Exception:  # noqa: BLE001
         logger.warning("Ordner loeschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Ordner löschen fehlgeschlagen")
@@ -168,7 +178,7 @@ def messages(
     # Beim ersten Mal wird nur die erste Seite live nachgeladen (schnell), den Rest
     # holt der Hintergrund-Sync (/sync). Faellt der Cache aus → ganz normal live.
     try:
-        pw = decrypt(acc.secret_enc)
+        pw = _account_secret(acc)
         if not cache_mod.has_cache(session, account_id, folder):
             cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
         msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset)
@@ -181,7 +191,7 @@ def messages(
                 msgs = imap_mod.list_messages(acc, pw, folder=folder, limit=limit, offset=offset)
         return msgs
     except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
-        return imap_mod.list_messages(acc, decrypt(acc.secret_enc), folder=folder, limit=limit, offset=offset)
+        return imap_mod.list_messages(acc, _account_secret(acc), folder=folder, limit=limit, offset=offset)
 
 
 @router.get("/{account_id}/folder-uids", response_model=list[str])
@@ -200,7 +210,7 @@ def folder_uids(
     durch das IMAP-Timeout gebunden. Faellt der Live-Abruf aus -> Cache als Fallback."""
     acc = _account(account_id, user, session)
     try:
-        return imap_mod.list_uids(acc, decrypt(acc.secret_enc), folder)
+        return imap_mod.list_uids(acc, _account_secret(acc), folder)
     except Exception:  # noqa: BLE001 - Live fehlgeschlagen -> wenigstens den Cache
         return cache_mod.folder_uids(session, account_id, folder)
 
@@ -216,7 +226,7 @@ def sync_messages(
     ab. Das Frontend ruft das im Hintergrund auf, nachdem es den Cache gezeigt hat."""
     acc = _account(account_id, user, session)
     try:
-        return cache_mod.sync_folder(session, acc, decrypt(acc.secret_enc), folder)
+        return cache_mod.sync_folder(session, acc, _account_secret(acc), folder)
     except Exception:  # noqa: BLE001
         logger.warning("Sync fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Sync fehlgeschlagen")
@@ -238,7 +248,7 @@ def migrate_account(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Quelle und Ziel sind identisch")
     try:
         return migrate_mod.migrate_folders(
-            source, decrypt(source.secret_enc), dest, decrypt(dest.secret_enc),
+            source, _account_secret(source), dest, _account_secret(dest),
             target_prefix=data.target_prefix, dry_run=data.dry_run, limit_per_folder=data.limit,
         )
     except Exception:  # noqa: BLE001
@@ -259,8 +269,8 @@ def transfer(
     dest = _account(data.dest_account_id, user, session)
     try:
         return migrate_mod.transfer_messages(
-            source, decrypt(source.secret_enc), data.source_folder, data.uids,
-            dest, decrypt(dest.secret_enc), data.dest_folder,
+            source, _account_secret(source), data.source_folder, data.uids,
+            dest, _account_secret(dest), data.dest_folder,
             move=data.move, limit=data.limit,
         )
     except Exception:  # noqa: BLE001
@@ -285,7 +295,7 @@ def message(
             return cached
     except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
         pass
-    msg = imap_mod.get_message(acc, decrypt(acc.secret_enc), uid, folder=folder)
+    msg = imap_mod.get_message(acc, _account_secret(acc), uid, folder=folder)
     if msg is None:
         # Die Mail ist serverseitig weg (verschoben/geloescht) — etwaigen stale
         # Cache-Eintrag entfernen, damit die Liste sich selbst heilt.
@@ -311,7 +321,7 @@ def message_raw(
 ) -> Response:
     """Rohe RFC822-Quelle (Header + Body) — „Original anzeigen"."""
     acc = _account(account_id, user, session)
-    raw = imap_mod.get_raw(acc, decrypt(acc.secret_enc), uid, folder=folder)
+    raw = imap_mod.get_raw(acc, _account_secret(acc), uid, folder=folder)
     if raw is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nachricht nicht gefunden")
     return Response(content=raw, media_type="text/plain; charset=utf-8")
@@ -327,7 +337,7 @@ def attachment(
     session: Session = Depends(get_session),
 ) -> Response:
     acc = _account(account_id, user, session)
-    result = imap_mod.get_attachment(acc, decrypt(acc.secret_enc), uid, index, folder=folder)
+    result = imap_mod.get_attachment(acc, _account_secret(acc), uid, index, folder=folder)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Anhang nicht gefunden")
     filename, content_type, data = result
@@ -347,7 +357,7 @@ def set_flags(
 ) -> dict:
     acc = _account(account_id, user, session)
     try:
-        imap_mod.set_flags(acc, decrypt(acc.secret_enc), uid, folder=folder, seen=seen, flagged=flagged)
+        imap_mod.set_flags(acc, _account_secret(acc), uid, folder=folder, seen=seen, flagged=flagged)
     except Exception:  # noqa: BLE001
         logger.warning("Flags setzen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Aktion fehlgeschlagen")
@@ -370,7 +380,7 @@ def move_message(
 ) -> dict:
     acc = _account(account_id, user, session)
     try:
-        imap_mod.move_message(acc, decrypt(acc.secret_enc), uid, dest, folder=folder)
+        imap_mod.move_message(acc, _account_secret(acc), uid, dest, folder=folder)
     except Exception:  # noqa: BLE001
         logger.warning("Nachricht verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Verschieben fehlgeschlagen")
@@ -400,7 +410,7 @@ def prefetch_bodies(
         missing = cache_mod.uncached_detail_uids(session, account_id, data.folder, data.uids)
         if not missing:
             return {"ok": True, "cached": 0}
-        details = imap_mod.get_messages(acc, decrypt(acc.secret_enc), missing, folder=data.folder)
+        details = imap_mod.get_messages(acc, _account_secret(acc), missing, folder=data.folder)
         for d in details:
             cache_mod.write_detail(session, account_id, data.folder, d.get("uid", ""), d)
         return {"ok": True, "cached": len(details)}
@@ -418,7 +428,7 @@ def delete_messages_batch(
     """Loescht mehrere Mails in EINER IMAP-Session (statt N Einzel-Requests/Logins)."""
     acc = _account(account_id, user, session)
     try:
-        result = imap_mod.delete_messages(acc, decrypt(acc.secret_enc), data.uids, folder=data.folder)
+        result = imap_mod.delete_messages(acc, _account_secret(acc), data.uids, folder=data.folder)
     except Exception:  # noqa: BLE001
         logger.warning("Batch-Loeschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Loeschen fehlgeschlagen")
@@ -444,7 +454,7 @@ def set_flags_batch(
     acc = _account(account_id, user, session)
     try:
         n = imap_mod.set_flags_many(
-            acc, decrypt(acc.secret_enc), data.uids, folder=data.folder, seen=seen, flagged=flagged,
+            acc, _account_secret(acc), data.uids, folder=data.folder, seen=seen, flagged=flagged,
         )
     except Exception:  # noqa: BLE001
         logger.warning("Batch-Markieren fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
@@ -469,7 +479,7 @@ def move_messages_batch(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zielordner fehlt")
     acc = _account(account_id, user, session)
     try:
-        result = imap_mod.move_messages(acc, decrypt(acc.secret_enc), data.uids, data.dest, folder=data.folder)
+        result = imap_mod.move_messages(acc, _account_secret(acc), data.uids, data.dest, folder=data.folder)
     except Exception:  # noqa: BLE001
         logger.warning("Batch-Verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Verschieben fehlgeschlagen")
@@ -491,7 +501,7 @@ def delete_message(
 ) -> dict:
     acc = _account(account_id, user, session)
     try:
-        result = imap_mod.delete_message(acc, decrypt(acc.secret_enc), uid, folder=folder)
+        result = imap_mod.delete_message(acc, _account_secret(acc), uid, folder=folder)
     except Exception:  # noqa: BLE001
         logger.warning("Nachricht loeschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Loeschen fehlgeschlagen")
@@ -514,7 +524,7 @@ def save_draft(
     try:
         ok = imap_mod.save_draft(
             acc,
-            decrypt(acc.secret_enc),
+            _account_secret(acc),
             to=", ".join(str(x) for x in data.to),
             cc=", ".join(str(x) for x in data.cc),
             subject=data.subject,
@@ -535,7 +545,7 @@ async def send(
     session: Session = Depends(get_session),
 ) -> dict:
     acc = _account(account_id, user, session)
-    pw = decrypt(acc.secret_enc)
+    pw = _account_secret(acc)
     try:
         raw = await smtp_mod.send_message(
             acc,

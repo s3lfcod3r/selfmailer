@@ -12,6 +12,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..core.config import get_settings
+from ..dav.client import DavUrlError, validate_external_url
 from ..schemas import TranslateRequest, TranslateResponse
 from .deps import get_current_user
 from ..models import User
@@ -50,6 +51,13 @@ def translate(
     payload: dict = {"q": text, "source": data.source or "auto", "target": data.target or "de", "format": "text"}
     if settings.translate_api_key.strip():
         payload["api_key"] = settings.translate_api_key.strip()
+    # SSRF-Schutz: die admin-konfigurierte Ziel-URL gegen die Blockliste pruefen
+    # (loopback/link-local/Cloud-Metadata; privat nur bei DAV_BLOCK_PRIVATE).
+    try:
+        validate_external_url(f"{base}/translate")
+    except DavUrlError as exc:
+        logger.warning("Übersetzungs-URL blockiert (SSRF): %s", exc)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Übersetzungsdienst nicht erreichbar")
     try:
         with httpx.Client(timeout=_TIMEOUT) as http:
             r = http.post(f"{base}/translate", json=payload)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type Contact, type DavAccount, type GcalCalendar } from "../lib/api";
 import { useLang, dateLocale, type TFunc } from "../lib/i18n";
 import { confirmDialog } from "../lib/dialog";
@@ -9,6 +9,8 @@ const EMPTY = {
   country: "", birthday: "", notes: "",
 };
 type Form = typeof EMPTY;
+
+const SEARCH_DEBOUNCE_MS = 250;
 
 function fmtBirthday(iso: string, lang: string): string {
   const d = new Date(iso + "T00:00:00");
@@ -87,6 +89,12 @@ export function Contacts() {
     try { setContacts(await api.get<Contact[]>(`/contacts?q=${encodeURIComponent(query)}`)); }
     catch (e) { setErr((e as Error).message); }
   }
+  // Live-Suche: API-Anfrage entprellen, das Input bleibt sofort kontrolliert.
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function searchDebounced(query: string) {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => load(query), SEARCH_DEBOUNCE_MS);
+  }
   async function loadBdaySettings() {
     try {
       const accs = (await api.get<DavAccount[]>("/dav/accounts")).filter((a) => a.kind === "gcal");
@@ -115,7 +123,10 @@ export function Contacts() {
       setBdayNote(`Übertragen: ${r.created ?? 0} neu, ${r.updated ?? 0} aktualisiert, ${r.removed ?? 0} entfernt`);
     } catch (e) { setBdayNote((e as Error).message); }
   }
-  useEffect(() => { load(""); loadBdaySettings(); }, []);
+  useEffect(() => {
+    load(""); loadBdaySettings();
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, []);
 
   function set<K extends keyof Form>(k: K, v: Form[K]) { setForm((f) => ({ ...f, [k]: v })); }
   function payload(f: Form) { return { ...f, birthday: f.birthday || null }; }
@@ -178,7 +189,7 @@ export function Contacts() {
         )}
         <div className="md-search">
           <span aria-hidden>🔍</span>
-          <input value={q} onChange={(e) => { setQ(e.target.value); load(e.target.value); }} placeholder={t("contacts.search")} />
+          <input value={q} onChange={(e) => { setQ(e.target.value); searchDebounced(e.target.value); }} placeholder={t("contacts.search")} />
         </div>
         <div className="md-scroll">
           {contacts.map((ct) => (
