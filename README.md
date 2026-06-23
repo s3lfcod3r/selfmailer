@@ -2,7 +2,6 @@
 
 <img src="assets/logo.png" width="240" alt="SelfMailer logo" />
 
-# SelfMailer
 
 **Self-hosted, multi-user e-mail client — with calendar, contacts, notes, a native Android app, and real-time sync. Your own alternative to Synology MailPlus.**
 
