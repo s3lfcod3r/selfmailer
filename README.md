@@ -154,6 +154,8 @@ or import it under *Docker → Add Container → Template*. Set the **Master Sec
 | `SELFMAILER_SECRET` | ✅ | – | JWT signing **and** at-rest encryption of mailbox passwords (≥ 32 chars). **Do not change after setup.** |
 | `SELFMAILER_DB_PATH` | – | `/data/selfmailer.db` | SQLite path |
 | `SELFMAILER_FCM_CREDENTIALS` | – | `/data/fcm-service-account.json` | Path to the Firebase service-account JSON for Google push. Empty/missing = FCM off. |
+| `SELFMAILER_TRANSLATE_URL` | – | – | URL of a self-hosted LibreTranslate instance for in-app e-mail translation (e.g. `http://192.168.1.10:5000`). Empty = translation off (button hidden). |
+| `SELFMAILER_TRANSLATE_API_KEY` | – | – | Optional API key, only if your LibreTranslate instance requires one. |
 | `SELFMAILER_ADMIN_TOKEN` | – | – | If set, first-run admin setup requires this token |
 | `SELFMAILER_BASE_URL` | – | – | Public base URL (e.g. for feed links) |
 | `SELFMAILER_SYNC_INTERVAL` | – | `300` | Seconds between background mail syncs (lower = faster push & sync) |
@@ -374,6 +376,8 @@ hinzufügen oder unter *Docker → Add Container → Template* importieren. **Ma
 | `SELFMAILER_SECRET` | ✅ | – | JWT-Signatur **und** At-Rest-Verschlüsselung der Postfach-Passwörter (≥ 32 Zeichen). **Nach Setup nicht ändern.** |
 | `SELFMAILER_DB_PATH` | – | `/data/selfmailer.db` | SQLite-Pfad |
 | `SELFMAILER_FCM_CREDENTIALS` | – | `/data/fcm-service-account.json` | Pfad zur Firebase-Service-Account-JSON für Google-Push. Leer/fehlend = FCM aus. |
+| `SELFMAILER_TRANSLATE_URL` | – | – | URL einer self-hosted LibreTranslate-Instanz für die Mail-Übersetzung (z. B. `http://192.168.1.10:5000`). Leer = Übersetzung aus (Button versteckt). |
+| `SELFMAILER_TRANSLATE_API_KEY` | – | – | Optionaler API-Key, nur falls deine LibreTranslate-Instanz einen verlangt. |
 | `SELFMAILER_ADMIN_TOKEN` | – | – | Wenn gesetzt, verlangt das Erst-Setup diesen Token |
 | `SELFMAILER_BASE_URL` | – | – | Öffentliche Basis-URL (z. B. für Feed-Links) |
 | `SELFMAILER_SYNC_INTERVAL` | – | `300` | Sekunden zwischen Mail-Hintergrund-Syncs (kleiner = schnellerer Push & Sync) |
