@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="frontend/public/icon.png" width="120" alt="SelfMailer logo" />
+<img src="assets/logo.png" width="240" alt="SelfMailer logo" />
 
 # SelfMailer
 
 **Self-hosted, multi-user e-mail client — with calendar, contacts, notes, a native Android app, and real-time sync. Your own alternative to Synology MailPlus.**
 
-[![Build](https://github.com/s3lfcod3r/selfmailer/actions/workflows/docker.yml/badge.svg)](https://github.com/s3lfcod3r/selfmailer/actions/workflows/docker.yml)
+[![Build](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml/badge.svg)](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-1.12.0-33A78C)
 ![License](https://img.shields.io/badge/license-private-8A9CAA)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-009688)
