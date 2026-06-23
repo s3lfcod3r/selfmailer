@@ -1,0 +1,128 @@
+name: CI & Deploy
+
+# Test-Gate VOR dem Deploy: backend-test (pytest + ruff-Lint) und
+# frontend-check (tsc Typecheck) muessen GRUEN sein, sonst wird KEIN
+# Docker-Image gebaut/gepusht. Der build-Job uebernimmt 1:1 die bisherige
+# Build/Push-Logik aus docker-image.yml und haengt nur per `needs` an den
+# Test-Jobs.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  backend-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Identisch zum Laufzeit-Image (backend/Dockerfile: python:3.13-slim).
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        # Konservative Config in backend/pyproject.toml (nur E/F-Regeln,
+        # line-length 145). NICHT-BLOCKIEREND: Die Gruenheit auf dem aktuellen
+        # Code konnte beim Einrichten nicht lokal verifiziert werden (kein ruff
+        # in der Build-Umgebung). Ein ruff-Fund soll den ersten Deploy daher
+        # NICHT blockieren. Sobald der Lauf nachweislich gruen ist, kann
+        # `continue-on-error` entfernt werden, um Lint blockierend zu machen.
+        continue-on-error: true
+        run: |
+          pip install ruff
+          ruff check .
+
+      - name: Run tests
+        # SELFMAILER_SECRET wird von conftest.py via setdefault gesetzt; hier
+        # zusaetzlich explizit, damit pytest auch ohne conftest-Default laeuft.
+        env:
+          SELFMAILER_SECRET: ci-test-secret-this-is-long-enough-1234567890
+        run: pytest -q
+
+  frontend-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Identisch zum Frontend-Build-Stage (backend/Dockerfile: node:24-alpine).
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (tsc)
+        run: npx tsc --noEmit
+
+  build:
+    # Deploy-Gate: laeuft NUR, wenn beide Test-Jobs gruen sind.
+    needs: [backend-test, frontend-check]
+    # Bei Pull Requests nur testen, nicht deployen (kein Push ins Registry).
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags/labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
