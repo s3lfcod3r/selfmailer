@@ -21,8 +21,6 @@ from ..core.crypto import decrypt, encrypt
 from ..core.db import get_session
 from ..dav import client, google
 from ..dav.client import DavUrlError
-
-logger = logging.getLogger(__name__)
 from ..dav.ical import parse_events
 from ..dav.vcard import parse_vcards
 from ..models import CalendarEvent, Contact, DavAccount, DavKind, User
@@ -36,6 +34,8 @@ from ..schemas import (
     SyncResult,
 )
 from .deps import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/dav", tags=["dav"])
 

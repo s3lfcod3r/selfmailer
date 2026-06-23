@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from ..core.db import get_session
 from ..core.security import hash_password
-from ..models import Role, User
+from ..models import User
 from ..schemas import PasswordReset, UserCreate, UserOut
 from .deps import require_admin
 

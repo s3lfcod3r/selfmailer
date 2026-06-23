@@ -19,7 +19,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from ..core.crypto import decrypt
 from ..core.db import get_session
 from ..dav import google
 from ..dav.ical import build_calendar
