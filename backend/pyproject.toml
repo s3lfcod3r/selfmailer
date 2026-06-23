@@ -1,0 +1,21 @@
+# Backend-Tooling-Konfiguration.
+#
+# ruff: bewusst KONSERVATIV eingestellt, damit der bestehende Code gruen ist
+# und das CI-Lint-Gate nicht durch Massen-Findings blockiert. Nur die
+# Kernregeln pyflakes (F) und pycodestyle-Errors (E) sind aktiv; Stil-/
+# Komplexitaets-Regelfamilien bleiben aus. line-length grosszuegig (145), da
+# einige bestehende Zeilen bis ~143 Zeichen lang sind.
+
+[tool.ruff]
+line-length = 145
+target-version = "py313"
+# Generierter/Smoke-Code wird nicht gelintet:
+# - tests/smoke.py ist ein manuelles End-to-End-Skript (kein pytest-Test).
+extend-exclude = ["tests/smoke.py"]
+
+[tool.ruff.lint]
+# F = pyflakes (echte Fehler: ungenutzte Importe/Variablen, undef. Namen)
+# E = pycodestyle-Errors (Syntax-/Whitespace-/Zeilenlaenge-Probleme)
+select = ["E", "F"]
+# E712 (== True/False) wird im Sync bewusst fuer SQLModel-Filter genutzt und
+# ist dort per `# noqa: E712` markiert; global nicht ignorieren.

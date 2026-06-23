@@ -8,6 +8,9 @@ venv/
 # Daten / Secrets
 backend/data/
 data/
+# DB-Backups (vom Scheduler erzeugt) — bereits durch data/ abgedeckt, hier
+# explizit zur Klarheit.
+backend/data/backups/
 *.db
 .env
 

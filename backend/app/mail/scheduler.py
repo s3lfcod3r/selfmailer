@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from datetime import date, datetime
 
 from sqlmodel import Session, select
 
@@ -31,10 +32,12 @@ logger = logging.getLogger(__name__)
 _INTERVAL = max(60, int(os.getenv("SELFMAILER_SYNC_INTERVAL", "300") or 300))
 _WARM_FOLDERS = ["INBOX"]          # Ordner, deren NACHRICHTEN warmgehalten werden
 _STARTUP_DELAY = 15.0              # nicht direkt beim Boot loslegen
+_BACKUP_HOUR = 3                   # naechtliches DB-Backup ~03:00 Ortszeit
 
 _started = False
 _thread: threading.Thread | None = None
 _stop = threading.Event()
+_last_backup_date: date | None = None   # an welchem Tag zuletzt gesichert wurde
 
 
 def _sync_account(acc: MailAccount) -> None:
@@ -156,6 +159,31 @@ def _sync_dav() -> None:
             logger.warning("DAV-Hintergrund-Sync fehlgeschlagen (id=%s)", acc.id, exc_info=True)
 
 
+def _maybe_backup() -> None:
+    """Einmal pro Tag (ab ~03:00) ein konsistentes DB-Backup ziehen.
+
+    Der Loop tickt im Sync-Intervall; dieser Wachposten loest hoechstens einmal
+    je Kalendertag aus, sobald die Backup-Stunde erreicht ist. Ein Fehler im
+    Backup darf den Scheduler/Container NIE kippen (try/except + Logging, wie
+    ueberall hier). Lazy-Import vermeidet Import-Zyklen beim Boot.
+    """
+    global _last_backup_date
+    now = datetime.now()
+    if now.hour < _BACKUP_HOUR:
+        return
+    if _last_backup_date == now.date():
+        return
+    try:
+        from ..core.backup import create_backup
+        create_backup()
+        _last_backup_date = now.date()
+    except Exception:  # noqa: BLE001 - Backup darf den Scheduler nie kippen
+        logger.warning("Naechtliches DB-Backup fehlgeschlagen", exc_info=True)
+        # Tag trotzdem markieren, damit ein dauerhaft kaputtes Backup nicht jeden
+        # Loop-Durchlauf erneut feuert (Log-Flut). Naechster Versuch morgen.
+        _last_backup_date = now.date()
+
+
 def _loop() -> None:
     # kleiner Anlauf, damit der Sync nicht mit dem App-Boot kollidiert
     if _stop.wait(_STARTUP_DELAY):
@@ -163,6 +191,7 @@ def _loop() -> None:
     while not _stop.is_set():
         _sync_once()
         _sync_dav()
+        _maybe_backup()
         _stop.wait(_INTERVAL)
 
 

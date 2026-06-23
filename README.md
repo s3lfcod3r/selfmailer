@@ -162,6 +162,29 @@ or import it under *Docker → Add Container → Template*. Set the **Master Sec
 | `SELFMAILER_IMAP_TIMEOUT` | – | `15` | IMAP socket timeout (seconds) |
 | `SELFMAILER_DAV_BLOCK_PRIVATE` | – | `false` | Block private/LAN targets for DAV pull (SSRF strict mode) |
 | `SELFMAILER_JWT_ALGORITHM` | – | `HS256` | `HS256` / `HS384` / `HS512` |
+| `SELFMAILER_BACKUP_ENABLED` | – | `true` | Nightly automatic DB backup (~03:00) |
+| `SELFMAILER_BACKUP_KEEP` | – | `7` | How many backups to keep (older ones are rotated out; `0` = keep all) |
+
+### 💾 Backups
+
+The scheduler takes a **consistent** nightly snapshot of the SQLite database
+(`sqlite3` online-backup API, safe during writes) into `data/backups/`:
+
+```
+data/backups/selfmailer-YYYYMMDD-HHMMSS.db
+```
+
+Only the last `SELFMAILER_BACKUP_KEEP` snapshots are kept. The folder is
+git-ignored. To **restore** a backup, stop the container, replace the live DB
+with a snapshot, then start again:
+
+```bash
+docker stop selfmailer
+cp data/backups/selfmailer-20260101-030000.db data/selfmailer.db
+# remove stale WAL/SHM sidecars so the restored file is authoritative
+rm -f data/selfmailer.db-wal data/selfmailer.db-shm
+docker start selfmailer
+```
 
 ### 📱 Android app
 
@@ -358,6 +381,30 @@ hinzufügen oder unter *Docker → Add Container → Template* importieren. **Ma
 | `SELFMAILER_IMAP_TIMEOUT` | – | `15` | IMAP-Socket-Timeout (Sekunden) |
 | `SELFMAILER_DAV_BLOCK_PRIVATE` | – | `false` | Private/LAN-Ziele beim DAV-Pull blocken (SSRF-Strikt-Modus) |
 | `SELFMAILER_JWT_ALGORITHM` | – | `HS256` | `HS256` / `HS384` / `HS512` |
+| `SELFMAILER_BACKUP_ENABLED` | – | `true` | Nächtliches automatisches DB-Backup (~03:00) |
+| `SELFMAILER_BACKUP_KEEP` | – | `7` | Anzahl behaltener Backups (ältere werden rotiert; `0` = alle behalten) |
+
+### 💾 Backups
+
+Der Scheduler zieht nachts (~03:00) ein **konsistentes** Backup der SQLite-DB
+(via `sqlite3`-Online-Backup-API, sicher auch bei laufenden Schreibvorgängen)
+nach `data/backups/`:
+
+```
+data/backups/selfmailer-YYYYMMDD-HHMMSS.db
+```
+
+Es werden nur die letzten `SELFMAILER_BACKUP_KEEP` Snapshots behalten. Der
+Ordner ist git-ignoriert. **Wiederherstellen:** Container stoppen, die Live-DB
+durch ein Backup ersetzen, neu starten:
+
+```bash
+docker stop selfmailer
+cp data/backups/selfmailer-20260101-030000.db data/selfmailer.db
+# veraltete WAL/SHM-Dateien entfernen, damit die wiederhergestellte Datei gilt
+rm -f data/selfmailer.db-wal data/selfmailer.db-shm
+docker start selfmailer
+```
 
 ### 📱 Android-App
 

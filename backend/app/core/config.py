@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     # CORS (Dev: Vite-Devserver)
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Automatisches DB-Backup (naechtlich, via Scheduler). Konsistentes Online-
+    # Backup der SQLite-DB nach data/backups/. backup_keep = Anzahl der zu
+    # behaltenden Snapshots (Rotation loescht aeltere). 0 oder negativ = keine
+    # Rotation (alle behalten).
+    backup_enabled: bool = True
+    backup_keep: int = 7
+
     @property
     def cors_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
