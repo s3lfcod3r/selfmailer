@@ -195,8 +195,33 @@ def write_detail(session: Session, account_id: int, folder: str, uid: str, detai
     session.commit()
 
 
+def _adjust_cached_unseen(session: Session, account_id: int, folder: str, delta: int) -> None:
+    """Passt den aggregierten Ungelesen-Zaehler eines Ordners SOFORT an (clamped >=0),
+    sodass summary()/die Postfach-Badges nicht erst auf den naechsten Scheduler-Sync
+    warten. Baut auf dem echten (vom Scheduler per IMAP STATUS gepflegten) Wert auf und
+    korrigiert nur um die Nutzer-Aktion. Haelt FolderSync UND CachedFolder konsistent."""
+    if delta == 0:
+        return
+    fs = session.exec(
+        select(FolderSync).where(FolderSync.account_id == account_id, FolderSync.folder == folder)
+    ).first()
+    if fs is not None:
+        fs.unseen = max(0, int(fs.unseen) + delta)
+        session.add(fs)
+    cf = session.exec(
+        select(CachedFolder).where(CachedFolder.account_id == account_id, CachedFolder.folder == folder)
+    ).first()
+    if cf is not None:
+        cf.unseen = max(0, int(cf.unseen) + delta)
+        session.add(cf)
+
+
 def update_flags(session: Session, account_id: int, folder: str, uid: str, *, seen: bool | None = None, flagged: bool | None = None) -> None:
-    """Haelt den Cache konsistent, wenn der Nutzer selbst Flags aendert."""
+    """Haelt den Cache konsistent, wenn der Nutzer selbst Flags aendert.
+
+    Bei einer ECHTEN seen-Aenderung wird der Ordner-Ungelesen-Zaehler sofort
+    mitgezogen (gelesen -> -1, ungelesen -> +1), damit summary()/Badges in Web UND
+    App direkt stimmen, statt erst nach dem naechsten Scheduler-Sync."""
     row = session.exec(
         select(CachedMessage).where(
             CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid == uid
@@ -204,7 +229,8 @@ def update_flags(session: Session, account_id: int, folder: str, uid: str, *, se
     ).first()
     if not row:
         return
-    if seen is not None:
+    if seen is not None and bool(row.seen) != bool(seen):
+        _adjust_cached_unseen(session, account_id, folder, -1 if seen else 1)
         row.seen = seen
     if flagged is not None:
         row.flagged = flagged
@@ -227,6 +253,22 @@ def set_flags_bulk(
     uids = [u for u in uids if u]
     if not vals or not uids:
         return
+    # Ungelesen-Zaehler-Delta bestimmen, BEVOR das UPDATE laeuft: nur Zeilen zaehlen,
+    # die tatsaechlich von/zu "ungelesen" wechseln (gechunkt wie das UPDATE).
+    if seen is not None:
+        changed = 0
+        for i in range(0, len(uids), 500):
+            chunk = uids[i:i + 500]
+            states = session.exec(
+                select(CachedMessage.seen).where(
+                    CachedMessage.account_id == account_id,
+                    CachedMessage.folder == folder,
+                    CachedMessage.uid.in_(chunk),
+                )
+            ).all()
+            changed += sum(1 for s in states if bool(s) != bool(seen))
+        if changed:
+            _adjust_cached_unseen(session, account_id, folder, -changed if seen else changed)
     for i in range(0, len(uids), 500):
         chunk = uids[i:i + 500]
         session.execute(
