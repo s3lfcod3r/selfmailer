@@ -116,7 +116,7 @@ def read_folder_counts(session: Session, account_id: int) -> list[dict]:
         .where(CachedFolder.account_id == account_id)
         .order_by(CachedFolder.idx)
     ).all()
-    return [{"name": r.folder, "unseen": r.unseen, "total": r.total} for r in rows]
+    return [{"name": r.folder, "unseen": r.unseen, "total": r.total, "special": r.special} for r in rows]
 
 
 def write_folder_counts(session: Session, account_id: int, items: list[dict]) -> None:
@@ -133,6 +133,7 @@ def write_folder_counts(session: Session, account_id: int, items: list[dict]) ->
         session.add(CachedFolder(
             account_id=account_id, folder=name, idx=idx,
             unseen=int(it.get("unseen", 0) or 0), total=int(it.get("total", 0) or 0),
+            special=str(it.get("special", "") or ""),
         ))
     session.commit()
 

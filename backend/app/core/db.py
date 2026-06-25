@@ -59,6 +59,7 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
     ],
     "mailaccount": [("signature", "VARCHAR"), ("last_notified_unseen", "INTEGER DEFAULT -1")],
     "cachedmessage": [("detail_json", "VARCHAR")],
+    "cachedfolder": [("special", "VARCHAR")],
     "calendarevent": [
         ("dav_account_id", "INTEGER"), ("external_uid", "VARCHAR"),
         ("source_key", "VARCHAR"), ("source_name", "VARCHAR"), ("source_color", "VARCHAR"),

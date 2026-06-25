@@ -271,6 +271,7 @@ class CachedFolder(SQLModel, table=True):
     idx: int = 0                          # Reihenfolge wie vom Server geliefert
     unseen: int = 0
     total: int = 0
+    special: str = ""                     # SPECIAL-USE-Typ bzw. '' für normalen Ordner
 
 
 class PushConfig(SQLModel, table=True):

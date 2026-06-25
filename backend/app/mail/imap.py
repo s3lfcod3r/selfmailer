@@ -197,6 +197,9 @@ def folder_counts(account: MailAccount, password: str) -> list[dict]:
     Fehler bei einzelnen Ordnern werden geschluckt (Zaehler dann 0).
     """
     seen: dict[str, None] = {}
+    # Flags je Ordnername fuer die SPECIAL-USE-Erkennung. Beim Dedup die ZUERST
+    # gesehenen Flags behalten (spaetere LIST-Varianten ueberschreiben nicht).
+    flags_by_name: dict[str, tuple] = {}
     out: list[dict] = []
     with _mailbox(account, password) as box:
         attempts = [
@@ -209,19 +212,26 @@ def folder_counts(account: MailAccount, password: str) -> list[dict]:
                 for f in attempt():
                     if f.name:
                         seen.setdefault(f.name, None)
+                        if f.name not in flags_by_name:
+                            flags_by_name[f.name] = tuple(getattr(f, "flags", ()) or ())
             except Exception:  # noqa: BLE001
                 continue
         names = list(seen) or ["INBOX"]
         names.sort(key=lambda n: (n.upper() != "INBOX", n.lower()))
         for name in names:
+            flags = flags_by_name.get(name, ())
+            special = _folder_special(name, flags)
             unseen = total = 0
-            try:
-                st = box.folder.status(name, ["MESSAGES", "UNSEEN"])
-                total = int(st.get("MESSAGES", 0) or 0)
-                unseen = int(st.get("UNSEEN", 0) or 0)
-            except Exception:  # noqa: BLE001 - einzelner STATUS darf scheitern
-                pass
-            out.append({"name": name, "unseen": unseen, "total": total})
+            # \Noselect-Ordner (z. B. Gmail-Container "[Gmail]") sind nicht
+            # selektierbar -> STATUS scheitert; daher ueberspringen, Zaehler 0.
+            if special != "noselect":
+                try:
+                    st = box.folder.status(name, ["MESSAGES", "UNSEEN"])
+                    total = int(st.get("MESSAGES", 0) or 0)
+                    unseen = int(st.get("UNSEEN", 0) or 0)
+                except Exception:  # noqa: BLE001 - einzelner STATUS darf scheitern
+                    pass
+            out.append({"name": name, "unseen": unseen, "total": total, "special": special})
     return out
 
 
@@ -642,6 +652,23 @@ def _special_kind(last_part: str) -> str | None:
         if rx.match(last_part):
             return kind
     return None
+
+
+# IMAP SPECIAL-USE-Flags (RFC 6154) -> unsere special-Art. Vergleich case-
+# insensitiv und OHNE fuehrenden Backslash (siehe _folder_special).
+_FLAG_KIND = {"sent": "sent", "drafts": "drafts", "junk": "spam", "trash": "trash", "archive": "archive", "all": "all"}
+
+
+def _folder_special(name: str, flags) -> str:
+    """Bestimmt die special-Art eines Ordners: erst \\Noselect, dann SPECIAL-USE-
+    Flag (RFC 6154), zuletzt Namens-Heuristik. '' = normaler Ordner."""
+    fl = {str(f).lstrip("\\").lower() for f in (flags or ())}
+    if "noselect" in fl:
+        return "noselect"
+    for flag, kind in _FLAG_KIND.items():
+        if flag in fl:
+            return kind
+    return _special_kind(name.replace("/", ".").rsplit(".", 1)[-1]) or ""
 
 
 def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
