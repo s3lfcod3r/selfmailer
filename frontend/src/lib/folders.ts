@@ -52,6 +52,25 @@ function specialFromBackend(special?: string): SpecialKind | null {
   return special && BACKEND_SPECIAL_KINDS.has(special) ? (special as SpecialKind) : null;
 }
 
+// Provider-„Reste", die komplett aus der Sidebar fliegen (Regel 1): Gmail
+// „Alle Nachrichten" (all), „Markiert" (flagged) und „Wichtig" (important).
+// Diese sind keine echten Postfach-Ordner, sondern virtuelle Sichten; das Backend
+// liefert sie via SPECIAL-USE. Server ohne SPECIAL-USE setzen sie nie -> kein Risiko.
+const RESIDUAL_BACKEND_SPECIALS: ReadonlySet<string> = new Set([
+  "all", "flagged", "important",
+]);
+
+// Provider-„Reste" per Anzeigename (Regel 2): web.de „Postausgang" & Co. Solche
+// Outbox-Ordner sind im Webmailer nutzlos und werden ausgeblendet.
+const OUTBOX_NAME = /^(postausgang|outbox|ausgang|unsent( messages?)?|postausgangskorb)$/i;
+
+// Entscheidet, ob ein Wurzel-Ordner ein auszublendender Provider-Rest ist
+// (Regel 1: Backend-`special` ∈ all/flagged/important, oder Regel 2: Outbox-Name).
+export function isProviderResidual(node: FolderNode, rawSpecial?: string): boolean {
+  if (rawSpecial && RESIDUAL_BACKEND_SPECIALS.has(rawSpecial)) return true;
+  return OUTBOX_NAME.test(node.label);
+}
+
 // Kanonischer (Provider-Standard-)Name je Sonderordner-Art. Manche Server haben
 // mehrere Ordner derselben Art — z. B. web.de bringt sowohl "Entwürfe" (echter
 // Drafts-Ordner) als auch einen leeren "Entwurf" mit. Ohne Dedup würden BEIDE als
@@ -69,10 +88,12 @@ const CANONICAL_NAMES: Record<SpecialKind, RegExp> = {
   all: /(?!)/,
 };
 
-// Behält je Sonderordner-Art nur EINEN als special; weitere werden zu normalen
-// Ordnern (mit echtem Namen + Lösch-/Umbenennen-Optionen). Kanonischer Ordner =
-// exakter Standardname, sonst der erste.
-function dedupeSpecialKinds(roots: FolderNode[]): void {
+// Behält je Sonderordner-Art nur EINEN (den kanonischen); weitere Duplikate werden
+// AUSGEBLENDET (nicht als normaler Ordner gezeigt). Kanonischer Ordner = exakter
+// Standardname, sonst der erste. Deckt z. B. web.de „Entwurf" (2. drafts neben
+// „Entwürfe") ab. Liefert die auszublendenden Duplikat-Knoten zurück.
+function dedupeSpecialKinds(roots: FolderNode[]): Set<FolderNode> {
+  const hidden = new Set<FolderNode>();
   const byKind = new Map<SpecialKind, FolderNode[]>();
   for (const r of roots) {
     if (!r.special) continue;
@@ -83,8 +104,9 @@ function dedupeSpecialKinds(roots: FolderNode[]): void {
   for (const [kind, nodes] of byKind) {
     if (nodes.length < 2) continue;
     const canon = nodes.find((n) => CANONICAL_NAMES[kind].test(n.label)) ?? nodes[0];
-    for (const n of nodes) if (n !== canon) n.special = null;
+    for (const n of nodes) if (n !== canon) hidden.add(n);
   }
+  return hidden;
 }
 
 // Erkennt das Hierarchie-Trennzeichen: "/" (Gmail/Dovecot) oder "." (INBOX.Sent bei vielen Servern).
@@ -164,8 +186,14 @@ export function buildFolderTree(folders: FolderLike[]): FolderNode[] {
     }
   }
 
-  // Mehrfache Sonderordner derselben Art entdoppeln (nur einer bleibt special).
-  dedupeSpecialKinds(roots);
+  // Provider-„Reste" (Regel 1+2) komplett aus der Sidebar entfernen: Gmail
+  // all/flagged/important sowie Outbox-artige Ordner (web.de „Postausgang").
+  roots = roots.filter((r) => !isProviderResidual(r, backendSpecial.get(r.path)));
+
+  // Mehrfache Sonderordner derselben Art (Regel 3): nur der kanonische bleibt,
+  // die übrigen Duplikate werden ausgeblendet (nicht als normaler Ordner gezeigt).
+  const dupes = dedupeSpecialKinds(roots);
+  if (dupes.size) roots = roots.filter((r) => !dupes.has(r));
 
   roots.sort((a, b) => {
     const oa = a.special ? SPECIAL_ORDER[a.special] : 100;
