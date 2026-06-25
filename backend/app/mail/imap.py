@@ -656,7 +656,8 @@ def _special_kind(last_part: str) -> str | None:
 
 # IMAP SPECIAL-USE-Flags (RFC 6154) -> unsere special-Art. Vergleich case-
 # insensitiv und OHNE fuehrenden Backslash (siehe _folder_special).
-_FLAG_KIND = {"sent": "sent", "drafts": "drafts", "junk": "spam", "trash": "trash", "archive": "archive", "all": "all"}
+_FLAG_KIND = {"sent": "sent", "drafts": "drafts", "junk": "spam", "trash": "trash", "archive": "archive",
+              "all": "all", "flagged": "flagged", "important": "important"}
 
 
 def _folder_special(name: str, flags) -> str:
