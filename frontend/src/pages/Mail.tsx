@@ -126,7 +126,7 @@ function authView(auth: AuthInfo | null, de: boolean): AuthView {
   return { color, bg, border, icon, short, text, tip, chips };
 }
 
-export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean }) {
+export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true, onUnseenChange }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; onUnseenChange?: (total: number) => void }) {
   const { t, lang } = useLang();
   const de = lang === "de";
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -299,6 +299,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const hidden = hiddenByAcc[accId] || [];
     return (foldersByAcc[accId] || []).reduce((s, f) => s + (hidden.includes(f.name) ? 0 : (f.unseen || 0)), 0);
   }
+  // Gesamt-Ungelesen (alle Konten, ohne ausgeblendete Ordner) nach oben melden —
+  // fuer das Badge am Mail-Icon der oberen Navigation (auch ausserhalb des Mailbereichs).
+  useEffect(() => {
+    if (!onUnseenChange) return;
+    onUnseenChange(accounts.reduce((s, a) => s + rollupUnseen(a.id), 0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [foldersByAcc, accounts, hiddenByAcc, onUnseenChange]);
   // Ungelesen-Zaehler lokal anpassen (ohne erneuten IMAP-Abruf).
   function bumpUnseen(accId: number, path: string, delta: number) {
     setFoldersByAcc((m) => ({

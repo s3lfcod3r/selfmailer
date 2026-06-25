@@ -100,6 +100,8 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>("mail");
+  // Gesamt-Ungelesen (von Mail gemeldet) — Badge am Mail-Icon, auch ausserhalb des Mailbereichs.
+  const [mailUnseen, setMailUnseen] = useState(0);
   const [search, setSearch] = useState("");
   const [menu, setMenu] = useState<"apps" | "user" | "filter" | null>(null);
   const [filter, setFilter] = useState({ from: "", subject: "", dateFrom: "", dateTo: "", unread: false, starred: false, attachments: false });
@@ -221,9 +223,15 @@ export function App() {
             <button
               key={a.key}
               className={`icon-btn ${view === a.key ? "on" : ""}`}
+              style={a.key === "mail" ? { position: "relative" } : undefined}
               title={t(a.labelKey)}
               onClick={() => go(a.key)}
-            >{a.icon}</button>
+            >
+              {a.icon}
+              {a.key === "mail" && mailUnseen > 0 && (
+                <span className="nav-badge" aria-label={`${mailUnseen} ungelesen`}>{mailUnseen > 99 ? "99+" : mailUnseen}</span>
+              )}
+            </button>
           ))}
           <button className="user-chip" onClick={() => setMenu(menu === "user" ? null : "user")}>
             <span>👤</span>
@@ -340,7 +348,7 @@ export function App() {
         {/* Mail bleibt gemountet (nur versteckt), damit beim Zurückwechseln
             nicht neu geladen wird – kein sichtbares Nachladen. */}
         <div style={{ display: view === "mail" ? "contents" : "none" }}>
-          <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} />
+          <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} onUnseenChange={setMailUnseen} />
         </div>
         <Suspense fallback={<div className="muted">{t("common.loading")}</div>}>
           {view === "calendar" && <Calendar />}
