@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { api, type Account } from "../lib/api";
+import { api, type Account, type FolderCount } from "../lib/api";
 import { useLang } from "../lib/i18n";
 
 type PushConfig = { enabled: boolean; ntfy_url: string; topic: string };
-type FolderCount = { name: string; unseen: number; total: number };
 
 function randomTopic(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(8));

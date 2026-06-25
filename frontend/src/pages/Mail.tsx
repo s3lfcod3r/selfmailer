@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult } from "../lib/api";
+import { api, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
 
-type FolderCount = { name: string; unseen: number; total: number };
 type Sel = { acc: number; folder: string };
 
 const PAGE_SIZE = 50;  // Mails pro Seite
@@ -268,7 +267,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
 
   const treesByAcc = useMemo(() => {
     const out: Record<number, FolderNode[]> = {};
-    for (const [id, fcs] of Object.entries(foldersByAcc)) out[Number(id)] = buildFolderTree(fcs.map((f) => f.name));
+    // Ganze Folder-Objekte (inkl. Backend-`special`) uebergeben, damit der Baum
+    // Sonderordner provider-einheitlich erkennt (statt nur per Namens-Heuristik).
+    for (const [id, fcs] of Object.entries(foldersByAcc)) out[Number(id)] = buildFolderTree(fcs);
     return out;
   }, [foldersByAcc]);
 
@@ -809,9 +810,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     return <p className="muted">{t("mail.noAccount")}</p>;
   }
 
-  const folderNames = (foldersByAcc[activeId ?? -1] || []).map((f) => f.name);
-  // Spam-Ordner des aktiven Kontos (für den Spam-Button) per Sonderordner-Heuristik.
-  const spamFolder = folderNames.find((f) => specialKind(f.split(/[/.]/).pop() || f) === "spam");
+  const activeFolders = foldersByAcc[activeId ?? -1] || [];
+  const folderNames = activeFolders.map((f) => f.name);
+  // Spam-Ordner des aktiven Kontos (für den Spam-Button): Backend-`special`
+  // bevorzugen, sonst auf die Namens-Heuristik zurueckfallen.
+  const spamFolder = (
+    activeFolders.find((f) => f.special === "spam")?.name ??
+    folderNames.find((f) => specialKind(f.split(/[/.]/).pop() || f) === "spam")
+  );
 
   const visible = messages
     .filter((m) => !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))

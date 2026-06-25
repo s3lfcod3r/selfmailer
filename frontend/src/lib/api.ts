@@ -138,6 +138,13 @@ export type Rule = {
 export type SyncResult = {
   ok: boolean; imported: number; updated: number; removed: number; error: string;
 };
+// Ordnerzaehler je IMAP-Ordner. `special` markiert provider-einheitlich die Art
+// des Sonderordners (SPECIAL-USE bzw. Backend-Heuristik):
+//   "inbox"|"drafts"|"sent"|"spam"|"trash"|"archive" = einheitliche Sondergruppe (oben),
+//   "all"     = Gmail „Alle Nachrichten" (als normaler Ordner fuehren, NICHT oben),
+//   "noselect"= nicht-selektierbarer Container (z. B. Gmail „[Gmail]") -> aufloesen,
+//   ""        = normaler Ordner (dann greift die Namens-Heuristik im Frontend).
+export type FolderCount = { name: string; unseen: number; total: number; special?: string };
 export type MigrateFolder = { source: string; dest: string; count: number; copied: number; skipped: number };
 export type MigrateResult = { folders: MigrateFolder[]; errors: string[]; dry_run: boolean };
 export type TransferResult = { copied: number; skipped: number; deleted: number; errors: string[] };

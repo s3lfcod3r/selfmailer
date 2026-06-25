@@ -1,7 +1,10 @@
 // Baut aus flachen IMAP-Ordnernamen einen Hierarchie-Baum und erkennt Sonderordner
 // (Posteingang/Entwürfe/Gesendet/Spam/Papierkorb/Archiv) per Namensheuristik (DE+EN).
 
-export type SpecialKind = "inbox" | "drafts" | "sent" | "spam" | "trash" | "archive";
+// Die 6 oberen Sonderordner bilden die einheitliche Gruppe (in dieser Reihenfolge).
+// "all" = Gmail „Alle Nachrichten" — eigene Art, wird aber UNTEN bei den normalen
+// Ordnern gefuehrt (eigenes Icon), NICHT in der oberen Gruppe.
+export type SpecialKind = "inbox" | "drafts" | "sent" | "spam" | "trash" | "archive" | "all";
 
 export type FolderNode = {
   path: string; // voller IMAP-Name (für API-Aufrufe)
@@ -9,6 +12,10 @@ export type FolderNode = {
   children: FolderNode[];
   special: SpecialKind | null;
 };
+
+// Minimal-Form eines Ordners, wie buildFolderTree ihn braucht: voller IMAP-Name
+// plus optional die vom Backend gelieferte Sonderordner-Art (`special`).
+export type FolderLike = { name: string; special?: string };
 
 const SPECIAL_PATTERNS: [SpecialKind, RegExp][] = [
   ["inbox", /^inbox$/i],
@@ -19,18 +26,30 @@ const SPECIAL_PATTERNS: [SpecialKind, RegExp][] = [
   ["archive", /^(archive|archiv|archiviert)$/i],
 ];
 
-// Reihenfolge der Sonderordner in der Sidebar (Posteingang zuerst).
+// Reihenfolge der Sonderordner in der Sidebar (Posteingang zuerst). "all" gehoert
+// NICHT in die obere Gruppe -> hoher Wert, damit es bei den normalen Ordnern landet.
 export const SPECIAL_ORDER: Record<SpecialKind, number> = {
-  inbox: 0, drafts: 1, sent: 2, spam: 3, trash: 4, archive: 5,
+  inbox: 0, drafts: 1, sent: 2, spam: 3, trash: 4, archive: 5, all: 100,
 };
 
 export const SPECIAL_ICON: Record<SpecialKind, string> = {
-  inbox: "📥", drafts: "📝", sent: "📤", spam: "🚫", trash: "🗑", archive: "📦",
+  inbox: "📥", drafts: "📝", sent: "📤", spam: "🚫", trash: "🗑", archive: "📦", all: "📚",
 };
 
+// Namens-Heuristik (Fallback, wenn das Backend kein `special` liefert). Sie kennt
+// "all" NICHT — diese Art kann nur das Backend setzen.
 export function specialKind(lastPart: string): SpecialKind | null {
   for (const [kind, re] of SPECIAL_PATTERNS) if (re.test(lastPart)) return kind;
   return null;
+}
+
+// Backend-`special`-String auf eine bekannte SpecialKind abbilden (oder null).
+// "noselect" wird hier NICHT abgebildet (das ist ein Container, kein Sonderordner).
+const BACKEND_SPECIAL_KINDS: ReadonlySet<string> = new Set([
+  "inbox", "drafts", "sent", "spam", "trash", "archive", "all",
+]);
+function specialFromBackend(special?: string): SpecialKind | null {
+  return special && BACKEND_SPECIAL_KINDS.has(special) ? (special as SpecialKind) : null;
 }
 
 // Kanonischer (Provider-Standard-)Name je Sonderordner-Art. Manche Server haben
@@ -45,6 +64,9 @@ const CANONICAL_NAMES: Record<SpecialKind, RegExp> = {
   spam: /^(spam|junk|junk[- ]?e-?mail)$/i,
   trash: /^(trash|deleted items|papierkorb)$/i,
   archive: /^(archive|archiv)$/i,
+  // "all" kommt nur vom Backend und kann nicht heuristisch doppelt entstehen;
+  // ein nie matchender Eintrag haelt nur den Record-Typ vollstaendig.
+  all: /(?!)/,
 };
 
 // Behält je Sonderordner-Art nur EINEN als special; weitere werden zu normalen
@@ -81,10 +103,18 @@ function detectDelimiter(names: string[]): string {
   return "/";
 }
 
-export function buildFolderTree(names: string[]): FolderNode[] {
+export function buildFolderTree(folders: FolderLike[]): FolderNode[] {
+  const names = folders.map((f) => f.name);
   const delim = detectDelimiter(names);
-  const roots: FolderNode[] = [];
+  // Backend-`special` je voller IMAP-Name (zum provider-einheitlichen Erkennen).
+  const backendSpecial = new Map<string, string>();
+  for (const f of folders) if (f.special) backendSpecial.set(f.name, f.special);
+
+  let roots: FolderNode[] = [];
   const byPath = new Map<string, FolderNode>();
+  // Nicht-selektierbare Container (Gmail „[Gmail]") merken, um sie spaeter
+  // aufzuloesen (ihre Kinder werden auf die Wurzel-Ebene hochgezogen).
+  const containers: FolderNode[] = [];
 
   // Eltern vor Kindern einsortieren (nach Tiefe, dann alphabetisch).
   const sorted = [...names].sort(
@@ -94,8 +124,14 @@ export function buildFolderTree(names: string[]): FolderNode[] {
   for (const name of sorted) {
     const parts = name.split(delim);
     const last = parts[parts.length - 1] || name;
-    const node: FolderNode = { path: name, label: last, children: [], special: specialKind(last) };
+    const raw = backendSpecial.get(name);
+    const isContainer = raw === "noselect";
+    // Backend-`special` bevorzugen; nur wenn leer/unbekannt, Namens-Heuristik.
+    // Container (noselect) sind selbst kein Sonderordner (special = null).
+    const special = isContainer ? null : (specialFromBackend(raw) ?? specialKind(last));
+    const node: FolderNode = { path: name, label: last, children: [], special };
     byPath.set(name, node);
+    if (isContainer) containers.push(node);
     if (parts.length === 1) {
       roots.push(node);
     } else {
@@ -103,6 +139,18 @@ export function buildFolderTree(names: string[]): FolderNode[] {
       if (parent) parent.children.push(node);
       else roots.push(node); // verwaister Knoten ohne sichtbares Elternteil
     }
+  }
+
+  // Nicht-selektierbare Container (Gmail „[Gmail]") auflisten: der Container selbst
+  // verschwindet, seine Kinder ruecken auf die Wurzel-Ebene (so wird aus
+  // „[Gmail]/Gesendet" ein Wurzel-„Gesendet" → landet oben in der Sondergruppe).
+  if (containers.length) {
+    const drop = new Set(containers);
+    for (const c of containers) {
+      roots.push(...c.children); // Kinder hochziehen
+      c.children = [];
+    }
+    roots = roots.filter((r) => !drop.has(r)); // Container-Knoten selbst entfernen
   }
 
   // Sonderordner, die technisch als INBOX-Unterordner liegen (web.de: INBOX.Sent …),
