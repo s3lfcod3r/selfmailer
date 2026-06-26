@@ -19,8 +19,9 @@ from . import fcm as fcm_mod
 logger = logging.getLogger(__name__)
 
 
-def _preview(session: Session, account: MailAccount, folder: str, count: int) -> tuple[str, str]:
-    """Liefert (Titel, Text) fuer die Benachrichtigung."""
+def _preview(session: Session, account: MailAccount, folder: str, count: int) -> tuple[str, str, str | None]:
+    """Liefert (Titel, Text, uid) fuer die Benachrichtigung — uid = neueste
+    ungelesene Mail (fuer den Deep-Link „direkt zur Nachricht")."""
     label = account.label or account.email
     leaf = folder.rsplit("/", 1)[-1].rsplit(".", 1)[-1]
     is_inbox = folder.upper().endswith("INBOX")
@@ -43,7 +44,7 @@ def _preview(session: Session, account: MailAccount, folder: str, count: int) ->
         text = f"{count} neue E-Mails"
     if not is_inbox:
         text = f"{text} · {leaf}"
-    return label, text
+    return label, text, (msg.uid if msg is not None else None)
 
 
 def _push_ntfy(session: Session, account: MailAccount, title: str, text: str) -> None:
@@ -64,10 +65,10 @@ def _push_ntfy(session: Session, account: MailAccount, title: str, text: str) ->
 
 
 def push_new_mail(session: Session, account: MailAccount, folder: str, count: int) -> None:
-    title, text = _preview(session, account, folder, count)
+    title, text, uid = _preview(session, account, folder, count)
     _push_ntfy(session, account, title, text)
     try:
-        fcm_mod.notify(session, account.user_id, title, text, account_id=account.id, folder=folder)
+        fcm_mod.notify(session, account.user_id, title, text, account_id=account.id, folder=folder, uid=uid)
     except Exception:  # noqa: BLE001 - FCM ist best-effort
         logger.warning("FCM-Push fehlgeschlagen (user_id=%s)", account.user_id, exc_info=True)
 

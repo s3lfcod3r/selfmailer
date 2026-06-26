@@ -129,6 +129,7 @@ def notify(
     body: str,
     account_id: int | None = None,
     folder: str | None = None,
+    uid: str | None = None,
 ) -> None:
     """Neue-Mail-Push (data-only)."""
     data: dict[str, str] = {"type": "mail", "title": title, "body": body}
@@ -136,6 +137,8 @@ def notify(
         data["account_id"] = str(account_id)
     if folder:
         data["folder"] = folder
+    if uid:
+        data["uid"] = uid
     _send_all(session, user_id, data)
 
 
