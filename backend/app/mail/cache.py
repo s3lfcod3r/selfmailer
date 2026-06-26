@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from email.utils import parsedate_to_datetime
 
 from imap_tools import AND
 from sqlalchemy import update
@@ -35,6 +36,39 @@ def _as_utc(value: dt.datetime | None) -> dt.datetime | None:
     if value is None:
         return None
     return value.replace(tzinfo=dt.timezone.utc) if value.tzinfo is None else value
+
+
+def _to_utc_naive(value: dt.datetime | None) -> dt.datetime | None:
+    """Sortier-Datum auf NAIVE UTC normalisieren. Sonst mischen sich timezone-aware
+    Header (z. B. +0200/GMT) und naive (z. B. '-0000' oder ohne Offset) — SQLite
+    vergleicht dann die lokale Uhrzeit-Komponente statt des absoluten Zeitpunkts und
+    sortiert falsch (Uhrzeit zerwuerfelt). Aware -> nach UTC umrechnen + tz entfernen;
+    naive bleibt (RFC '-0000' meint bereits UTC)."""
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def backfill_sort_dates(session: Session) -> int:
+    """Einmalige Reparatur: bestehende sort_date aus dem gespeicherten Header (date_str)
+    NEU parsen + auf naive UTC normalisieren. Behebt falsch sortierte Altbestaende
+    (gemischte Zeitzonen). Idempotent; liefert die Anzahl korrigierter Zeilen."""
+    fixed = 0
+    rows = session.exec(select(CachedMessage).where(CachedMessage.date_str != "")).all()
+    for r in rows:
+        try:
+            d = _to_utc_naive(parsedate_to_datetime(r.date_str))
+        except (TypeError, ValueError):
+            continue
+        if d is not None and r.sort_date != d:
+            r.sort_date = d
+            session.add(r)
+            fixed += 1
+    if fixed:
+        session.commit()
+    return fixed
 
 
 def _to_dict(r: CachedMessage) -> dict:
@@ -346,7 +380,7 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                 session.add(CachedMessage(
                     account_id=account.id, folder=folder, uid=msg.uid,
                     subject=msg.subject or "", from_addr=msg.from_ or "", date_str=msg.date_str or "",
-                    sort_date=msg.date, seen=SEEN in msg.flags, flagged=FLAGGED in msg.flags,
+                    sort_date=_to_utc_naive(msg.date), seen=SEEN in msg.flags, flagged=FLAGGED in msg.flags,
                     snippet=_snippet(msg.text or "", msg.html or ""), has_attachments=bool(msg.attachments),
                 ))
                 added += 1

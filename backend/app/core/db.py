@@ -151,6 +151,24 @@ def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _ensure_columns()
     _ensure_indexes()
+    _run_one_time_backfills()
+
+
+def _run_one_time_backfills() -> None:
+    """Einmalige Daten-Reparaturen, gesteuert ueber PRAGMA user_version (jeder Schritt
+    laeuft nur einmal pro DB)."""
+    with engine.begin() as conn:
+        ver = int(conn.execute(text("PRAGMA user_version")).scalar() or 0)
+    if ver < 1:
+        # v1: falsch sortierte sort_date (gemischte Zeitzonen) aus date_str neu setzen.
+        from ..mail.cache import backfill_sort_dates
+        try:
+            with Session(engine) as s:
+                backfill_sort_dates(s)
+        except Exception:  # noqa: BLE001 - Reparatur darf den Start nie blockieren
+            pass
+        with engine.begin() as conn:
+            conn.execute(text("PRAGMA user_version = 1"))
 
 
 def get_session() -> Iterator[Session]:
