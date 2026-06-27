@@ -4,6 +4,9 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+.coverage
+.pytest_cache/
+htmlcov/
 
 # Daten / Secrets
 backend/data/

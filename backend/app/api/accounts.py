@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 
 from ..core.crypto import decrypt, encrypt
 from ..core.db import get_session
+from ..dav.client import DavUrlError, validate_external_url
 from ..mail import imap as imap_mod
 from ..models import (
     CachedFolder,
@@ -38,6 +39,24 @@ def _owned(account_id: int, user: User, session: Session) -> MailAccount:
     return acc
 
 
+def _check_mail_host(label: str, host: str, port: int) -> None:
+    """SSRF-Schutz: der Server verbindet sich serverseitig zu imap_host/smtp_host.
+    Ohne Pruefung koennte ein angemeldeter Nutzer interne Ziele (Loopback,
+    link-local 169.254.169.254 Cloud-Metadata, LAN) ansteuern. Dieselbe
+    Blockliste/DNS-Aufloesung wie bei DAV/ntfy wiederverwenden. Eine ``http``-
+    URL ist nur Traeger fuer Host+Port — geprueft wird die aufgeloeste IP, nicht
+    das Schema."""
+    host = (host or "").strip()
+    if not host:
+        return
+    try:
+        validate_external_url(f"http://{host}:{port}/")
+    except DavUrlError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"{label} nicht erlaubt: {exc}"
+        ) from exc
+
+
 @router.get("", response_model=list[AccountOut])
 def list_accounts(
     user: User = Depends(get_current_user), session: Session = Depends(get_session)
@@ -51,6 +70,8 @@ def add_account(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> MailAccount:
+    _check_mail_host("IMAP-Host", data.imap_host, data.imap_port)
+    _check_mail_host("SMTP-Host", data.smtp_host, data.smtp_port)
     acc = MailAccount(
         user_id=user.id,
         label=data.label or data.email,
@@ -82,6 +103,20 @@ def update_account(
     acc = _owned(account_id, user, session)
     fields = data.model_dump(exclude_unset=True)
     password = fields.pop("password", None)
+    # SSRF: geaenderte Hosts/Ports gegen die effektiven Werte pruefen, bevor sie
+    # gespeichert und spaeter serverseitig angesteuert werden.
+    if "imap_host" in fields or "imap_port" in fields:
+        _check_mail_host(
+            "IMAP-Host",
+            fields.get("imap_host", acc.imap_host),
+            fields.get("imap_port", acc.imap_port),
+        )
+    if "smtp_host" in fields or "smtp_port" in fields:
+        _check_mail_host(
+            "SMTP-Host",
+            fields.get("smtp_host", acc.smtp_host),
+            fields.get("smtp_port", acc.smtp_port),
+        )
     if password:  # leeres Passwort = Zugangsdaten nicht aendern
         acc.secret_enc = encrypt(password)
     for field, value in fields.items():

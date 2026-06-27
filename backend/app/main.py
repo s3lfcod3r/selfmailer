@@ -52,7 +52,10 @@ async def lifespan(app: FastAPI):
         stop_scheduler()
 
 
-app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+# Eine einzige Versionsquelle — muss zum README-Badge und der UI passen.
+APP_VERSION = "1.12.0"
+
+app = FastAPI(title=settings.app_name, version=APP_VERSION, lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -102,7 +105,7 @@ APP_BUILD = "2026-06-22-cal-timewindow-age"
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "app": settings.app_name, "version": "0.1.0", "build": APP_BUILD}
+    return {"status": "ok", "app": settings.app_name, "version": APP_VERSION, "build": APP_BUILD}
 
 
 # Optionales Static-Frontend (Produktion). Der Pfad unterscheidet sich je nach

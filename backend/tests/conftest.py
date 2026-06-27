@@ -29,13 +29,17 @@ import app.api.auth as _auth  # noqa: E402
 
 _auth.check_rate_limit = lambda *a, **k: None  # type: ignore[assignment]
 
-# SSRF-Pruefung in Tests neutralisieren: die Test-URLs (z. B. ntfy.example.com)
-# sind Fakes, die in einer CI-Umgebung nicht aufloesen und sonst — voellig
-# korrekt — als "nicht erlaubt" (400) abgelehnt wuerden. Der SSRF-Schutz selbst
-# ist nicht Gegenstand dieser Endpunkt-Tests.
+# SSRF-Pruefung in Tests neutralisieren: die Test-URLs/-Hosts (z. B.
+# ntfy.example.com, imap.example.com) sind Fakes, die in einer CI-Umgebung nicht
+# aufloesen und sonst — voellig korrekt — als "nicht erlaubt" (400) abgelehnt
+# wuerden. Der SSRF-Schutz selbst ist nicht Gegenstand dieser Endpunkt-Tests
+# (er hat eigene Abdeckung). Sowohl push (ntfy-URL) als auch accounts
+# (imap_host/smtp_host) importieren den Validator in ihren Modul-Namensraum.
 import app.api.push as _push  # noqa: E402
+import app.api.accounts as _accounts  # noqa: E402
 
 _push.validate_external_url = lambda *a, **k: None  # type: ignore[assignment]
+_accounts.validate_external_url = lambda *a, **k: None  # type: ignore[assignment]
 
 init_db()
 
