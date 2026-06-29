@@ -89,6 +89,10 @@ class MailAccount(SQLModel, table=True):
     # Basis fuer Push: zuletzt per ntfy gemeldete INBOX-Ungelesen-Zahl. -1 = noch
     # nie beobachtet (erster Lauf setzt nur die Basis, ohne zu pushen).
     last_notified_unseen: int = -1
+    # Spam-Ordner automatisch endgueltig leeren (Hintergrund-Sync):
+    #   -1 = aus | 0 = sofort (jede Mail im Spam loeschen) | N>0 = nur Mails aelter
+    #   als N Tage. Endgueltige Loeschung (expunge), nicht in den Papierkorb.
+    spam_purge_days: int = -1
     created_at: dt.datetime = Field(default_factory=_now)
 
 
@@ -204,11 +208,14 @@ class MailRule(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     account_id: int = Field(index=True, foreign_key="mailaccount.id")
-    field: str = "from"                 # from | to | subject
+    field: str = "from"                 # from | from_domain | to | subject
     value: str = ""                     # Suchwert (Teilstring, case-insensitiv)
     target_folder: str = ""             # Zielordner für "Verschieben" (leer = nicht verschieben)
     mark_read: bool = False
     star: bool = False
+    # Endgueltig loeschen (expunge) statt verschieben. Hat Vorrang vor target_folder
+    # und mark_read/star — eine getroffene Mail ist danach unwiderruflich weg.
+    delete_msg: bool = False
     enabled: bool = True
     position: int = 0                   # Reihenfolge (kleiner = früher geprüft)
     created_at: dt.datetime = Field(default_factory=_now)

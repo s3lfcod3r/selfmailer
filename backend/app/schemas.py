@@ -125,6 +125,7 @@ class AccountOut(BaseModel):
     smtp_starttls: bool = True
     auth_user: str = ""
     signature: str = ""
+    spam_purge_days: int = -1
 
 
 class AccountUpdate(BaseModel):
@@ -145,6 +146,8 @@ class AccountUpdate(BaseModel):
     auth_user: str | None = None
     signature: str | None = None
     password: str | None = None
+    # -1 = aus | 0 = sofort | N>0 = Mails aelter als N Tage endgueltig loeschen
+    spam_purge_days: int | None = Field(default=None, ge=-1, le=3650)
 
 
 # ---- Mail ----------------------------------------------------------------
@@ -219,6 +222,7 @@ class RuleCreate(BaseModel):
     target_folder: str = ""
     mark_read: bool = False
     star: bool = False
+    delete_msg: bool = False
 
 
 class MigrateRequest(BaseModel):
@@ -254,6 +258,7 @@ class RuleUpdate(BaseModel):
     target_folder: str | None = None
     mark_read: bool | None = None
     star: bool | None = None
+    delete_msg: bool | None = None
     enabled: bool | None = None
 
 
@@ -264,8 +269,26 @@ class RuleOut(BaseModel):
     target_folder: str
     mark_read: bool
     star: bool
+    delete_msg: bool
     enabled: bool
     position: int
+
+
+class BlockSenderRequest(BaseModel):
+    """Absender blockieren: legt eine Loesch-Regel an und raeumt optional die schon
+    vorhandenen Mails dieses Absenders sofort weg."""
+    sender: str                          # E-Mail-Adresse oder Anzeigename (Teilstring)
+    by_domain: bool = False              # True = ganze Absender-Domain blockieren
+    delete_existing: bool = True         # vorhandene Mails sofort endgueltig loeschen
+
+
+class BlockSenderResult(BaseModel):
+    rule: RuleOut
+    deleted: int                         # sofort entfernte vorhandene Mails
+
+
+class SpamPurgeResult(BaseModel):
+    deleted: int
 
 
 # ---- Notizen -------------------------------------------------------------

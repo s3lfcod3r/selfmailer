@@ -3,17 +3,21 @@ Threadpool). Verbindungen sind kurzlebig: oeffnen, lesen, schliessen.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import threading
 import time
 from contextlib import contextmanager
 from collections.abc import Iterator
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 
 from imap_tools import MailBox, AND
 
 from ..models import MailAccount
+
+logger = logging.getLogger(__name__)
 
 # IMAP-System-Flags (Backslash literal -> Raw-Strings).
 SEEN = r"\Seen"
@@ -451,6 +455,90 @@ def _trash_folder(box: MailBox, current: str) -> str | None:
     return None
 
 
+def _spam_folder(box: MailBox) -> str | None:
+    """Findet den Spam/Junk-Ordner: erst per SPECIAL-USE-Flag \\Junk, dann per
+    Namensheuristik (nutzt dieselbe Erkennung wie die Ordnerzaehler)."""
+    names: list[str] = []
+    for f in box.folder.list():
+        flags = " ".join(getattr(f, "flags", ()) or ()).lower()
+        if "\\junk" in flags:
+            return f.name
+        names.append(f.name)
+    for name in names:
+        last = name.replace("/", ".").rsplit(".", 1)[-1]
+        if _special_kind(last) == "spam":
+            return name
+    return None
+
+
+def _find_spam_folder(account: MailAccount, password: str) -> str | None:
+    """Spam-Ordnernamen ermitteln (eigener kurzer Kontext, damit der Verbindungs-
+    Pool den selektierten Ordner sauber verwaltet)."""
+    with _mailbox(account, password) as box:
+        return _spam_folder(box)
+
+
+def purge_spam(account: MailAccount, password: str, older_than_days: int) -> dict:
+    """Loescht Mails im Spam/Junk-Ordner ENDGUELTIG (expunge).
+
+    older_than_days: 0 = alle Spam-Mails | N>0 = nur Mails aelter als N Tage |
+    negativ = nichts tun. Liefert {deleted}.
+    """
+    if older_than_days < 0:
+        return {"deleted": 0}
+    spam = _find_spam_folder(account, password)
+    if not spam:
+        return {"deleted": 0}
+    with _mailbox(account, password, folder=spam) as box:
+        if older_than_days == 0:
+            criteria = AND(all=True)
+        else:
+            cutoff = (datetime.now() - timedelta(days=older_than_days)).date()
+            criteria = AND(date_lt=cutoff)
+        uids = [m.uid for m in box.fetch(criteria, mark_seen=False, headers_only=True, bulk=True) if m.uid]
+        if uids:
+            box.delete(uids)
+        return {"deleted": len(uids)}
+
+
+def delete_by_sender(
+    account: MailAccount, password: str, sender: str, *, by_domain: bool = False,
+    folders: list[str] | None = None,
+) -> dict:
+    """Loescht vorhandene Mails eines Absenders ENDGUELTIG in den genannten Ordnern.
+
+    sender ist ein Teilstring (Adresse/Anzeigename bzw. Domain bei by_domain).
+    folders=None -> Posteingang + Spam-Ordner (falls vorhanden). Ein Fehler in
+    einem Ordner kippt die anderen nicht.
+    """
+    term = (sender or "").strip().lower()
+    if not term:
+        return {"deleted": 0}
+    if folders is None:
+        spam = _find_spam_folder(account, password)
+        folders = ["INBOX"] + ([spam] if spam and spam != "INBOX" else [])
+    total = 0
+    for folder in folders:
+        try:
+            with _mailbox(account, password, folder=folder) as box:
+                to_del: list[str] = []
+                for msg in box.fetch(AND(all=True), reverse=True, mark_seen=False, limit=2000, headers_only=True, bulk=True):
+                    if by_domain:
+                        hay = (msg.from_ or "").rsplit("@", 1)[-1].lower()
+                    else:
+                        fv = getattr(msg, "from_values", None)
+                        name = getattr(fv, "name", "") if fv else ""
+                        hay = f"{msg.from_ or ''} {name}".lower()
+                    if msg.uid and term in hay:
+                        to_del.append(msg.uid)
+                if to_del:
+                    box.delete(to_del)
+                    total += len(to_del)
+        except Exception:  # noqa: BLE001 - ein Ordner darf den Rest nicht kippen
+            logger.warning("delete_by_sender fehlgeschlagen (account_id=%s, folder=%s)", account.id, folder, exc_info=True)
+    return {"deleted": total}
+
+
 def delete_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> str:
     """In den Papierkorb verschieben; ist keiner da (oder schon im Papierkorb) -> hart loeschen."""
     with _mailbox(account, password, folder=folder) as box:
@@ -713,7 +801,14 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
                 if msg.uid and any(term in hay for term in terms):
                     matches.append((msg.uid, rule))
                     break  # erste passende Regel gewinnt
+        to_delete: list[str] = []
         for uid, rule in matches:
+            # "Loeschen" hat Vorrang vor allen anderen Aktionen: getroffene Mail
+            # wird endgueltig entfernt, daher kein Verschieben/Markieren mehr.
+            if getattr(rule, "delete_msg", False):
+                to_delete.append(uid)
+                affected += 1
+                continue
             try:
                 if getattr(rule, "star", False):
                     box.flag(uid, FLAGGED, True)
@@ -725,6 +820,14 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
             except Exception as exc:  # noqa: BLE001 - einzelne Aktion darf scheitern
                 if len(errors) < 3:
                     errors.append(f"{getattr(rule, 'target_folder', '')}: {type(exc).__name__}: {exc}")
+        # Loeschungen gebuendelt (ein STORE+EXPUNGE statt N Round-Trips).
+        if to_delete:
+            try:
+                box.delete(to_delete)
+            except Exception as exc:  # noqa: BLE001
+                affected -= len(to_delete)
+                if len(errors) < 3:
+                    errors.append(f"delete: {type(exc).__name__}: {exc}")
     return {"affected": affected, "matched": len(matches), "errors": errors}
 
 

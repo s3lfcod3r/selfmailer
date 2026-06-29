@@ -662,6 +662,22 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     } catch (e) { setErr((e as Error).message); }
   }
 
+  async function blockSender() {
+    if (activeId == null || !open) return;
+    const addr = parseAddr(open.from).email.trim();
+    if (!addr) return;
+    if (!(await askConfirm(t("mail.blockConfirm", { sender: addr })))) return;
+    setErr("");
+    const acc = activeId, lower = addr.toLowerCase();
+    try {
+      await api.post(`/mail/${acc}/block-sender`, { sender: addr, delete_existing: true });
+      // Sichtbare Mails dieses Absenders sofort aus der Liste nehmen + Lesefenster schliessen.
+      setMessages((ms) => ms.filter((x) => !parseAddr(x.from).email.toLowerCase().includes(lower)));
+      setOpen(null);
+      refreshCounts(acc);
+    } catch (e) { setErr((e as Error).message); }
+  }
+
   function toggleSelect(uid: string) {
     setSelected((s) => { const n = new Set(s); if (n.has(uid)) n.delete(uid); else n.add(uid); return n; });
   }
@@ -1136,6 +1152,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                           {contactSaved ? "✓" : "👤"} {contactSaved ? t("mail.contactSaved") : t("mail.addContact")}
                         </button>
                         <button onClick={() => { markUnread(open.uid); setReadMenu(false); }}>● {t("mail.markUnread")}</button>
+                        <button className="read-menu-danger" onClick={() => { setReadMenu(false); blockSender(); }}>🚫 {t("mail.blockSender")}</button>
                         <button onClick={() => { setReadMenu(false); if (activeId != null) openTransfer(activeId, folder, [open.uid]); }}>↪ {t("xfer.toAccount")}</button>
                         {folderNames.length > 1 && (
                           <label className="read-menu-move">

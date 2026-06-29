@@ -91,6 +91,8 @@ export type Account = {
   imap_host: string; imap_port: number; imap_ssl: boolean;
   smtp_host: string; smtp_port: number; smtp_starttls: boolean;
   auth_user: string; signature: string;
+  // -1 = aus | 0 = sofort | N>0 = Spam-Mails aelter als N Tage endgueltig loeschen
+  spam_purge_days: number;
 };
 export type MsgHeader = {
   uid: string; subject: string; from: string; date: string; seen: boolean; flagged: boolean;
@@ -133,7 +135,7 @@ export type DavAccount = {
 export type FeedToken = { token: string; calendar_url: string; contacts_url: string };
 export type Rule = {
   id: number; field: string; value: string; target_folder: string;
-  mark_read: boolean; star: boolean; enabled: boolean; position: number;
+  mark_read: boolean; star: boolean; delete_msg: boolean; enabled: boolean; position: number;
 };
 export type SyncResult = {
   ok: boolean; imported: number; updated: number; removed: number; error: string;

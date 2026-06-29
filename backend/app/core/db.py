@@ -57,7 +57,12 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("bday_cal_id", "VARCHAR"),
         ("hidden_cals", "VARCHAR"),
     ],
-    "mailaccount": [("signature", "VARCHAR"), ("last_notified_unseen", "INTEGER DEFAULT -1")],
+    "mailaccount": [
+        ("signature", "VARCHAR"),
+        ("last_notified_unseen", "INTEGER DEFAULT -1"),
+        ("spam_purge_days", "INTEGER DEFAULT -1"),
+    ],
+    "mailrule": [("delete_msg", "INTEGER DEFAULT 0")],
     "cachedmessage": [("detail_json", "VARCHAR")],
     "cachedfolder": [("special", "VARCHAR")],
     "calendarevent": [

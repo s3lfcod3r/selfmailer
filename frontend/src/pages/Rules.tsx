@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type Account, type Rule } from "../lib/api";
 import { useLang } from "../lib/i18n";
 
-const EMPTY = { field: "from", value: "", target_folder: "", mark_read: false, star: false };
+const EMPTY = { field: "from", value: "", target_folder: "", mark_read: false, star: false, delete_msg: false };
 
 export function Rules() {
   const { t } = useLang();
@@ -36,7 +36,7 @@ export function Rules() {
     setErr(""); setMsg("");
     if (activeId == null) return;
     if (!form.value.trim()) { setErr(t("rules.needValue")); return; }
-    if (!form.target_folder && !form.mark_read && !form.star) { setErr(t("rules.needAction")); return; }
+    if (!form.target_folder && !form.mark_read && !form.star && !form.delete_msg) { setErr(t("rules.needAction")); return; }
     try {
       if (editId != null) await api.patch(`/mail/${activeId}/rules/${editId}`, form);
       else await api.post(`/mail/${activeId}/rules`, form);
@@ -46,7 +46,7 @@ export function Rules() {
   }
   function startEdit(r: Rule) {
     setEditId(r.id);
-    setForm({ field: r.field, value: r.value, target_folder: r.target_folder, mark_read: r.mark_read, star: r.star });
+    setForm({ field: r.field, value: r.value, target_folder: r.target_folder, mark_read: r.mark_read, star: r.star, delete_msg: r.delete_msg });
     setErr(""); setMsg("");
   }
   function cancelEdit() { setEditId(null); setForm({ ...EMPTY }); }
@@ -95,17 +95,20 @@ export function Rules() {
         </div>
         <div className="row">
           <label className="label" style={{ minWidth: 120 }}>{t("rules.moveTo")}</label>
-          <select value={form.target_folder} onChange={(e) => set("target_folder", e.target.value)}>
+          <select value={form.target_folder} disabled={form.delete_msg} onChange={(e) => set("target_folder", e.target.value)}>
             <option value="">— {t("rules.noMove")} —</option>
             {folders.map((f) => <option key={f} value={f}>{f}</option>)}
           </select>
         </div>
         <div className="row">
-          <label style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-            <input type="checkbox" style={{ width: "auto" }} checked={form.star} onChange={(e) => set("star", e.target.checked)} /> {t("rules.star")}
+          <label style={{ display: "flex", gap: "0.4rem", alignItems: "center", opacity: form.delete_msg ? 0.5 : 1 }}>
+            <input type="checkbox" style={{ width: "auto" }} disabled={form.delete_msg} checked={form.star} onChange={(e) => set("star", e.target.checked)} /> {t("rules.star")}
           </label>
-          <label style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-            <input type="checkbox" style={{ width: "auto" }} checked={form.mark_read} onChange={(e) => set("mark_read", e.target.checked)} /> {t("rules.markRead")}
+          <label style={{ display: "flex", gap: "0.4rem", alignItems: "center", opacity: form.delete_msg ? 0.5 : 1 }}>
+            <input type="checkbox" style={{ width: "auto" }} disabled={form.delete_msg} checked={form.mark_read} onChange={(e) => set("mark_read", e.target.checked)} /> {t("rules.markRead")}
+          </label>
+          <label style={{ display: "flex", gap: "0.4rem", alignItems: "center", color: "var(--self-danger, #d44)" }}>
+            <input type="checkbox" style={{ width: "auto" }} checked={form.delete_msg} onChange={(e) => set("delete_msg", e.target.checked)} /> {t("rules.delete")}
           </label>
           <span className="grow" />
           {editId != null && <button type="button" className="ghost" onClick={cancelEdit}>{t("common.cancel")}</button>}
@@ -131,7 +134,9 @@ export function Rules() {
                 {fieldLabel(r.field)} {t("rules.contains")} „{r.value}“
               </div>
               <div className="mail-from">
-                → {r.target_folder ? `${t("rules.moveTo")}: ${r.target_folder}` : ""}{r.star ? " ★" : ""}{r.mark_read ? ` · ${t("rules.markRead")}` : ""}
+                {r.delete_msg
+                  ? <span style={{ color: "var(--self-danger, #d44)", fontWeight: 600 }}>→ {t("rules.delete")}</span>
+                  : <>→ {r.target_folder ? `${t("rules.moveTo")}: ${r.target_folder}` : ""}{r.star ? " ★" : ""}{r.mark_read ? ` · ${t("rules.markRead")}` : ""}</>}
               </div>
             </div>
             <button className="ghost" onClick={() => startEdit(r)}>{t("rules.editBtn")}</button>

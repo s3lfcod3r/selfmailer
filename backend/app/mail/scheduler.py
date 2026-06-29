@@ -28,7 +28,7 @@ from sqlmodel import Session, select
 from ..core.crypto import decrypt
 from ..core.db import engine
 from ..events import bus
-from ..models import DavAccount, FolderNotify, MailAccount, User
+from ..models import DavAccount, FolderNotify, MailAccount, MailRule, User
 from . import cache as cache_mod
 from . import imap as imap_mod
 from . import push as push_mod
@@ -57,6 +57,29 @@ def _sync_account(acc: MailAccount) -> None:
     except Exception:  # noqa: BLE001 - z. B. Schluessel-Mismatch -> Konto ueberspringen
         logger.warning("Sync uebersprungen: Entschluesselung fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
         return
+
+    # 0) Filterregeln automatisch anwenden (loeschen/verschieben/markieren), BEVOR
+    #    der Cache gefuellt und gepusht wird — so taucht geblockter Spam gar nicht
+    #    erst als „neue Mail" auf. Danach ggf. den Spam-Ordner endgueltig leeren.
+    try:
+        with Session(engine) as s:
+            rules = list(
+                s.exec(
+                    select(MailRule)
+                    .where(MailRule.account_id == acc.id, MailRule.enabled == True)  # noqa: E712
+                    .order_by(MailRule.position, MailRule.id)
+                ).all()
+            )
+        if rules and not _stop.is_set():
+            imap_mod.apply_rules(acc, pw, rules)
+    except Exception:  # noqa: BLE001 - Regeln duerfen den Sync nie kippen
+        logger.warning("Auto-Regeln fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+
+    if acc.spam_purge_days >= 0 and not _stop.is_set():
+        try:
+            imap_mod.purge_spam(acc, pw, acc.spam_purge_days)
+        except Exception:  # noqa: BLE001 - Spam-Purge darf den Sync nie kippen
+            logger.warning("Spam-Auto-Purge fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
     # 1) Nachrichten der wichtigen Ordner (Delta-Sync fuellt CachedMessage + Counts).
     #    Kamen NEUE Mails an, sofort ein Live-Sync-Event senden, damit offene
