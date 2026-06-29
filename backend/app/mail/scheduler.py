@@ -81,6 +81,12 @@ def _sync_account(acc: MailAccount) -> None:
         except Exception:  # noqa: BLE001 - Spam-Purge darf den Sync nie kippen
             logger.warning("Spam-Auto-Purge fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
+    if acc.trash_purge_days >= 0 and not _stop.is_set():
+        try:
+            imap_mod.purge_trash(acc, pw, acc.trash_purge_days)
+        except Exception:  # noqa: BLE001 - Papierkorb-Purge darf den Sync nie kippen
+            logger.warning("Papierkorb-Auto-Purge fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+
     # 1) Nachrichten der wichtigen Ordner (Delta-Sync fuellt CachedMessage + Counts).
     #    Kamen NEUE Mails an, sofort ein Live-Sync-Event senden, damit offene
     #    Clients (Web/App) auffrischen — UNABHAENGIG von Benachrichtigungs-Ordnern.

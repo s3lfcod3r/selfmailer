@@ -6,7 +6,7 @@
 **Self-hosted, multi-user e-mail client — with calendar, contacts, notes, a native Android app, and real-time sync. Your own alternative to Synology MailPlus.**
 
 [![Build](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml/badge.svg)](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-1.13.0-33A78C)
+![Version](https://img.shields.io/badge/version-1.14.0-33A78C)
 ![License](https://img.shields.io/badge/license-private-8A9CAA)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-009688)
 ![Web](https://img.shields.io/badge/web-React%20%2B%20Vite-43D3AD)
@@ -41,7 +41,8 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
 - **Star**, mark read/unread, delete, **move**, **cross-account transfer**
 - **Multi-select** (long-press → select → bulk move / read / unread / star / delete)
 - **Filter rules** (move/star/mark/**delete** — applied automatically on every background sync) and **server-side mailbox migration**
-- **Block sender** in one click (auto-deletes existing + future mail) and **auto-empty spam** per account (off / immediately / after 7 / 30 days, permanent expunge)
+- **Block sender** in one click → mail goes to **trash** (existing + future); a **blocked-senders list** lets you undo any block, and the trash auto-empties after 7 days (safe 7-day undo window)
+- **Auto-empty spam & trash** per account (off / immediately / after 7 / 30 days)
 - **Search** with quick filters (unread · has attachment · starred), pagination, snippets
 - A local **SQLite cache** kept warm by a background sync → the UI never waits on a slow provider
 
@@ -284,7 +285,8 @@ Teil der **Self**-Reihe (SelfAuthenticator, SelfArchiver, SelfDashboard …) —
 - **Stern**, gelesen/ungelesen, löschen, **verschieben**, **Konto-übergreifend übertragen**
 - **Mehrfachauswahl** (lange drücken → auswählen → Sammelaktionen Verschieben/Gelesen/Ungelesen/Stern/Löschen)
 - **Filterregeln** (Verschieben/Stern/Gelesen/**Löschen** — werden bei jedem Hintergrund-Sync automatisch angewandt) und serverseitige **Postfach-Migration**
-- **Absender blockieren** per Klick (löscht vorhandene + künftige Mails automatisch) und **Spam automatisch leeren** je Konto (aus / sofort / nach 7 / 30 Tagen, endgültige Löschung)
+- **Absender blockieren** per Klick → Mails wandern in den **Papierkorb** (vorhandene + künftige); eine **Blacklist** zeigt alle Blockierungen und lässt sie wieder aufheben, der Papierkorb leert sich nach 7 Tagen (sicheres 7-Tage-Rückgängig-Fenster)
+- **Spam & Papierkorb automatisch leeren** je Konto (aus / sofort / nach 7 / 30 Tagen)
 - **Suche** mit Schnellfiltern (ungelesen · Anhang · Stern), Pagination, Vorschauen
 - Lokaler **SQLite-Cache**, vom Hintergrund-Sync warmgehalten → die UI wartet nie auf einen langsamen Provider
 

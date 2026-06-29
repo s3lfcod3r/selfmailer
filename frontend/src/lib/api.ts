@@ -91,8 +91,9 @@ export type Account = {
   imap_host: string; imap_port: number; imap_ssl: boolean;
   smtp_host: string; smtp_port: number; smtp_starttls: boolean;
   auth_user: string; signature: string;
-  // -1 = aus | 0 = sofort | N>0 = Spam-Mails aelter als N Tage endgueltig loeschen
+  // -1 = aus | 0 = sofort | N>0 = Mails aelter als N Tage endgueltig loeschen
   spam_purge_days: number;
+  trash_purge_days: number;
 };
 export type MsgHeader = {
   uid: string; subject: string; from: string; date: string; seen: boolean; flagged: boolean;

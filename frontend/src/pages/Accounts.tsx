@@ -10,13 +10,14 @@ type Form = {
   smtp_host: string; smtp_port: number; smtp_starttls: boolean;
   auth_user: string; protocol: string; signature: string;
   spam_purge_days: number;
+  trash_purge_days: number;
 };
 
 const EMPTY: Form = {
   label: "", email: "", password: "",
   imap_host: "", imap_port: 993, imap_ssl: true,
   smtp_host: "", smtp_port: 587, smtp_starttls: true,
-  auth_user: "", protocol: "imap", signature: "", spam_purge_days: -1,
+  auth_user: "", protocol: "imap", signature: "", spam_purge_days: -1, trash_purge_days: -1,
 };
 
 function formFrom(a: Account): Form {
@@ -26,6 +27,7 @@ function formFrom(a: Account): Form {
     smtp_host: a.smtp_host, smtp_port: a.smtp_port, smtp_starttls: a.smtp_starttls,
     auth_user: a.auth_user, protocol: a.protocol, signature: a.signature ?? "",
     spam_purge_days: a.spam_purge_days ?? -1,
+    trash_purge_days: a.trash_purge_days ?? -1,
   };
 }
 
@@ -78,6 +80,14 @@ export function Accounts() {
     try {
       const r = await api.post<{ deleted: number }>(`/mail/${a.id}/spam/purge`);
       setMsg(t("accounts.spamPurged", { n: r.deleted }));
+    } catch (e) { setErr((e as Error).message); }
+  }
+  async function purgeTrashNow(a: Account) {
+    if (!(await confirmDialog(t("accounts.trashPurgeConfirm")))) return;
+    setErr(""); setMsg(t("accounts.trashPurging"));
+    try {
+      const r = await api.post<{ deleted: number }>(`/mail/${a.id}/trash/purge`);
+      setMsg(t("accounts.trashPurged", { n: r.deleted }));
     } catch (e) { setErr((e as Error).message); }
   }
 
@@ -178,6 +188,21 @@ export function Accounts() {
                   </label>
                   <p className="mail-from" style={{ margin: "0.4rem 0 0.6rem" }}>{t("accounts.spamPurgeHint")}</p>
                   <button type="button" className="ghost" onClick={() => purgeSpamNow(a)}>{t("accounts.spamPurgeNow")}</button>
+                </fieldset>
+                <fieldset className="acc-fieldset">
+                  <legend>♻ {t("accounts.trashSection")}</legend>
+                  <label className="stack" style={{ gap: "0.35rem" }}>
+                    <span className="label">{t("accounts.trashPurgeLabel")}</span>
+                    <select value={editForm.trash_purge_days}
+                      onChange={(e) => setEditForm((f) => ({ ...f, trash_purge_days: Number(e.target.value) }))}>
+                      <option value={-1}>{t("accounts.spamOff")}</option>
+                      <option value={0}>{t("accounts.spamNow")}</option>
+                      <option value={7}>{t("accounts.spam7")}</option>
+                      <option value={30}>{t("accounts.spam30")}</option>
+                    </select>
+                  </label>
+                  <p className="mail-from" style={{ margin: "0.4rem 0 0.6rem" }}>{t("accounts.trashPurgeHint")}</p>
+                  <button type="button" className="ghost" onClick={() => purgeTrashNow(a)}>{t("accounts.trashPurgeNow")}</button>
                 </fieldset>
                 <div className="row">
                   <button className="ghost" onClick={() => test(a)}>{t("accounts.test")}</button>

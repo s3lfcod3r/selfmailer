@@ -72,6 +72,44 @@ def test_block_sender_creates_delete_rule_idempotent(client, admin, account):
     assert len(matching) == 1
 
 
+def test_account_trash_purge_days_roundtrip(client, admin, account):
+    accs = client.get("/api/v1/accounts", headers=admin).json()
+    me = next(a for a in accs if a["id"] == account)
+    assert me["trash_purge_days"] == -1
+
+    r = client.patch(f"/api/v1/accounts/{account}", headers=admin, json={"trash_purge_days": 30})
+    assert r.status_code == 200, r.text
+    assert r.json()["trash_purge_days"] == 30
+
+    r = client.patch(f"/api/v1/accounts/{account}", headers=admin, json={"trash_purge_days": -5})
+    assert r.status_code == 422
+
+
+def test_block_sender_sets_trash_reue_window(client, admin, account):
+    # Frisches Konto: Papierkorb-Auto-Purge aus (-1)
+    accs = client.get("/api/v1/accounts", headers=admin).json()
+    assert next(a for a in accs if a["id"] == account)["trash_purge_days"] == -1
+
+    # Blockieren (ohne IMAP-Zugriff) setzt das 7-Tage-Reue-Fenster
+    r = client.post(f"/api/v1/mail/{account}/block-sender", headers=admin, json={
+        "sender": "x@y.example", "delete_existing": False,
+    })
+    assert r.status_code == 200, r.text
+
+    accs = client.get("/api/v1/accounts", headers=admin).json()
+    assert next(a for a in accs if a["id"] == account)["trash_purge_days"] == 7
+
+
+def test_block_sender_keeps_existing_trash_setting(client, admin, account):
+    # Hat der Nutzer bereits einen Wert gesetzt (z. B. 30), überschreibt Blockieren ihn NICHT
+    client.patch(f"/api/v1/accounts/{account}", headers=admin, json={"trash_purge_days": 30})
+    client.post(f"/api/v1/mail/{account}/block-sender", headers=admin, json={
+        "sender": "z@y.example", "delete_existing": False,
+    })
+    accs = client.get("/api/v1/accounts", headers=admin).json()
+    assert next(a for a in accs if a["id"] == account)["trash_purge_days"] == 30
+
+
 def test_block_sender_by_domain(client, admin, account):
     r = client.post(f"/api/v1/mail/{account}/block-sender", headers=admin, json={
         "sender": "spammer.example", "by_domain": True, "delete_existing": False,

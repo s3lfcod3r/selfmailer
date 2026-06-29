@@ -478,18 +478,20 @@ def _find_spam_folder(account: MailAccount, password: str) -> str | None:
         return _spam_folder(box)
 
 
-def purge_spam(account: MailAccount, password: str, older_than_days: int) -> dict:
-    """Loescht Mails im Spam/Junk-Ordner ENDGUELTIG (expunge).
+def _find_trash_folder(account: MailAccount, password: str) -> str | None:
+    """Papierkorb-Ordnernamen ermitteln (analog _find_spam_folder)."""
+    with _mailbox(account, password) as box:
+        return _trash_folder(box, "INBOX")
 
-    older_than_days: 0 = alle Spam-Mails | N>0 = nur Mails aelter als N Tage |
-    negativ = nichts tun. Liefert {deleted}.
+
+def _purge_folder(account: MailAccount, password: str, folder: str | None, older_than_days: int) -> dict:
+    """Loescht Mails eines Ordners ENDGUELTIG (expunge).
+
+    older_than_days: 0 = alle | N>0 = nur Mails aelter als N Tage | negativ = nichts.
     """
-    if older_than_days < 0:
+    if older_than_days < 0 or not folder:
         return {"deleted": 0}
-    spam = _find_spam_folder(account, password)
-    if not spam:
-        return {"deleted": 0}
-    with _mailbox(account, password, folder=spam) as box:
+    with _mailbox(account, password, folder=folder) as box:
         if older_than_days == 0:
             criteria = AND(all=True)
         else:
@@ -501,11 +503,43 @@ def purge_spam(account: MailAccount, password: str, older_than_days: int) -> dic
         return {"deleted": len(uids)}
 
 
+def purge_spam(account: MailAccount, password: str, older_than_days: int) -> dict:
+    """Spam/Junk-Ordner endgueltig leeren (siehe _purge_folder)."""
+    if older_than_days < 0:
+        return {"deleted": 0}
+    return _purge_folder(account, password, _find_spam_folder(account, password), older_than_days)
+
+
+def purge_trash(account: MailAccount, password: str, older_than_days: int) -> dict:
+    """Papierkorb endgueltig leeren (siehe _purge_folder). So verschwinden auch die
+    beim Blockieren verschobenen Mails nach Ablauf des Reue-Fensters von selbst."""
+    if older_than_days < 0:
+        return {"deleted": 0}
+    return _purge_folder(account, password, _find_trash_folder(account, password), older_than_days)
+
+
+def _soft_delete(box: MailBox, uids: list[str], current_folder: str) -> None:
+    """Mails in den Papierkorb verschieben + als gelesen markieren. Ist kein
+    Papierkorb da (oder wir sind schon drin), hart loeschen (expunge)."""
+    if not uids:
+        return
+    trash = _trash_folder(box, current_folder)
+    try:
+        box.flag(uids, SEEN, True)  # im Papierkorb nicht als ungelesen zaehlen
+    except Exception:  # noqa: BLE001 - Markieren ist Beiwerk, darf das Verschieben nicht kippen
+        logger.warning("SEEN-Flag vor Soft-Delete fehlgeschlagen", exc_info=True)
+    if trash and trash != current_folder:
+        box.move(uids, trash)
+    else:
+        box.delete(uids)
+
+
 def delete_by_sender(
     account: MailAccount, password: str, sender: str, *, by_domain: bool = False,
     folders: list[str] | None = None,
 ) -> dict:
-    """Loescht vorhandene Mails eines Absenders ENDGUELTIG in den genannten Ordnern.
+    """Verschiebt vorhandene Mails eines Absenders in den PAPIERKORB (als gelesen)
+    in den genannten Ordnern.
 
     sender ist ein Teilstring (Adresse/Anzeigename bzw. Domain bei by_domain).
     folders=None -> Posteingang + Spam-Ordner (falls vorhanden). Ein Fehler in
@@ -532,7 +566,7 @@ def delete_by_sender(
                     if msg.uid and term in hay:
                         to_del.append(msg.uid)
                 if to_del:
-                    box.delete(to_del)
+                    _soft_delete(box, to_del, folder)
                     total += len(to_del)
         except Exception:  # noqa: BLE001 - ein Ordner darf den Rest nicht kippen
             logger.warning("delete_by_sender fehlgeschlagen (account_id=%s, folder=%s)", account.id, folder, exc_info=True)
@@ -804,7 +838,7 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
         to_delete: list[str] = []
         for uid, rule in matches:
             # "Loeschen" hat Vorrang vor allen anderen Aktionen: getroffene Mail
-            # wird endgueltig entfernt, daher kein Verschieben/Markieren mehr.
+            # wandert in den Papierkorb (als gelesen) — kein Verschieben/Markieren mehr.
             if getattr(rule, "delete_msg", False):
                 to_delete.append(uid)
                 affected += 1
@@ -820,10 +854,10 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
             except Exception as exc:  # noqa: BLE001 - einzelne Aktion darf scheitern
                 if len(errors) < 3:
                     errors.append(f"{getattr(rule, 'target_folder', '')}: {type(exc).__name__}: {exc}")
-        # Loeschungen gebuendelt (ein STORE+EXPUNGE statt N Round-Trips).
+        # Loeschungen gebuendelt in den Papierkorb (ein MOVE statt N Round-Trips).
         if to_delete:
             try:
-                box.delete(to_delete)
+                _soft_delete(box, to_delete, "INBOX")
             except Exception as exc:  # noqa: BLE001
                 affected -= len(to_delete)
                 if len(errors) < 3:

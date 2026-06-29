@@ -93,6 +93,10 @@ class MailAccount(SQLModel, table=True):
     #   -1 = aus | 0 = sofort (jede Mail im Spam loeschen) | N>0 = nur Mails aelter
     #   als N Tage. Endgueltige Loeschung (expunge), nicht in den Papierkorb.
     spam_purge_days: int = -1
+    # Papierkorb automatisch endgueltig leeren (gleiche Semantik wie spam_purge_days).
+    #   -1 = aus | 0 = sofort | N>0 = nur Mails aelter als N Tage. Wird beim ersten
+    #   "Absender blockieren" automatisch auf 7 gesetzt (Reue-Fenster), falls -1.
+    trash_purge_days: int = -1
     created_at: dt.datetime = Field(default_factory=_now)
 
 
@@ -213,8 +217,9 @@ class MailRule(SQLModel, table=True):
     target_folder: str = ""             # Zielordner für "Verschieben" (leer = nicht verschieben)
     mark_read: bool = False
     star: bool = False
-    # Endgueltig loeschen (expunge) statt verschieben. Hat Vorrang vor target_folder
-    # und mark_read/star — eine getroffene Mail ist danach unwiderruflich weg.
+    # Loeschen: getroffene Mail in den Papierkorb verschieben (als gelesen markiert);
+    # ist kein Papierkorb vorhanden, hart loeschen. Hat Vorrang vor target_folder
+    # und mark_read/star. Der Papierkorb wird per trash_purge_days endgueltig geleert.
     delete_msg: bool = False
     enabled: bool = True
     position: int = 0                   # Reihenfolge (kleiner = früher geprüft)

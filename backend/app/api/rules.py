@@ -158,6 +158,12 @@ def block_sender(
         rule = MailRule(
             account_id=account_id, field=field, value=sender, delete_msg=True, position=pos,
         )
+    # Reue-Fenster: beim ersten Blockieren den Papierkorb-Auto-Purge auf 7 Tage
+    # stellen, falls noch nie konfiguriert. Geblockte Mails landen im Papierkorb und
+    # verschwinden nach 7 Tagen von selbst — bis dahin sind sie wiederherstellbar.
+    if acc.trash_purge_days < 0:
+        acc.trash_purge_days = 7
+        session.add(acc)
     session.add(rule)
     session.commit()
     session.refresh(rule)
@@ -188,4 +194,20 @@ def purge_spam_now(
     except Exception:  # noqa: BLE001
         logger.warning("Spam leeren fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Spam leeren fehlgeschlagen")
+    return SpamPurgeResult(deleted=int(res.get("deleted", 0) or 0))
+
+
+@router.post("/{account_id}/trash/purge", response_model=SpamPurgeResult)
+def purge_trash_now(
+    account_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> SpamPurgeResult:
+    """Papierkorb jetzt sofort endgueltig leeren (alle Mails, unabhaengig vom Alter)."""
+    acc = _account(account_id, user, session)
+    try:
+        res = imap_mod.purge_trash(acc, decrypt(acc.secret_enc), 0)
+    except Exception:  # noqa: BLE001
+        logger.warning("Papierkorb leeren fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Papierkorb leeren fehlgeschlagen")
     return SpamPurgeResult(deleted=int(res.get("deleted", 0) or 0))

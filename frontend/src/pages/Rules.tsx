@@ -82,6 +82,27 @@ export function Rules() {
         </select>
       )}
 
+      {(() => {
+        const blocked = rules.filter((r) => r.delete_msg);
+        if (blocked.length === 0) return null;
+        return (
+          <div className="card stack" style={{ padding: "1rem", marginBottom: "1.4rem", gap: "0.5rem" }}>
+            <div className="label">🚫 {t("rules.blacklist")}</div>
+            <p className="mail-from" style={{ margin: 0 }}>{t("rules.blacklistHint")}</p>
+            <div className="stack" style={{ gap: "0.4rem", marginTop: "0.3rem" }}>
+              {blocked.map((r) => (
+                <div className="row" key={r.id} style={{ alignItems: "center" }}>
+                  <span className="grow" style={{ fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.value}{r.field === "from_domain" ? ` (${t("rules.fromDomain")})` : ""}
+                  </span>
+                  <button className="ghost" onClick={() => remove(r)}>↩ {t("rules.unblock")}</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       <form className="card stack" style={{ padding: "1rem", marginBottom: "1.4rem" }} onSubmit={submit}>
         <div className="label">{editId != null ? t("rules.edit") : t("rules.new")}</div>
         <div className="row">

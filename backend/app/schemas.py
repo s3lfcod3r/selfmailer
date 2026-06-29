@@ -126,6 +126,7 @@ class AccountOut(BaseModel):
     auth_user: str = ""
     signature: str = ""
     spam_purge_days: int = -1
+    trash_purge_days: int = -1
 
 
 class AccountUpdate(BaseModel):
@@ -148,6 +149,7 @@ class AccountUpdate(BaseModel):
     password: str | None = None
     # -1 = aus | 0 = sofort | N>0 = Mails aelter als N Tage endgueltig loeschen
     spam_purge_days: int | None = Field(default=None, ge=-1, le=3650)
+    trash_purge_days: int | None = Field(default=None, ge=-1, le=3650)
 
 
 # ---- Mail ----------------------------------------------------------------
