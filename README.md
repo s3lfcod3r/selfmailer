@@ -29,7 +29,7 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
 > **TL;DR** — IMAP/SMTP mail client · calendar/contacts/notes · web + native Android · live cross-device sync · 3 notification options (FCM / ntfy / background) · 2FA · single container · no external DB.
 
 ### 📑 Table of contents
-[Features](#-features) · [Architecture](#-architecture) · [Notifications](#-notifications) · [Live sync](#-live-sync) · [Quick start](#-quick-start-docker) · [Unraid](#-unraid) · [Configuration](#%EF%B8%8F-configuration-env-prefix-selfmailer_) · [Android app](#-android-app) · [API](#-api-overview-apiv1-jwt-bearer) · [Security](#%EF%B8%8F-security) · [Tech stack](#-tech-stack) · [Development](#%EF%B8%8F-development) · [Roadmap](#%EF%B8%8F-roadmap)
+[Features](#-features) · [Blocking senders](#-blocking-senders) · [Architecture](#-architecture) · [Notifications](#-notifications) · [Live sync](#-live-sync) · [Quick start](#-quick-start-docker) · [Unraid](#-unraid) · [Configuration](#%EF%B8%8F-configuration-env-prefix-selfmailer_) · [Android app](#-android-app) · [API](#-api-overview-apiv1-jwt-bearer) · [Security](#%EF%B8%8F-security) · [Tech stack](#-tech-stack) · [Development](#%EF%B8%8F-development) · [Roadmap](#%EF%B8%8F-roadmap)
 
 ### ✨ Features
 
@@ -68,6 +68,19 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
 - Account credentials **Fernet-encrypted at rest**
 - **i18n DE/EN**, light/dark themes + custom accent colours
 - **Single container** — FastAPI + SQLite, no external database
+
+### 🚫 Blocking senders
+
+**Block a sender** — open the mail → click **⋯** (top right) → **🚫 Block sender** → confirm.
+All mail from that sender (existing + future, inbox + spam) is moved to **trash** and marked read.
+The trash auto-empties after **7 days** (a safe undo window).
+
+**Undo a block** — click your **👤 user menu** (top right) → **🔀 Rules** → the **🚫 Blocked senders**
+box at the top lists every block; hit **↩ Unblock** to let future mail through again.
+To recover a specific message, open it in the **Trash** folder and move it back to the inbox (within 7 days).
+
+> Auto-empty timings (spam & trash: off / immediately / after 7 / 30 days) live under
+> **👤 → ✎ Edit account**.
 
 ### 🧭 Architecture
 
@@ -312,6 +325,20 @@ Teil der **Self**-Reihe (SelfAuthenticator, SelfArchiver, SelfDashboard …) —
 - Konto-Zugangsdaten **Fernet-verschlüsselt at-rest**
 - **i18n DE/EN**, helles/dunkles Theme + eigene Akzentfarben
 - **Ein Container** — FastAPI + SQLite, keine externe Datenbank
+
+### 🚫 Absender blockieren
+
+**Blockieren** — Mail öffnen → oben rechts auf **⋯** → **🚫 Absender blockieren** → bestätigen.
+Alle Mails dieses Absenders (vorhandene + künftige, Posteingang + Spam) wandern in den **Papierkorb**
+und werden als gelesen markiert. Der Papierkorb leert sich nach **7 Tagen** automatisch (Rückgängig-Fenster).
+
+**Aufheben** — oben rechts aufs **👤 Benutzer-Menü** → **🔀 Regeln** → ganz oben der Kasten
+**🚫 Blockierte Absender** zeigt alle Blockierungen; mit **↩ Aufheben** kommen künftige Mails wieder an.
+Eine einzelne Mail rettest du, indem du sie im **Papierkorb**-Ordner öffnest und zurück in den Posteingang
+verschiebst (solange die 7 Tage noch nicht um sind).
+
+> Die Auto-Leeren-Zeiten (Spam & Papierkorb: aus / sofort / nach 7 / 30 Tagen) findest du unter
+> **👤 → ✎ Konto bearbeiten**.
 
 ### 🔔 Benachrichtigungen
 
