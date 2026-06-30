@@ -7,9 +7,12 @@ import { Wordmark } from "../components/Wordmark";
 export function Login({ onAuthed }: { onAuthed: () => void }) {
   const { t } = useLang();
 
-  // Sprachauswahl (oben rechts) — auf dem Login-Screen gibt es noch kein
-  // Benutzermenü, daher hier separat.
-  const langToggle = <LangPicker className="auth-lang" />;
+  // Sprachauswahl — zentriert unten in der Login-Karte (kein Benutzermenü hier).
+  const langToggle = (
+    <div className="auth-lang-row">
+      <LangPicker className="auth-lang" />
+    </div>
+  );
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -78,7 +81,6 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
   if (mfaToken) {
     return (
       <div className="auth-wrap">
-        {langToggle}
         <form className="auth-card card stack" onSubmit={submitCode}>
           <Wordmark size={1.8} />
           <h1>{t("totp.loginTitle")}</h1>
@@ -98,6 +100,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
           {err && <div className="err">{err}</div>}
           <button className="primary" disabled={busy}>{busy ? "…" : t("totp.verify")}</button>
           <button type="button" className="ghost" onClick={cancelMfa}>{t("common.cancel")}</button>
+          {langToggle}
         </form>
       </div>
     );
@@ -106,7 +109,6 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
   // ── Erster Schritt: Login / Setup ──────────────────────────────────────
   return (
     <div className="auth-wrap">
-      {langToggle}
       <form className="auth-card card stack" onSubmit={submit}>
         <Wordmark size={1.8} />
         <h1>{needsSetup ? t("login.titleSetup") : t("login.titleLogin")}</h1>
@@ -142,6 +144,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
         <button className="primary" disabled={busy}>
           {busy ? "…" : needsSetup ? t("login.submitSetup") : t("login.submitLogin")}
         </button>
+        {langToggle}
       </form>
     </div>
   );
