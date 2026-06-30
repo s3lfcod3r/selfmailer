@@ -8,7 +8,7 @@ Bewusst SYNCHRON in einem eigenen Thread (passt zu imap_tools/SQLite). Je Konto
 eine eigene kurze Session; ein defektes/langsames Konto kippt den Lauf nie. Per
 Env steuerbar:
   SELFMAILER_SYNC_DISABLE=1        -> aus
-  SELFMAILER_SYNC_INTERVAL=300     -> Sekunden zwischen den Mail-Laeufen (Default 300)
+  SELFMAILER_SYNC_INTERVAL=120     -> Sekunden zwischen den Mail-Laeufen (Default 120)
   SELFMAILER_DAV_SYNC_INTERVAL=120 -> Kalender/Adressbuch getrennt + haeufiger (Default 120)
 
 Kalender/Adressbuecher (DAV) werden bewusst in einem EIGENEN, kuerzeren Takt
@@ -35,7 +35,7 @@ from . import push as push_mod
 
 logger = logging.getLogger(__name__)
 
-_INTERVAL = max(60, int(os.getenv("SELFMAILER_SYNC_INTERVAL", "300") or 300))
+_INTERVAL = max(60, int(os.getenv("SELFMAILER_SYNC_INTERVAL", "120") or 120))
 # DAV (Kalender/Kontakte) laeuft getrennt + haeufiger; min 30s als Schutz vor
 # uebermaessigen Google-API-Calls.
 _DAV_INTERVAL = max(30, int(os.getenv("SELFMAILER_DAV_SYNC_INTERVAL", "120") or 120))

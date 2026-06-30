@@ -503,6 +503,22 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollMin, accounts, sel?.acc, sel?.folder]);
 
+  // Schnelles Live-Gefühl im OFFENEN Postfach: solange der Tab im Vordergrund ist,
+  // das aktive Konto/Ordner alle 20 s aktiv vom Server holen (bgSync = echter
+  // IMAP-Abruf) — so erscheinen neue Mails fast sofort, ohne auf den Hintergrund-
+  // Sync (2 Min) bzw. dessen SSE-Event zu warten. Pausiert im Hintergrund-Tab.
+  useEffect(() => {
+    if (accounts.length === 0) return;
+    const FAST_REFRESH_MS = 20000;
+    const id = window.setInterval(() => {
+      if (document.hidden || !selRef.current) return;
+      refreshCounts(selRef.current.acc);
+      bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
+    }, FAST_REFRESH_MS);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts]);
+
   // Ist die Übersetzung serverseitig konfiguriert? (Button nur dann zeigen.)
   useEffect(() => {
     api.get<{ enabled: boolean }>("/translate/status").then((r) => setTranslateEnabled(!!r.enabled)).catch(() => {});
