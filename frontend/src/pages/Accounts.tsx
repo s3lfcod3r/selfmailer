@@ -60,7 +60,7 @@ export function Accounts() {
     setErr(""); setMsg("");
     try {
       const { password, ...rest } = editForm;
-      const payload = password ? { ...rest, password } : rest;  // leeres PW = nicht aendern
+      const payload = password ? { ...rest, password } : rest;  // leeres PW = nicht ändern
       await api.patch<Account>(`/accounts/${id}`, payload);
       setEditId(null); setMsg(t("accounts.saved")); load();
     } catch (e) { setErr((e as Error).message); }
@@ -91,7 +91,7 @@ export function Accounts() {
     } catch (e) { setErr((e as Error).message); }
   }
 
-  // Gemeinsames Feld-Formular fuer Anlegen + Bearbeiten.
+  // Gemeinsames Feld-Formular für Anlegen + Bearbeiten.
   function fields(f: Form, upd: (patch: Partial<Form>) => void, isEdit: boolean) {
     return (
       <div className="stack" style={{ gap: "0.7rem" }}>

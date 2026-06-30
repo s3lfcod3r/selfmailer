@@ -12,13 +12,13 @@ from ..models import MailAccount
 
 
 def _decode_b64(raw: str) -> bytes:
-    """Dekodiert base64; entfernt einen optionalen data:-URL-Praefix."""
+    """Dekodiert base64; entfernt einen optionalen data:-URL-Präfix."""
     if "," in raw and raw.lstrip().startswith("data:"):
         raw = raw.split(",", 1)[1]
     try:
         return base64.b64decode(raw, validate=False)
     except (binascii.Error, ValueError) as exc:  # pragma: no cover - defensiv
-        raise ValueError(f"Ungueltiger Anhang-Inhalt: {exc}") from exc
+        raise ValueError(f"Ungültiger Anhang-Inhalt: {exc}") from exc
 
 
 async def send_message(
@@ -35,7 +35,7 @@ async def send_message(
     read_receipt: bool = False,
     delivery_receipt: bool = False,
 ) -> bytes:
-    """Versendet die Mail und gibt die ROHE Nachricht (Bytes) zurueck — damit der
+    """Versendet die Mail und gibt die ROHE Nachricht (Bytes) zurück — damit der
     Aufrufer eine Kopie in den Gesendet-Ordner legen kann (IMAP APPEND)."""
     msg = EmailMessage()
     msg["From"] = account.email
@@ -49,7 +49,7 @@ async def send_message(
     _domain = account.email.rsplit("@", 1)[-1] if "@" in account.email else "selfmailer"
     msg["Message-ID"] = make_msgid(domain=_domain)
     if in_reply_to:
-        # Verknuepft die Antwort mit dem Originalthread (Threading in Clients).
+        # Verknüpft die Antwort mit dem Originalthread (Threading in Clients).
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to
     if read_receipt:
@@ -76,7 +76,7 @@ async def send_message(
     login = account.auth_user or account.email
 
     # Port 465 = SMTPS (implizit TLS ab Verbindungsaufbau); 587/25 = STARTTLS.
-    # use_tls und start_tls schliessen sich gegenseitig aus.
+    # use_tls und start_tls schließen sich gegenseitig aus.
     use_implicit_tls = account.smtp_port == 465
     await aiosmtplib.send(
         msg,

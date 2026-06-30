@@ -1,6 +1,6 @@
 """Datenbankmodelle (SQLModel). Eine Tabelle pro Klasse.
 
-Sicherheits-Hinweis: MailAccount.secret_enc enthaelt die VERSCHLUESSELTEN
+Sicherheits-Hinweis: MailAccount.secret_enc enthält die VERSCHLÜSSELTEN
 Zugangsdaten des fremden Postfachs. Niemals im Klartext speichern oder ausgeben.
 """
 from __future__ import annotations
@@ -39,7 +39,7 @@ class User(SQLModel, table=True):
     password_hash: str
     role: Role = Field(default=Role.user)
     is_active: bool = True
-    # 2FA (TOTP). secret ist Fernet-VERSCHLUESSELT, solange totp_enabled.
+    # 2FA (TOTP). secret ist Fernet-VERSCHLÜSSELT, solange totp_enabled.
     # totp_last_step verhindert Replay (jeder Zeitschritt nur einmal nutzbar).
     totp_secret: str = ""
     totp_enabled: bool = False
@@ -55,10 +55,10 @@ class User(SQLModel, table=True):
 
 
 class BackupCode(SQLModel, table=True):
-    """Einmal-Wiederherstellungscode fuer 2FA (Argon2-gehasht, nie Klartext).
+    """Einmal-Wiederherstellungscode für 2FA (Argon2-gehasht, nie Klartext).
 
     Wird beim Aktivieren von 2FA erzeugt; ein Code ist nach Nutzung verbraucht
-    (used=True). Neugenerieren loescht die alten Codes des Users.
+    (used=True). Neugenerieren löscht die alten Codes des Users.
     """
 
     id: int | None = Field(default=None, primary_key=True)
@@ -84,17 +84,17 @@ class MailAccount(SQLModel, table=True):
     smtp_starttls: bool = True
 
     auth_user: str = ""                 # falls abweichend von email
-    secret_enc: str                     # VERSCHLUESSELT (Fernet)
-    signature: str = ""                 # E-Mail-Signatur (Plaintext, beim Schreiben angehaengt)
-    # Basis fuer Push: zuletzt per ntfy gemeldete INBOX-Ungelesen-Zahl. -1 = noch
+    secret_enc: str                     # VERSCHLÜSSELT (Fernet)
+    signature: str = ""                 # E-Mail-Signatur (Plaintext, beim Schreiben angehängt)
+    # Basis für Push: zuletzt per ntfy gemeldete INBOX-Ungelesen-Zahl. -1 = noch
     # nie beobachtet (erster Lauf setzt nur die Basis, ohne zu pushen).
     last_notified_unseen: int = -1
-    # Spam-Ordner automatisch endgueltig leeren (Hintergrund-Sync):
-    #   -1 = aus | 0 = sofort (jede Mail im Spam loeschen) | N>0 = nur Mails aelter
-    #   als N Tage. Endgueltige Loeschung (expunge), nicht in den Papierkorb.
+    # Spam-Ordner automatisch endgültig leeren (Hintergrund-Sync):
+    #   -1 = aus | 0 = sofort (jede Mail im Spam löschen) | N>0 = nur Mails älter
+    #   als N Tage. Endgültige Löschung (expunge), nicht in den Papierkorb.
     spam_purge_days: int = -1
-    # Papierkorb automatisch endgueltig leeren (gleiche Semantik wie spam_purge_days).
-    #   -1 = aus | 0 = sofort | N>0 = nur Mails aelter als N Tage. Wird beim ersten
+    # Papierkorb automatisch endgültig leeren (gleiche Semantik wie spam_purge_days).
+    #   -1 = aus | 0 = sofort | N>0 = nur Mails älter als N Tage. Wird beim ersten
     #   "Absender blockieren" automatisch auf 7 gesetzt (Reue-Fenster), falls -1.
     trash_purge_days: int = -1
     created_at: dt.datetime = Field(default_factory=_now)
@@ -123,7 +123,7 @@ class CalendarEvent(SQLModel, table=True):
     # Herkunft: gesetzt, wenn der Termin aus einem externen CalDAV-Konto stammt.
     dav_account_id: int | None = Field(default=None, index=True, foreign_key="davaccount.id")
     external_uid: str = Field(default="", index=True)
-    # Quell-Kalender fuer Farben/Filter pro (Unter-)Kalender:
+    # Quell-Kalender für Farben/Filter pro (Unter-)Kalender:
     #   source_key  = "local" | Google-Kalender-ID | "dav:{accountId}"
     #   source_name = Anzeigename des Kalenders (z. B. "Familie", "Geburtstage")
     #   source_color= Hex-Farbe des Kalenders (von Google), z. B. "#7986cb"
@@ -142,17 +142,17 @@ class Contact(SQLModel, table=True):
     email: str = ""
     phone: str = ""                       # Festnetz / privat
     mobile: str = ""                      # Mobil
-    work_phone: str = ""                  # Geschaeftlich
+    work_phone: str = ""                  # Geschäftlich
     organization: str = ""
     title: str = ""                       # Position / Jobtitel
     website: str = ""
-    street: str = ""                      # Adresse: Strasse + Nr.
+    street: str = ""                      # Adresse: Straße + Nr.
     postal_code: str = ""                 # PLZ
     city: str = ""                        # Ort
     country: str = ""                     # Land
     notes: str = ""
-    birthday: dt.date | None = None       # Geburtstag -> jaehrlicher Kalender-Eintrag
-    bday_event_id: str = ""               # Google-Event-ID des Geburtstags (zum Pflegen/Loeschen)
+    birthday: dt.date | None = None       # Geburtstag -> jährlicher Kalender-Eintrag
+    bday_event_id: str = ""               # Google-Event-ID des Geburtstags (zum Pflegen/Löschen)
     # Herkunft: gesetzt, wenn der Kontakt aus einem externen CardDAV-Konto stammt.
     dav_account_id: int | None = Field(default=None, index=True, foreign_key="davaccount.id")
     external_uid: str = Field(default="", index=True)
@@ -161,10 +161,10 @@ class Contact(SQLModel, table=True):
 
 
 class Task(SQLModel, table=True):
-    """Aufgabe / To-do eines Users (lokal, eigenstaendig nutzbar).
+    """Aufgabe / To-do eines Users (lokal, eigenständig nutzbar).
 
-    Optionales Faelligkeitsdatum (due); erledigte Aufgaben bleiben erhalten
-    (done=True), Reihenfolge ueber position (kleiner = oben).
+    Optionales Fälligkeitsdatum (due); erledigte Aufgaben bleiben erhalten
+    (done=True), Reihenfolge über position (kleiner = oben).
     """
 
     id: int | None = Field(default=None, primary_key=True)
@@ -181,7 +181,7 @@ class Task(SQLModel, table=True):
 class DavAccount(SQLModel, table=True):
     """Externes CalDAV/CardDAV-Konto eines Users (read-only Pull-Quelle).
 
-    secret_enc enthaelt das VERSCHLUESSELTE Server-Passwort (Fernet), analog zu
+    secret_enc enthält das VERSCHLÜSSELTE Server-Passwort (Fernet), analog zu
     MailAccount. Niemals im Klartext speichern oder ausgeben.
     """
 
@@ -191,13 +191,13 @@ class DavAccount(SQLModel, table=True):
     label: str = ""
     url: str                              # direkte Collection-URL
     username: str = ""
-    secret_enc: str                       # VERSCHLUESSELT (Fernet); bei gcal ungenutzt
+    secret_enc: str                       # VERSCHLÜSSELT (Fernet); bei gcal ungenutzt
     # OAuth (nur kind=gcal): Google verlangt OAuth statt Passwort. client_secret und
-    # refresh_token Fernet-verschluesselt; aus dem refresh_token wird je Sync ein
+    # refresh_token Fernet-verschlüsselt; aus dem refresh_token wird je Sync ein
     # kurzlebiges access_token gemintet.
     oauth_client_id: str = ""
-    oauth_secret_enc: str = ""            # VERSCHLUESSELT (Fernet) — OAuth client_secret
-    oauth_refresh_enc: str = ""           # VERSCHLUESSELT (Fernet) — OAuth refresh_token
+    oauth_secret_enc: str = ""            # VERSCHLÜSSELT (Fernet) — OAuth client_secret
+    oauth_refresh_enc: str = ""           # VERSCHLÜSSELT (Fernet) — OAuth refresh_token
     last_sync: dt.datetime | None = None
     last_status: str = ""                 # "ok" oder Fehlertext
     created_at: dt.datetime = Field(default_factory=_now)
@@ -218,8 +218,8 @@ class MailRule(SQLModel, table=True):
     mark_read: bool = False
     star: bool = False
     # Loeschen: getroffene Mail in den Papierkorb verschieben (als gelesen markiert);
-    # ist kein Papierkorb vorhanden, hart loeschen. Hat Vorrang vor target_folder
-    # und mark_read/star. Der Papierkorb wird per trash_purge_days endgueltig geleert.
+    # ist kein Papierkorb vorhanden, hart löschen. Hat Vorrang vor target_folder
+    # und mark_read/star. Der Papierkorb wird per trash_purge_days endgültig geleert.
     delete_msg: bool = False
     enabled: bool = True
     position: int = 0                   # Reihenfolge (kleiner = früher geprüft)
@@ -227,10 +227,10 @@ class MailRule(SQLModel, table=True):
 
 
 class CachedMessage(SQLModel, table=True):
-    """Lokaler Cache eines Mail-Kopfs (fuer die schnelle Listenanzeige).
+    """Lokaler Cache eines Mail-Kopfs (für die schnelle Listenanzeige).
 
-    Pro (account_id, folder, uid) eine Zeile. Inhalt/Anhaenge werden NICHT
-    gespeichert — nur was die Liste braucht. Der Body wird beim Oeffnen weiterhin
+    Pro (account_id, folder, uid) eine Zeile. Inhalt/Anhänge werden NICHT
+    gespeichert — nur was die Liste braucht. Der Body wird beim Öffnen weiterhin
     live geholt. Der Cache ist reine Beschleunigung; bei Zweifel wird live geladen.
     """
 
@@ -247,8 +247,8 @@ class CachedMessage(SQLModel, table=True):
     snippet: str = ""
     has_attachments: bool = False
     # Gecachter Volltext der Mail (JSON: text/html/to/message_id/attachments-Meta).
-    # Leer, solange die Mail noch nie geoeffnet wurde; dann beim ersten Oeffnen
-    # einmal live geholt und hier abgelegt → jedes weitere Oeffnen ohne IMAP.
+    # Leer, solange die Mail noch nie geöffnet wurde; dann beim ersten Öffnen
+    # einmal live geholt und hier abgelegt → jedes weitere Öffnen ohne IMAP.
     detail_json: str = ""
 
 
@@ -269,11 +269,11 @@ class FolderSync(SQLModel, table=True):
 
 
 class CachedFolder(SQLModel, table=True):
-    """Gecachte Ordnerliste eines Kontos inkl. Zaehler — fuer die SOFORTige
+    """Gecachte Ordnerliste eines Kontos inkl. Zähler — für die SOFORTige
     Seitenleiste beim Laden (kein Live-IMAP).
 
-    Pro (account_id, folder) eine Zeile. Wird bei jedem Live-Abruf der Zaehler
-    komplett ersetzt; `idx` haelt die Server-Reihenfolge fuer eine stabile
+    Pro (account_id, folder) eine Zeile. Wird bei jedem Live-Abruf der Zähler
+    komplett ersetzt; `idx` hält die Server-Reihenfolge für eine stabile
     Anzeige. Reine Beschleunigung wie der Nachrichten-Cache.
     """
 
@@ -290,7 +290,7 @@ class PushConfig(SQLModel, table=True):
     """ntfy-Push-Konfiguration eines Users (self-hosted Benachrichtigungen).
 
     Der Server postet bei neuer Mail an `ntfy_url`/`topic`; die ntfy-App auf dem
-    Handy zeigt die Benachrichtigung. Kein Google/FCM noetig. Pro User eine Zeile.
+    Handy zeigt die Benachrichtigung. Kein Google/FCM nötig. Pro User eine Zeile.
     """
 
     id: int | None = Field(default=None, primary_key=True)
@@ -304,7 +304,7 @@ class PushConfig(SQLModel, table=True):
 class FolderNotify(SQLModel, table=True):
     """Pro Konto+Ordner: Benachrichtigung bei neuer Mail an/aus.
 
-    Existiert eine Zeile, wird fuer diesen Ordner gepusht. `last_unseen` ist die
+    Existiert eine Zeile, wird für diesen Ordner gepusht. `last_unseen` ist die
     zuletzt gemeldete Ungelesen-Zahl (-1 = noch nie beobachtet -> erster Lauf
     setzt nur die Basis, ohne zu pushen).
     """
@@ -316,7 +316,7 @@ class FolderNotify(SQLModel, table=True):
 
 
 class DeviceToken(SQLModel, table=True):
-    """FCM-Geraetetoken eines Users (fuer Google-Push an die Android-App)."""
+    """FCM-Gerätetoken eines Users (für Google-Push an die Android-App)."""
 
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
@@ -326,9 +326,9 @@ class DeviceToken(SQLModel, table=True):
 
 
 class FeedToken(SQLModel, table=True):
-    """Geheimer Token fuer abonnierbare Export-Feeds (ICS/vCard).
+    """Geheimer Token für abonnierbare Export-Feeds (ICS/vCard).
 
-    Abo-Clients (Handy-Kalender) koennen keinen Bearer-Header senden, daher
+    Abo-Clients (Handy-Kalender) können keinen Bearer-Header senden, daher
     authentifiziert ein Token in der URL. Pro User genau ein Token; rotierbar.
     """
 

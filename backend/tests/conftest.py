@@ -29,10 +29,10 @@ import app.api.auth as _auth  # noqa: E402
 
 _auth.check_rate_limit = lambda *a, **k: None  # type: ignore[assignment]
 
-# SSRF-Pruefung in Tests neutralisieren: die Test-URLs/-Hosts (z. B.
+# SSRF-Prüfung in Tests neutralisieren: die Test-URLs/-Hosts (z. B.
 # ntfy.example.com, imap.example.com) sind Fakes, die in einer CI-Umgebung nicht
-# aufloesen und sonst — voellig korrekt — als "nicht erlaubt" (400) abgelehnt
-# wuerden. Der SSRF-Schutz selbst ist nicht Gegenstand dieser Endpunkt-Tests
+# auflösen und sonst — völlig korrekt — als "nicht erlaubt" (400) abgelehnt
+# würden. Der SSRF-Schutz selbst ist nicht Gegenstand dieser Endpunkt-Tests
 # (er hat eigene Abdeckung). Sowohl push (ntfy-URL) als auch accounts
 # (imap_host/smtp_host) importieren den Validator in ihren Modul-Namensraum.
 import app.api.push as _push  # noqa: E402
@@ -64,10 +64,10 @@ def admin(client) -> dict:
         r = client.post("/api/v1/auth/login", json={"username": _ADMIN["username"], "password": _ADMIN["password"]})
         assert r.status_code == 200, r.text
         token = r.json()["access_token"]
-    # Das Login/Setup setzt zusaetzlich ein httpOnly-Session-Cookie. Im session-
-    # scoped TestClient bliebe es im Cookie-Jar haengen und wuerde die
-    # "requires_auth"-Tests (bewusst OHNE Bearer) faelschlich authentifizieren.
-    # Wir testen rein ueber den Bearer-Header -> Cookie hier verwerfen.
+    # Das Login/Setup setzt zusätzlich ein httpOnly-Session-Cookie. Im session-
+    # scoped TestClient bliebe es im Cookie-Jar hängen und würde die
+    # "requires_auth"-Tests (bewusst OHNE Bearer) fälschlich authentifizieren.
+    # Wir testen rein über den Bearer-Header -> Cookie hier verwerfen.
     client.cookies.clear()
     return {"Authorization": f"Bearer {token}"}
 

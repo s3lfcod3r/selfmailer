@@ -1,9 +1,9 @@
-"""iCalendar (RFC 5545) bauen und parsen — auf das beschraenkt, was SelfMailer
-fuer VEVENTs braucht (Titel, Zeitraum, Ort, Beschreibung, Ganztags-Flag).
+"""iCalendar (RFC 5545) bauen und parsen — auf das beschränkt, was SelfMailer
+für VEVENTs braucht (Titel, Zeitraum, Ort, Beschreibung, Ganztags-Flag).
 
 build_calendar() erzeugt den Export-Feed; parse_events() liest fremde Feeds
 beim CalDAV-Pull. Beide arbeiten auf demselben schlichten dict-Schema, damit
-api/calendar.py es direkt in CalendarEvent ueberfuehren kann.
+api/calendar.py es direkt in CalendarEvent überführen kann.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _event_uid(ev: Any) -> str:
 
 
 def build_calendar(events: Iterable[Any], *, stamp: dt.datetime | None = None) -> str:
-    """Serialisiert CalendarEvent-aehnliche Objekte zu einem VCALENDAR-String."""
+    """Serialisiert CalendarEvent-ähnliche Objekte zu einem VCALENDAR-String."""
     now = stamp or dt.datetime.now(dt.timezone.utc)
     dtstamp = rfc.fmt_datetime_utc(now)
     lines: list[str] = [
@@ -59,8 +59,8 @@ def parse_events(text: str) -> list[dict[str, Any]]:
     """Liest VEVENTs aus iCalendar-Text in dicts.
 
     Schluessel: uid, title, description, location, start (datetime), end
-    (datetime), all_day (bool). Termine ohne gueltiges DTSTART werden
-    uebersprungen.
+    (datetime), all_day (bool). Termine ohne gültiges DTSTART werden
+    übersprungen.
     """
     events: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None

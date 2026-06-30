@@ -1,6 +1,6 @@
 """Kontakte: lokales Adressbuch pro User (CRUD).
 
-Externe CardDAV-Synchronisation ist eine spaetere Erweiterung.
+Externe CardDAV-Synchronisation ist eine spätere Erweiterung.
 """
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def export_vcf(
 ) -> Response:
     """Liefert alle Kontakte des Users als vCard-Datei.
 
-    Auth ueber ``?token=`` (Abo) oder Bearer (Direkt-Download).
+    Auth über ``?token=`` (Abo) oder Bearer (Direkt-Download).
     """
     stmt = select(Contact).where(Contact.user_id == user.id).order_by(
         Contact.last_name, Contact.first_name

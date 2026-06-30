@@ -1,4 +1,4 @@
-"""Passwort-Hashing (Argon2) und JWT-Erzeugung/-Pruefung."""
+"""Passwort-Hashing (Argon2) und JWT-Erzeugung/-Prüfung."""
 from __future__ import annotations
 
 import datetime as dt
@@ -41,8 +41,8 @@ def create_access_token(subject: str, role: str) -> str:
 def create_mfa_token(subject: str) -> str:
     """Kurzlebiger Zwischen-Token nach Passwort-OK, vor 2FA-Code.
 
-    Traegt claim stage=mfa und ist NUR fuer den /login/totp-Schritt gueltig –
-    er erlaubt keinen Zugriff auf geschuetzte Endpunkte (get_current_user lehnt
+    Trägt claim stage=mfa und ist NUR für den /login/totp-Schritt gültig –
+    er erlaubt keinen Zugriff auf geschützte Endpunkte (get_current_user lehnt
     stage=mfa ab). Kurze Lebensdauer (5 Min).
     """
     now = dt.datetime.now(dt.timezone.utc)

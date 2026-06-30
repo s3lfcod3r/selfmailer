@@ -1,7 +1,7 @@
-"""Gemeinsame Bausteine fuer RFC 5545 (iCalendar) und RFC 6350 (vCard).
+"""Gemeinsame Bausteine für RFC 5545 (iCalendar) und RFC 6350 (vCard).
 
-Beide Formate teilen dieselben Regeln fuer Content-Line-Folding (max. 75
-Oktette je Zeile, Fortsetzung mit fuehrendem Space) und Text-Escaping
+Beide Formate teilen dieselben Regeln für Content-Line-Folding (max. 75
+Oktette je Zeile, Fortsetzung mit führendem Space) und Text-Escaping
 (Backslash, Komma, Semikolon, Zeilenumbruch). Genau dieser Code wird sowohl
 beim Export (Build) als auch beim Import (Parse) gebraucht.
 """
@@ -15,7 +15,7 @@ _MAX_OCTETS = 75
 
 
 def escape_text(value: str) -> str:
-    """Escaped einen TEXT-Wert gemaess RFC 5545 3.3.11 / RFC 6350 3.4."""
+    """Escaped einen TEXT-Wert gemäß RFC 5545 3.3.11 / RFC 6350 3.4."""
     return (
         value.replace("\\", "\\\\")
         .replace("\n", "\\n")
@@ -26,7 +26,7 @@ def escape_text(value: str) -> str:
 
 
 def unescape_text(value: str) -> str:
-    """Kehrt escape_text um. Tolerant gegenueber unbekannten Sequenzen."""
+    """Kehrt escape_text um. Tolerant gegenüber unbekannten Sequenzen."""
     out: list[str] = []
     i = 0
     while i < len(value):
@@ -86,14 +86,14 @@ def fold_line(line: str) -> str:
             end -= 1
         chunks.append(raw[start:end])
         start = end
-        limit = _MAX_OCTETS - 1  # Folgezeilen tragen ein Space-Praefix.
+        limit = _MAX_OCTETS - 1  # Folgezeilen tragen ein Space-Präfix.
     head = chunks[0].decode("utf-8")
     tail = [" " + c.decode("utf-8") for c in chunks[1:]]
     return CRLF.join([head, *tail])
 
 
 def unfold(text: str) -> list[str]:
-    """Macht Line-Folding rueckgaengig und liefert logische Zeilen."""
+    """Macht Line-Folding rückgängig und liefert logische Zeilen."""
     physical = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     logical: list[str] = []
     for raw in physical:
@@ -133,24 +133,24 @@ def fmt_datetime_utc(value: dt.datetime) -> str:
 
 
 def fmt_date(value: dt.datetime) -> str:
-    """Formatiert als reines Datum ``YYYYMMDD`` (fuer Ganztags-Termine)."""
+    """Formatiert als reines Datum ``YYYYMMDD`` (für Ganztags-Termine)."""
     return value.strftime("%Y%m%d")
 
 
 def parse_dt(value: str, tzid: str | None = None) -> dt.datetime | None:
     """Parst iCalendar DATE/DATE-TIME-Werte tolerant zu einem aware datetime.
 
-    - ``YYYYMMDDTHHMMSSZ`` (Suffix Z) -> UTC (unveraendert).
+    - ``YYYYMMDDTHHMMSSZ`` (Suffix Z) -> UTC (unverändert).
     - ``YYYYMMDDTHHMMSS`` MIT ``tzid`` -> die benannte Zone wird angewandt und
-      nach UTC normalisiert (loest den DST-Verschiebungs-Bug bei floating Zeiten
+      nach UTC normalisiert (löst den DST-Verschiebungs-Bug bei floating Zeiten
       ohne Z-Suffix).
     - ``YYYYMMDDTHHMMSS`` OHNE Z und OHNE tzid -> echte floating Zeit; sie wird
-      NICHT faelschlich als UTC gestempelt, sondern lokal als UTC interpretiert
+      NICHT fälschlich als UTC gestempelt, sondern lokal als UTC interpretiert
       konsistent zum bisherigen Speicherformat — aber nur als letzter Fallback.
     - ``YYYYMMDD`` (Datum) -> Mitternacht UTC.
 
-    Schlaegt ``tzid`` (unbekannte Zone) fehl, wird defensiv auf das bisherige
-    Verhalten (UTC) zurueckgefallen.
+    Schlägt ``tzid`` (unbekannte Zone) fehl, wird defensiv auf das bisherige
+    Verhalten (UTC) zurückgefallen.
     """
     value = value.strip()
     try:
@@ -164,7 +164,7 @@ def parse_dt(value: str, tzid: str | None = None) -> dt.datetime | None:
                     zoned = naive.replace(tzinfo=ZoneInfo(tzid))
                     return zoned.astimezone(dt.timezone.utc)
                 except (ZoneInfoNotFoundError, ValueError, KeyError):
-                    # Unbekannte/ungueltige Zone -> defensiv altes Verhalten.
+                    # Unbekannte/ungültige Zone -> defensiv altes Verhalten.
                     return naive.replace(tzinfo=dt.timezone.utc)
             # Floating ohne Z und ohne TZID: konsistent zum Speicherformat (UTC).
             return naive.replace(tzinfo=dt.timezone.utc)

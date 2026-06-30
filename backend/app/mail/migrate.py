@@ -1,16 +1,16 @@
 """Postfach-Migration (Konto → Konto, mit Ordnerstruktur).
 
 Kopiert ein komplettes Quellkonto (alle Ordner + Unterordner inkl. Mails) in
-ein Zielkonto und erhaelt die Struktur:
+ein Zielkonto und erhält die Struktur:
 
 - Quelle und Ziel sind IMAP-Konten (Synology MailPlus muss als IMAP-Konto
   eingebunden sein, nicht POP3).
-- Ordnerpfade werden auf das Trennzeichen des ZIELservers uebersetzt; optional
+- Ordnerpfade werden auf das Trennzeichen des ZIELservers übersetzt; optional
   landet alles unter einem Ziel-Elternordner (``target_prefix``), damit die
   alten Daten getrennt vom Bestand liegen.
-- Dedup ueber Message-ID: bereits im Zielordner vorhandene Mails werden
-  uebersprungen → erneutes Ausfuehren erzeugt keine Duplikate (idempotent).
-- ``dry_run=True`` zaehlt nur pro Ordner und schreibt nichts (Vorschau).
+- Dedup über Message-ID: bereits im Zielordner vorhandene Mails werden
+  übersprungen → erneutes Ausführen erzeugt keine Duplikate (idempotent).
+- ``dry_run=True`` zählt nur pro Ordner und schreibt nichts (Vorschau).
 """
 from __future__ import annotations
 
@@ -33,22 +33,22 @@ def _aware(d: _dt.datetime | None) -> _dt.datetime | None:
 
 
 def _open(acc: MailAccount, password: str, folder: str = "INBOX") -> MailBox:
-    # Timeout wie in imap._connect: ein toter/haengender Server darf den
+    # Timeout wie in imap._connect: ein toter/hängender Server darf den
     # Migrations-/Transfer-Worker nicht UNENDLICH blockieren.
     try:
         box = MailBox(acc.imap_host, port=acc.imap_port, timeout=_IMAP_TIMEOUT)
-    except TypeError:  # aeltere imap_tools-Version ohne timeout-Param
+    except TypeError:  # ältere imap_tools-Version ohne timeout-Param
         box = MailBox(acc.imap_host, port=acc.imap_port)
     box.login(acc.auth_user or acc.email, password, initial_folder=folder)
     try:
         box.client.sock.settimeout(_IMAP_TIMEOUT)
-    except Exception:  # noqa: BLE001 - best effort, falls Socket anders heisst
+    except Exception:  # noqa: BLE001 - best effort, falls Socket anders heißt
         pass
     return box
 
 
 def _dest_path(source_folder: str, src_delim: str, dst_delim: str, prefix: str) -> str:
-    """Quellpfad auf das Ziel-Trennzeichen uebersetzen, optional unter prefix."""
+    """Quellpfad auf das Ziel-Trennzeichen übersetzen, optional unter prefix."""
     segs = [s for s in source_folder.split(src_delim) if s]
     if prefix:
         segs = [p for p in prefix.split(dst_delim) if p] + segs
@@ -56,9 +56,9 @@ def _dest_path(source_folder: str, src_delim: str, dst_delim: str, prefix: str) 
 
 
 def _ensure_folder(dst: MailBox, path: str, delim: str) -> bool:
-    """Legt den Pfad (inkl. fehlender Elternebenen) im Ziel an. Prueft per
-    exists(), um doppelte Anlage zu vermeiden, und liefert zurueck, ob der Ordner
-    am Ende existiert (sonst kann/soll man ihn ueberspringen)."""
+    """Legt den Pfad (inkl. fehlender Elternebenen) im Ziel an. Prüft per
+    exists(), um doppelte Anlage zu vermeiden, und liefert zurück, ob der Ordner
+    am Ende existiert (sonst kann/soll man ihn überspringen)."""
     cur = ""
     for part in [p for p in path.split(delim) if p]:
         cur = f"{cur}{delim}{part}" if cur else part
@@ -74,7 +74,7 @@ def _ensure_folder(dst: MailBox, path: str, delim: str) -> bool:
 
 
 def _existing_message_ids(dst: MailBox, folder: str) -> set[str]:
-    """Message-IDs, die im Zielordner schon liegen (fuer Dedup)."""
+    """Message-IDs, die im Zielordner schon liegen (für Dedup)."""
     ids: set[str] = set()
     try:
         dst.folder.set(folder)
@@ -167,8 +167,8 @@ def transfer_messages(
     """Kopiert/verschiebt einzelne Mails (uids) oder einen ganzen Ordner
     (uids=None) — INKL. aller Unterordner — aus dem Quell- in ein ANDERES Konto.
 
-    Bei uids=None wird der komplette Teilbaum unter source_folder uebertragen und
-    die Ordnerstruktur unter dest_folder nachgebaut. move=True loescht die
+    Bei uids=None wird der komplette Teilbaum unter source_folder übertragen und
+    die Ordnerstruktur unter dest_folder nachgebaut. move=True löscht die
     Quellmails nach erfolgreicher Ablage (Ordner bleiben leer stehen). Dedup per
     Message-ID verhindert Duplikate. Liefert {copied, skipped, deleted, errors}.
     """

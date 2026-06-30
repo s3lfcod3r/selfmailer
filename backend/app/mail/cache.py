@@ -1,9 +1,9 @@
-"""Lokaler Mail-Cache (DB) fuer schnelle Listenanzeige + Delta-Sync.
+"""Lokaler Mail-Cache (DB) für schnelle Listenanzeige + Delta-Sync.
 
 Idee (Thunderbird-Stil): Die Liste eines Ordners kommt SOFORT aus der SQLite-DB.
-Ein Sync holt vom IMAP-Server nur die NEUEN Mails (Koepfe), entfernt geloeschte
-und gleicht Flags ab. Der Cache ist reine Beschleunigung — schlaegt etwas fehl,
-faellt der Aufrufer auf den Live-Abruf zurueck.
+Ein Sync holt vom IMAP-Server nur die NEUEN Mails (Köpfe), entfernt gelöschte
+und gleicht Flags ab. Der Cache ist reine Beschleunigung — schlägt etwas fehl,
+fällt der Aufrufer auf den Live-Abruf zurück.
 """
 from __future__ import annotations
 
@@ -18,21 +18,21 @@ from sqlmodel import Session, select
 from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
 from .imap import FLAGGED, SEEN, _mailbox, _snippet
 
-# Obergrenze, wie viele (neueste) Mail-Koepfe pro Sync nachgeladen werden.
-# Bewusst nicht zu hoch: ein Lauf bleibt zeitlich beschaenkt; sehr grosse Ordner
-# fuellen sich ueber mehrere Syncs. Zwischen-Commits sichern Teilfortschritt.
+# Obergrenze, wie viele (neueste) Mail-Köpfe pro Sync nachgeladen werden.
+# Bewusst nicht zu hoch: ein Lauf bleibt zeitlich beschaenkt; sehr große Ordner
+# füllen sich über mehrere Syncs. Zwischen-Commits sichern Teilfortschritt.
 _SYNC_CAP = 1000
 _COMMIT_EVERY = 200
-# Flag-Abgleich nur fuer die neuesten N UIDs (dort aendern sich Flags am ehesten).
+# Flag-Abgleich nur für die neuesten N UIDs (dort ändern sich Flags am ehesten).
 _FLAG_WINDOW = 120
 # Der Flag-Abgleich (Header-Fetch vieler Mails) ist der teuerste Teil eines Syncs
-# und aendert sich selten. Darum hoechstens alle N Sekunden — haeufige Ordner-
+# und ändert sich selten. Darum höchstens alle N Sekunden — häufige Ordner-
 # wechsel/Polls laufen dann nur noch billig (Status + UID-Diff).
 _FLAG_REFRESH_SECS = 25
 
 
 def _as_utc(value: dt.datetime | None) -> dt.datetime | None:
-    """Naive (aus SQLite gelesene) Zeit als UTC interpretieren, sonst unveraendert."""
+    """Naive (aus SQLite gelesene) Zeit als UTC interpretieren, sonst unverändert."""
     if value is None:
         return None
     return value.replace(tzinfo=dt.timezone.utc) if value.tzinfo is None else value
@@ -42,7 +42,7 @@ def _to_utc_naive(value: dt.datetime | None) -> dt.datetime | None:
     """Sortier-Datum auf NAIVE UTC normalisieren. Sonst mischen sich timezone-aware
     Header (z. B. +0200/GMT) und naive (z. B. '-0000' oder ohne Offset) — SQLite
     vergleicht dann die lokale Uhrzeit-Komponente statt des absoluten Zeitpunkts und
-    sortiert falsch (Uhrzeit zerwuerfelt). Aware -> nach UTC umrechnen + tz entfernen;
+    sortiert falsch (Uhrzeit zerwürfelt). Aware -> nach UTC umrechnen + tz entfernen;
     naive bleibt (RFC '-0000' meint bereits UTC)."""
     if value is None:
         return None
@@ -53,7 +53,7 @@ def _to_utc_naive(value: dt.datetime | None) -> dt.datetime | None:
 
 def backfill_sort_dates(session: Session) -> int:
     """Einmalige Reparatur: bestehende sort_date aus dem gespeicherten Header (date_str)
-    NEU parsen + auf naive UTC normalisieren. Behebt falsch sortierte Altbestaende
+    NEU parsen + auf naive UTC normalisieren. Behebt falsch sortierte Altbestände
     (gemischte Zeitzonen). Idempotent; liefert die Anzahl korrigierter Zeilen."""
     fixed = 0
     rows = session.exec(select(CachedMessage).where(CachedMessage.date_str != "")).all()
@@ -96,9 +96,9 @@ def read_messages(session: Session, account_id: int, folder: str, limit: int = 5
 
 
 def recent_unseen(session: Session, account_id: int, folder: str = "INBOX", limit: int = 5) -> list[dict]:
-    """Neueste UNGELESENE Koepfe eines Ordners (fuer eine Badge-Vorschau).
+    """Neueste UNGELESENE Köpfe eines Ordners (für eine Badge-Vorschau).
 
-    Reiner Cache-Lesezugriff; enthaelt zusaetzlich `ts` (ISO-Sortierdatum), damit
+    Reiner Cache-Lesezugriff; enthält zusätzlich `ts` (ISO-Sortierdatum), damit
     der Aufrufer Mails mehrerer Konten zeitlich mischen kann.
     """
     rows = session.exec(
@@ -121,9 +121,9 @@ def recent_unseen(session: Session, account_id: int, folder: str = "INBOX", limi
 
 
 def folder_uids(session: Session, account_id: int, folder: str) -> list[str]:
-    """Alle gecachten UIDs eines Ordners (neueste zuerst) — fuer "Alle auswaehlen".
+    """Alle gecachten UIDs eines Ordners (neueste zuerst) — für "Alle auswählen".
 
-    Bewusst nur die UIDs (kein Body/Snippet), damit das Selektieren ueber alle
+    Bewusst nur die UIDs (kein Body/Snippet), damit das Selektieren über alle
     Seiten hinweg billig bleibt. Begrenzt durch die Cache-Tiefe (sync cap).
     """
     rows = session.exec(
@@ -140,10 +140,10 @@ def read_counts(session: Session, account_id: int) -> dict[str, FolderSync]:
 
 
 def read_folder_counts(session: Session, account_id: int) -> list[dict]:
-    """Gecachte Ordnerliste + Zaehler (fuer die SOFORTige Seitenleiste beim F5).
+    """Gecachte Ordnerliste + Zähler (für die SOFORTige Seitenleiste beim F5).
 
-    Leer, wenn fuer das Konto noch nie ein Live-Abruf lief — dann faellt der
-    Aufrufer auf Live-IMAP zurueck.
+    Leer, wenn für das Konto noch nie ein Live-Abruf lief — dann fällt der
+    Aufrufer auf Live-IMAP zurück.
     """
     rows = session.exec(
         select(CachedFolder)
@@ -154,7 +154,7 @@ def read_folder_counts(session: Session, account_id: int) -> list[dict]:
 
 
 def write_folder_counts(session: Session, account_id: int, items: list[dict]) -> None:
-    """Ersetzt den Ordner-Cache eines Kontos mit frisch live geholten Zaehlern."""
+    """Ersetzt den Ordner-Cache eines Kontos mit frisch live geholten Zählern."""
     old = session.exec(
         select(CachedFolder).where(CachedFolder.account_id == account_id)
     ).all()
@@ -173,9 +173,9 @@ def write_folder_counts(session: Session, account_id: int, items: list[dict]) ->
 
 
 def read_detail(session: Session, account_id: int, folder: str, uid: str) -> dict | None:
-    """Gecachten Mail-Volltext zurueckgeben (oder None, wenn noch nie geoeffnet).
+    """Gecachten Mail-Volltext zurückgeben (oder None, wenn noch nie geöffnet).
 
-    seen/flagged werden aus der aktuellen Cache-Zeile uebernommen (frischer als
+    seen/flagged werden aus der aktuellen Cache-Zeile übernommen (frischer als
     der eingefrorene JSON-Stand), damit die Anzeige stimmt.
     """
     row = session.exec(
@@ -197,8 +197,8 @@ def read_detail(session: Session, account_id: int, folder: str, uid: str) -> dic
 def uncached_detail_uids(session: Session, account_id: int, folder: str, uids: list[str]) -> list[str]:
     """Von uids diejenigen, die noch KEINEN gecachten Volltext haben.
 
-    Damit das Vorwaermen nur fehlende Bodies holt (kein erneuter Server-Abruf
-    fuer schon gecachte Mails).
+    Damit das Vorwärmen nur fehlende Bodies holt (kein erneuter Server-Abruf
+    für schon gecachte Mails).
     """
     if not uids:
         return []
@@ -214,7 +214,7 @@ def uncached_detail_uids(session: Session, account_id: int, folder: str, uids: l
 
 
 def write_detail(session: Session, account_id: int, folder: str, uid: str, detail: dict) -> None:
-    """Legt den live geholten Mail-Volltext im Cache ab (fuer schnelles Wieder-Oeffnen)."""
+    """Legt den live geholten Mail-Volltext im Cache ab (für schnelles Wieder-Öffnen)."""
     row = session.exec(
         select(CachedMessage).where(
             CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid == uid
@@ -231,10 +231,10 @@ def write_detail(session: Session, account_id: int, folder: str, uid: str, detai
 
 
 def _adjust_cached_unseen(session: Session, account_id: int, folder: str, delta: int) -> None:
-    """Passt den aggregierten Ungelesen-Zaehler eines Ordners SOFORT an (clamped >=0),
-    sodass summary()/die Postfach-Badges nicht erst auf den naechsten Scheduler-Sync
+    """Passt den aggregierten Ungelesen-Zähler eines Ordners SOFORT an (clamped >=0),
+    sodass summary()/die Postfach-Badges nicht erst auf den nächsten Scheduler-Sync
     warten. Baut auf dem echten (vom Scheduler per IMAP STATUS gepflegten) Wert auf und
-    korrigiert nur um die Nutzer-Aktion. Haelt FolderSync UND CachedFolder konsistent."""
+    korrigiert nur um die Nutzer-Aktion. Hält FolderSync UND CachedFolder konsistent."""
     if delta == 0:
         return
     fs = session.exec(
@@ -252,11 +252,11 @@ def _adjust_cached_unseen(session: Session, account_id: int, folder: str, delta:
 
 
 def update_flags(session: Session, account_id: int, folder: str, uid: str, *, seen: bool | None = None, flagged: bool | None = None) -> None:
-    """Haelt den Cache konsistent, wenn der Nutzer selbst Flags aendert.
+    """Hält den Cache konsistent, wenn der Nutzer selbst Flags ändert.
 
-    Bei einer ECHTEN seen-Aenderung wird der Ordner-Ungelesen-Zaehler sofort
+    Bei einer ECHTEN seen-Änderung wird der Ordner-Ungelesen-Zähler sofort
     mitgezogen (gelesen -> -1, ungelesen -> +1), damit summary()/Badges in Web UND
-    App direkt stimmen, statt erst nach dem naechsten Scheduler-Sync."""
+    App direkt stimmen, statt erst nach dem nächsten Scheduler-Sync."""
     row = session.exec(
         select(CachedMessage).where(
             CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid == uid
@@ -277,7 +277,7 @@ def set_flags_bulk(
     session: Session, account_id: int, folder: str, uids: list[str],
     *, seen: bool | None = None, flagged: bool | None = None,
 ) -> None:
-    """Setzt seen/flagged fuer viele Cache-Zeilen in EINEM UPDATE je Chunk.
+    """Setzt seen/flagged für viele Cache-Zeilen in EINEM UPDATE je Chunk.
 
     Gechunkt (<=500), weil SQLite die Anzahl Variablen je Query begrenzt (~999)."""
     vals: dict = {}
@@ -288,8 +288,8 @@ def set_flags_bulk(
     uids = [u for u in uids if u]
     if not vals or not uids:
         return
-    # Ungelesen-Zaehler-Delta bestimmen, BEVOR das UPDATE laeuft: nur Zeilen zaehlen,
-    # die tatsaechlich von/zu "ungelesen" wechseln (gechunkt wie das UPDATE).
+    # Ungelesen-Zähler-Delta bestimmen, BEVOR das UPDATE laeuft: nur Zeilen zählen,
+    # die tatsächlich von/zu "ungelesen" wechseln (gechunkt wie das UPDATE).
     if seen is not None:
         changed = 0
         for i in range(0, len(uids), 500):
@@ -319,7 +319,7 @@ def set_flags_bulk(
 
 
 def remove_uids(session: Session, account_id: int, folder: str, uids: list[str]) -> None:
-    """Entfernt Cache-Zeilen (nach Loeschen/Verschieben durch den Nutzer)."""
+    """Entfernt Cache-Zeilen (nach Löschen/Verschieben durch den Nutzer)."""
     if not uids:
         return
     rows = session.exec(
@@ -363,13 +363,13 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
         server_uids = list(box.uids())            # aufsteigend (alt → neu)
         server_set = set(server_uids)
 
-        # Geloeschte raus.
+        # Gelöschte raus.
         for uid, row in list(cached_by_uid.items()):
             if uid not in server_set:
                 session.delete(row)
                 del cached_by_uid[uid]
 
-        # Neue Koepfe holen (neueste zuerst, gedeckelt).
+        # Neue Köpfe holen (neueste zuerst, gedeckelt).
         new_uids = [u for u in server_uids if u not in cached_by_uid]
         fetch_uids = new_uids[-cap:] if cap else new_uids
         if fetch_uids:
@@ -388,8 +388,8 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                     session.commit()
 
         # Flags der neuesten gecachten Mails abgleichen — TEUERSTER Teil (Header-
-        # Fetch vieler Mails). Gedrosselt: nur, wenn der letzte Sync laenger als
-        # _FLAG_REFRESH_SECS her ist. Neue/geloeschte Mails oben laufen immer.
+        # Fetch vieler Mails). Gedrosselt: nur, wenn der letzte Sync länger als
+        # _FLAG_REFRESH_SECS her ist. Neue/gelöschte Mails oben laufen immer.
         now = dt.datetime.now(dt.timezone.utc)
         prev_sync = _as_utc(fs.last_sync) if fs else None
         do_flags = prev_sync is None or (now - prev_sync).total_seconds() >= _FLAG_REFRESH_SECS

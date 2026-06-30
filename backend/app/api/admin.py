@@ -1,6 +1,6 @@
-"""Admin: User verwalten (mehrere User anlegen/sperren/loeschen).
+"""Admin: User verwalten (mehrere User anlegen/sperren/löschen).
 
-Selbstschutz: ein Admin kann sich nicht selbst deaktivieren oder loeschen,
+Selbstschutz: ein Admin kann sich nicht selbst deaktivieren oder löschen,
 damit man sich nicht aus dem eigenen System aussperrt.
 """
 from __future__ import annotations
@@ -90,7 +90,7 @@ def delete_user(
     session: Session = Depends(get_session),
 ) -> None:
     if user_id == admin.id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Eigenes Konto nicht loeschbar")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Eigenes Konto nicht löschbar")
     user = session.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User nicht gefunden")

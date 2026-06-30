@@ -1,9 +1,9 @@
-"""vCard (RFC 6350, Version 3.0) bauen und parsen — beschraenkt auf die Felder
+"""vCard (RFC 6350, Version 3.0) bauen und parsen — beschränkt auf die Felder
 des SelfMailer-Adressbuchs (Name, E-Mail, Telefon, Organisation, Notiz).
 
-build_vcards() erzeugt den Export-Feed; parse_vcards() liest fremde Adressbuecher
+build_vcards() erzeugt den Export-Feed; parse_vcards() liest fremde Adressbücher
 beim CardDAV-Pull. Gemeinsames dict-Schema, damit api/contacts.py es direkt in
-Contact ueberfuehren kann.
+Contact überführen kann.
 """
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def _full_name(first: str, last: str, org: str) -> str:
 
 
 def build_vcards(contacts: Iterable[Any]) -> str:
-    """Serialisiert Contact-aehnliche Objekte zu aneinandergereihten VCARDs."""
+    """Serialisiert Contact-ähnliche Objekte zu aneinandergereihten VCARDs."""
     lines: list[str] = []
     for ct in contacts:
         first = getattr(ct, "first_name", "") or ""

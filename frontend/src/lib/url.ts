@@ -1,12 +1,12 @@
-// Sichere Aufbereitung von Nutzer-eingegebenen Link-URLs fuer den Editor.
+// Sichere Aufbereitung von Nutzer-eingegebenen Link-URLs für den Editor.
 // Verhindert, dass `javascript:`, `data:` oder `vbscript:` als href landen
-// (XSS ueber den "Link einfuegen"-Dialog).
+// (XSS über den "Link einfügen"-Dialog).
 
 const _SAFE_SCHEME = /^(https?:|mailto:|tel:)/i;
 const _ANY_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
 /**
- * Gibt eine sichere URL zurueck oder null, wenn die Eingabe leer oder das
+ * Gibt eine sichere URL zurück oder null, wenn die Eingabe leer oder das
  * Schema nicht erlaubt ist. Schemalose Eingaben ("example.com") werden mit
  * https:// versehen.
  */

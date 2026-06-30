@@ -1,9 +1,9 @@
-"""TOTP (RFC 6238) + Backup-Codes — abhaengigkeitsfrei.
+"""TOTP (RFC 6238) + Backup-Codes — abhängigkeitsfrei.
 
 Implementiert wie im SelfDashboard: Base32-Secret, HMAC-SHA1-HOTP, 6 Ziffern,
-30s-Schritt, Pruef-Fenster +/-1 Schritt. Replay-Schutz ueber den zuletzt
+30s-Schritt, Prüf-Fenster +/-1 Schritt. Replay-Schutz über den zuletzt
 konsumierten Zeitschritt (Aufrufer speichert ihn am User). Das Secret wird vom
-Aufrufer Fernet-verschluesselt at-rest abgelegt ([[crypto]]).
+Aufrufer Fernet-verschlüsselt at-rest abgelegt ([[crypto]]).
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ _ISSUER = "SelfMailer"
 
 
 def _b32encode(data: bytes) -> str:
-    """RFC 4648 Base32 ohne Padding (Authenticator-Apps moegen kein '=')."""
+    """RFC 4648 Base32 ohne Padding (Authenticator-Apps mögen kein '=')."""
     return base64.b32encode(data).decode("ascii").rstrip("=")
 
 
@@ -34,12 +34,12 @@ def _b32decode(secret: str) -> bytes:
 
 
 def generate_secret() -> str:
-    """Neues zufaelliges Base32-Secret (20 Byte = 160 Bit, wie RFC-Empfehlung)."""
+    """Neues zufälliges Base32-Secret (20 Byte = 160 Bit, wie RFC-Empfehlung)."""
     return _b32encode(secrets.token_bytes(20))
 
 
 def build_otpauth_uri(account_label: str, secret: str) -> str:
-    """otpauth://-URI fuer QR-Code / manuelle Eingabe in der Authenticator-App."""
+    """otpauth://-URI für QR-Code / manuelle Eingabe in der Authenticator-App."""
     from urllib.parse import quote
 
     label = quote(f"{_ISSUER}:{account_label}")
@@ -58,9 +58,9 @@ def _hotp(secret: bytes, counter: int) -> str:
 
 
 def verify_code_step(secret_b32: str, token: str, window: int = 1) -> int | None:
-    """Prueft einen TOTP-Code und gibt den passenden Zeitschritt zurueck.
+    """Prüft einen TOTP-Code und gibt den passenden Zeitschritt zurück.
 
-    Rueckgabe = Schrittzaehler (fuer Replay-Schutz) oder None, wenn kein Schritt
+    Rückgabe = Schrittzähler (für Replay-Schutz) oder None, wenn kein Schritt
     im Fenster passt. Vergleich konstant-zeitig.
     """
     code = token.strip().replace(" ", "")
@@ -90,5 +90,5 @@ def generate_backup_codes() -> list[str]:
 
 
 def normalize_backup_code(raw: str) -> str:
-    """Vereinheitlicht Eingabe (Bindestriche/Leerzeichen weg, Grossschreibung)."""
+    """Vereinheitlicht Eingabe (Bindestriche/Leerzeichen weg, Großschreibung)."""
     return raw.replace("-", "").replace(" ", "").upper()

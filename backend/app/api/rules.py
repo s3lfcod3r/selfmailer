@@ -136,14 +136,14 @@ def block_sender(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> BlockSenderResult:
-    """Absender dauerhaft blockieren: legt eine Loesch-Regel an und entfernt
-    optional die bereits vorhandenen Mails dieses Absenders sofort endgueltig."""
+    """Absender dauerhaft blockieren: legt eine Lösch-Regel an und entfernt
+    optional die bereits vorhandenen Mails dieses Absenders sofort endgültig."""
     acc = _account(account_id, user, session)
     sender = (data.sender or "").strip()
     if not sender:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Absender fehlt")
 
-    # Doppelte Regel vermeiden: gleiche Bedingung -> nur Loeschen erzwingen.
+    # Doppelte Regel vermeiden: gleiche Bedingung -> nur Löschen erzwingen.
     field = "from_domain" if data.by_domain else "from"
     existing = next(
         (r for r in _rules(account_id, session) if r.field == field and r.value.lower() == sender.lower()),
@@ -175,8 +175,8 @@ def block_sender(
                 acc, decrypt(acc.secret_enc), sender, by_domain=data.by_domain
             )
             deleted = int(res.get("deleted", 0) or 0)
-        except Exception:  # noqa: BLE001 - Regel bleibt bestehen, Sofort-Loeschung best effort
-            logger.warning("Sofort-Loeschung beim Blockieren fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        except Exception:  # noqa: BLE001 - Regel bleibt bestehen, Sofort-Löschung best effort
+            logger.warning("Sofort-Löschung beim Blockieren fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
 
     return BlockSenderResult(rule=RuleOut.model_validate(rule, from_attributes=True), deleted=deleted)
 
@@ -187,7 +187,7 @@ def purge_spam_now(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> SpamPurgeResult:
-    """Spam-Ordner jetzt sofort endgueltig leeren (alle Mails, unabhaengig vom Alter)."""
+    """Spam-Ordner jetzt sofort endgültig leeren (alle Mails, unabhängig vom Alter)."""
     acc = _account(account_id, user, session)
     try:
         res = imap_mod.purge_spam(acc, decrypt(acc.secret_enc), 0)
@@ -203,7 +203,7 @@ def purge_trash_now(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> SpamPurgeResult:
-    """Papierkorb jetzt sofort endgueltig leeren (alle Mails, unabhaengig vom Alter)."""
+    """Papierkorb jetzt sofort endgültig leeren (alle Mails, unabhängig vom Alter)."""
     acc = _account(account_id, user, session)
     try:
         res = imap_mod.purge_trash(acc, decrypt(acc.secret_enc), 0)

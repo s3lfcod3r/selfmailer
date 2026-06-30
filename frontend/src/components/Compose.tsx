@@ -19,7 +19,7 @@ function quoteText(text: string, html: string): string {
   return src.split("\n").map((l) => "> " + l).join("\n");
 }
 
-// Antwort-Entwurf aus einer geoeffneten Nachricht. t für lokalisierte Zitat-Zeile.
+// Antwort-Entwurf aus einer geöffneten Nachricht. t für lokalisierte Zitat-Zeile.
 export function replyDraft(d: {
   from: string; subject: string; date: string; text: string; html: string; message_id: string;
 }, t: TFunc): Draft {
@@ -57,7 +57,7 @@ function split(v: string): string[] {
 function isHtmlSig(sig: string): boolean {
   return /<[a-z][\s\S]*>/i.test(sig);
 }
-// Plaintext-Fassung der Signatur (fuer den text/plain-Teil der Mail).
+// Plaintext-Fassung der Signatur (für den text/plain-Teil der Mail).
 function sigText(sig: string): string {
   if (!sig) return "";
   const plain = isHtmlSig(sig)
@@ -70,7 +70,7 @@ function sigText(sig: string): string {
     : sig;
   return "\n\n-- \n" + plain;
 }
-// HTML-Fassung (fuer den text/html-Teil). Plaintext wird escaped + nl2br.
+// HTML-Fassung (für den text/html-Teil). Plaintext wird escaped + nl2br.
 function sigHtml(sig: string): string {
   if (!sig) return "";
   const inner = isHtmlSig(sig)

@@ -28,12 +28,12 @@ function parseAddr(s: string): { name: string; email: string } {
   if (m && m[2]) return { name: (m[1] || m[2]).trim(), email: m[2].trim() };
   return { name: s || "", email: s || "" };
 }
-// Server-Datumsstring hübsch lokalisiert; faellt bei Parse-Fehler auf Rohtext zurueck.
+// Server-Datumsstring hübsch lokalisiert; fällt bei Parse-Fehler auf Rohtext zurück.
 function prettyDate(s: string): string {
   const d = new Date(s);
   return isNaN(d.getTime()) ? s : d.toLocaleString();
 }
-// Kompaktes Datum MIT Uhrzeit fuer die Listenzeile (z. B. "20. Jun 26, 17:24").
+// Kompaktes Datum MIT Uhrzeit für die Listenzeile (z. B. "20. Jun 26, 17:24").
 function listDate(s: string): string {
   const d = new Date(s);
   if (isNaN(d.getTime())) return (s || "").slice(0, 16);
@@ -42,7 +42,7 @@ function listDate(s: string): string {
   });
 }
 
-// CSP, die im Mail-iframe ALLE externen Ladevorgaenge (Bilder/Schriften/Medien)
+// CSP, die im Mail-iframe ALLE externen Ladevorgänge (Bilder/Schriften/Medien)
 // blockiert — nur eingebettete data:/cid:-Bilder und Inline-Styles sind erlaubt.
 // So laden keine Tracking-Pixel; Skripte sind ohnehin per sandbox="" geblockt.
 const _CSP_BLOCK =
@@ -50,11 +50,11 @@ const _CSP_BLOCK =
 function hasRemoteContent(html: string): boolean {
   return /(?:src|background)\s*=\s*["']?\s*https?:/i.test(html) || /url\(\s*['"]?\s*https?:/i.test(html);
 }
-// Dunkelmodus fuer Mails: KEIN Invertieren mehr (scheitert bei Design-Mails wie
+// Dunkelmodus für Mails: KEIN Invertieren mehr (scheitert bei Design-Mails wie
 // Bosch — Hintergrund dunkel, aber Schrift blieb dunkel/unlesbar). Stattdessen
 // "Lese-Dunkelmodus": dunkler Hintergrund + Schrift IMMER hell erzwingen
-// (!important schlaegt die Mail-eigenen Farben), eigene Hintergruende neutralisieren,
-// Links hell, Bilder unveraendert. So ist JEDE Mail dunkel mit lesbarer heller Schrift.
+// (!important schlägt die Mail-eigenen Farben), eigene Hintergründe neutralisieren,
+// Links hell, Bilder unverändert. So ist JEDE Mail dunkel mit lesbarer heller Schrift.
 const _DARK_STYLE =
   `<style>:root{color-scheme:dark}` +
   `html,body{background:#0d1117 !important;color:#e6edf3 !important;}` +
@@ -140,7 +140,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
-  // "Alle im Ordner" (ueber alle Seiten) aktiv? Dann enthaelt `selected` alle UIDs.
+  // "Alle im Ordner" (über alle Seiten) aktiv? Dann enthält `selected` alle UIDs.
   const [selectAllFolder, setSelectAllFolder] = useState(false);
   const [syncing, setSyncing] = useState(false);
   // Lese-Kopf: Mehr-Menü (⋯) und ausklappbare Detailzeilen (Von/An/Datum/Betreff).
@@ -148,13 +148,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [detailsOpen, setDetailsOpen] = useState(false);
   // Absender als Kontakt gespeichert? (kurzes Erfolgs-Feedback im Lesekopf)
   const [contactSaved, setContactSaved] = useState(false);
-  // Pro geoeffneter Mail: hat der Nutzer externe Bilder freigegeben?
+  // Pro geöffneter Mail: hat der Nutzer externe Bilder freigegeben?
   const [showImages, setShowImages] = useState(false);
   // Übersetzung der aktuell geöffneten Mail (null = nicht übersetzt).
   const [translated, setTranslated] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
   const [translateEnabled, setTranslateEnabled] = useState(false);
-  // Doppelklick auf eine Mail oeffnet sie zusaetzlich in einem eigenen Popup-Fenster.
+  // Doppelklick auf eine Mail öffnet sie zusätzlich in einem eigenen Popup-Fenster.
   const [popup, setPopup] = useState(false);
   // Echtheits-Details (SPF/DKIM/DMARC + Volltext) zum kompakten Status-Chip aufgeklappt?
   const [authOpen, setAuthOpen] = useState(false);
@@ -191,7 +191,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Mobile/Tablet: nur eine Spalte zur Zeit (Drill-down Ordner → Liste → Lesen).
   // Auf Desktop (>900px) ignoriert das CSS das Attribut und zeigt alle 3 Spalten.
   const [mobilePane, setMobilePane] = useState<"folders" | "list" | "read">("list");
-  // Konto-Transfer: ausgewaehlte Mails ODER ganzer Ordner (uids=null) in ein
+  // Konto-Transfer: ausgewählte Mails ODER ganzer Ordner (uids=null) in ein
   // ANDERES Konto kopieren/verschieben.
   const [transfer, setTransfer] = useState<{ sourceAcc: number; sourceFolder: string; uids: string[] | null } | null>(null);
   const [xferAcc, setXferAcc] = useState<number>(0);
@@ -225,9 +225,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // (kein Seiten-Pager, der sich auf alle Ordner-Mails bezieht).
   const searchActive = (search ?? "").trim().length > 0;
 
-  // --- Konten + Ordner (mit Zaehlern) laden ---
-  // Live-Auffrischung der Ordnerzaehler — NIE awaiten, damit die UI nie auf IMAP
-  // wartet (das war die Ursache fuer den F5-Freeze bei langsamen Konten).
+  // --- Konten + Ordner (mit Zählern) laden ---
+  // Live-Auffrischung der Ordnerzähler — NIE awaiten, damit die UI nie auf IMAP
+  // wartet (das war die Ursache für den F5-Freeze bei langsamen Konten).
   function refreshFoldersLive(a: Account) {
     api.get<FolderCount[]>(`/mail/${a.id}/folders/counts?live=1`)
       .then((fc) => { if (fc.length) setFoldersByAcc((m) => ({ ...m, [a.id]: fc })); })
@@ -236,7 +236,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
 
   async function loadAccountFolders(a: Account, liveRefresh = true) {
     // Cache-first: ist die Ordnerliste schon gecacht, erscheint die Seitenleiste
-    // SOFORT (kein IMAP). Live-Auffrischung NUR fuers aktive Konto (liveRefresh),
+    // SOFORT (kein IMAP). Live-Auffrischung NUR fürs aktive Konto (liveRefresh),
     // damit nicht 8 langsame IMAP-Abrufe gleichzeitig die App blockieren.
     let hadCache = false;
     try {
@@ -259,7 +259,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       setAccounts(list);
       const firstId = list.length ? list[0].id : null;
       if (firstId != null) setSel((s) => s ?? { acc: firstId, folder: "INBOX" });
-      // Cache-first fuer ALLE (instant); Live nur fuers aktive Konto.
+      // Cache-first für ALLE (instant); Live nur fürs aktive Konto.
       list.forEach((a) => loadAccountFolders(a, a.id === firstId));
     }).catch((e) => setErr((e as Error).message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -267,7 +267,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
 
   const treesByAcc = useMemo(() => {
     const out: Record<number, FolderNode[]> = {};
-    // Ganze Folder-Objekte (inkl. Backend-`special`) uebergeben, damit der Baum
+    // Ganze Folder-Objekte (inkl. Backend-`special`) übergeben, damit der Baum
     // Sonderordner provider-einheitlich erkennt (statt nur per Namens-Heuristik).
     for (const [id, fcs] of Object.entries(foldersByAcc)) out[Number(id)] = buildFolderTree(fcs);
     return out;
@@ -294,19 +294,19 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     return (foldersByAcc[accId] || []).find((f) => f.name === path)?.unseen ?? 0;
   }
   function rollupUnseen(accId: number): number {
-    // Ausgeblendete Ordner NICHT mitzaehlen — sonst zeigt der zugeklappte Konto-
+    // Ausgeblendete Ordner NICHT mitzählen — sonst zeigt der zugeklappte Konto-
     // Kopf eine Zahl, die in keinem sichtbaren Ordner auftaucht.
     const hidden = hiddenByAcc[accId] || [];
     return (foldersByAcc[accId] || []).reduce((s, f) => s + (hidden.includes(f.name) ? 0 : (f.unseen || 0)), 0);
   }
   // Gesamt-Ungelesen (alle Konten, ohne ausgeblendete Ordner) nach oben melden —
-  // fuer das Badge am Mail-Icon der oberen Navigation (auch ausserhalb des Mailbereichs).
+  // für das Badge am Mail-Icon der oberen Navigation (auch außerhalb des Mailbereichs).
   useEffect(() => {
     if (!onUnseenChange) return;
     onUnseenChange(accounts.reduce((s, a) => s + rollupUnseen(a.id), 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [foldersByAcc, accounts, hiddenByAcc, onUnseenChange]);
-  // Ungelesen-Zaehler lokal anpassen (ohne erneuten IMAP-Abruf).
+  // Ungelesen-Zähler lokal anpassen (ohne erneuten IMAP-Abruf).
   function bumpUnseen(accId: number, path: string, delta: number) {
     setFoldersByAcc((m) => ({
       ...m,
@@ -314,12 +314,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     }));
   }
   function refreshCounts(accId: number) {
-    // Auffrischen heisst hier: echte, frische Zaehler vom Server (live) holen —
+    // Auffrischen heißt hier: echte, frische Zähler vom Server (live) holen —
     // und damit zugleich den Cache aktualisieren.
     api.get<FolderCount[]>(`/mail/${accId}/folders/counts?live=1`)
       .then((fc) => { if (fc.length) setFoldersByAcc((m) => ({ ...m, [accId]: fc })); }).catch(() => {});
   }
-  // ↻ pro Konto: Filterregeln anwenden, Zaehler neu holen + aktive Liste neu laden.
+  // ↻ pro Konto: Filterregeln anwenden, Zähler neu holen + aktive Liste neu laden.
   async function refreshAccount(accId: number) {
     try { await api.post(`/mail/${accId}/rules/apply`); } catch { /* egal */ }
     refreshCounts(accId);
@@ -343,7 +343,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       return n;
     });
   }
-  // Posteingaenge initial aufgeklappt.
+  // Posteingänge initial aufgeklappt.
   useEffect(() => {
     setExpanded((prev) => {
       const n = new Set(prev);
@@ -388,7 +388,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   }
   function accountById(id: number): Account { return accounts.find((a) => a.id === id)!; }
 
-  // Eigener Bestaetigungs-Dialog statt window.confirm (mittig, im App-Design).
+  // Eigener Bestätigungs-Dialog statt window.confirm (mittig, im App-Design).
   const [confirmBox, setConfirmBox] = useState<{ message: string; resolve: (ok: boolean) => void } | null>(null);
   function askConfirm(message: string): Promise<boolean> {
     return new Promise((resolve) => setConfirmBox({ message, resolve }));
@@ -404,7 +404,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   }
 
   // --- Nachrichten ---
-  // Aktuelle Auswahl als Ref, damit ein verspaeteter Hintergrund-Sync nur dann
+  // Aktuelle Auswahl als Ref, damit ein verspäteter Hintergrund-Sync nur dann
   // die Liste aktualisiert, wenn der Nutzer noch im selben Ordner ist.
   const selRef = useRef(sel);
   useEffect(() => { selRef.current = sel; }, [sel]);
@@ -412,15 +412,15 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // sichtbare Seite auffrischt (ohne den Effekt bei jedem Seitenwechsel neu zu setzen).
   const pageRef = useRef(1);
   useEffect(() => { pageRef.current = page; }, [page]);
-  // Versionszaehler fuer loadAllForSearch: verwirft veraltete Antworten,
-  // wenn waehrend des Ladens erneut (anderer Ordner/Suche) geladen wurde.
+  // Versionszähler für loadAllForSearch: verwirft veraltete Antworten,
+  // wenn während des Ladens erneut (anderer Ordner/Suche) geladen wurde.
   const searchLoadRef = useRef(0);
 
   // Holt genau eine Seite (offset = (p-1)*PAGE_SIZE). Cache-first im Backend.
   function fetchPage(acc: number, fol: string, p: number) {
     return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${PAGE_SIZE}&offset=${(p - 1) * PAGE_SIZE}`);
   }
-  // Ordnerwechsel/Neuladen: immer auf Seite 1, Auswahl zuruecksetzen.
+  // Ordnerwechsel/Neuladen: immer auf Seite 1, Auswahl zurücksetzen.
   function reload() {
     if (!sel) return;
     const acc = sel.acc, fol = sel.folder;
@@ -443,7 +443,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       .catch(() => { /* Sync ist best-effort */ })
       .finally(() => setSyncing(false));
   }
-  // Zu Seite p springen: ersetzt die Liste. Auswahl bleibt erhalten (seitenuebergreifend).
+  // Zu Seite p springen: ersetzt die Liste. Auswahl bleibt erhalten (seitenübergreifend).
   function goPage(p: number) {
     if (!sel) return;
     const clamped = Math.max(1, Math.min(totalPages, p));
@@ -455,7 +455,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       .finally(() => setLoadingMore(false));
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  // Suche: ganzen Ordner laden (bis Cache-Tiefe), damit Treffer ueber alle Seiten
+  // Suche: ganzen Ordner laden (bis Cache-Tiefe), damit Treffer über alle Seiten
   // gefunden und in einer Liste angezeigt werden.
   function loadAllForSearch() {
     if (!sel) return;
@@ -474,7 +474,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel?.acc, sel?.folder, searchActive]);
 
-  // Beim Wechsel auf ein Konto dessen Ordnerzaehler EINMAL live auffrischen.
+  // Beim Wechsel auf ein Konto dessen Ordnerzähler EINMAL live auffrischen.
   // Inaktive Konten bleiben bis dahin auf dem Cache -> kein 8-fach-IMAP-Sturm.
   useEffect(() => {
     if (sel?.acc != null) refreshCounts(sel.acc);
@@ -484,11 +484,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Mobile: schließt sich die Lese-Ansicht (Löschen/Verschieben/✕), zurück zur Liste.
   useEffect(() => {
     if (!open && mobilePane === "read") setMobilePane("list");
-    setContactSaved(false);  // bei jeder geoeffneten Mail das Kontakt-Feedback zuruecksetzen
+    setContactSaved(false);  // bei jeder geöffneten Mail das Kontakt-Feedback zurücksetzen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Auto-Abruf: alle pollMin Minuten Zaehler aller Konten + aktive Liste auffrischen.
+  // Auto-Abruf: alle pollMin Minuten Zähler aller Konten + aktive Liste auffrischen.
   useEffect(() => {
     if (!pollMin || accounts.length === 0) return;
     const id = window.setInterval(() => {
@@ -604,8 +604,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       }
     }
   }
-  // Body beim Drueberfahren vorladen: der erste Live-Abruf landet im DB-Cache,
-  // sodass der anschliessende Klick die Mail SOFORT aus dem Cache zeigt. Pro
+  // Body beim Drüberfahren vorladen: der erste Live-Abruf landet im DB-Cache,
+  // sodass der anschließende Klick die Mail SOFORT aus dem Cache zeigt. Pro
   // (Konto/Ordner/uid) nur einmal — kein Mehrfach-Login beim Hin- und Herfahren.
   // Ganze Listenseite in EINEM Request vorwaermen: das Backend holt die noch
   // nicht gecachten Bodies in einer IMAP-Session und legt sie in der DB ab.
@@ -615,7 +615,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     if (uids.length === 0) return;
     api.post(`/mail/${acc}/messages/prefetch`, { folder: fol, uids })
       .then(() => { uids.forEach((u) => prefetchedRef.current.add(`${acc}:${fol}:${u}`)); })
-      .catch(() => { /* Vorwaermen ist best-effort */ });
+      .catch(() => { /* Vorwärmen ist best-effort */ });
   }
   const prefetchedRef = useRef<Set<string>>(new Set());
   function prefetchMsg(uid: string) {
@@ -687,7 +687,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const acc = activeId, lower = addr.toLowerCase();
     try {
       await api.post(`/mail/${acc}/block-sender`, { sender: addr, delete_existing: true });
-      // Sichtbare Mails dieses Absenders sofort aus der Liste nehmen + Lesefenster schliessen.
+      // Sichtbare Mails dieses Absenders sofort aus der Liste nehmen + Lesefenster schließen.
       setMessages((ms) => ms.filter((x) => !parseAddr(x.from).email.toLowerCase().includes(lower)));
       setOpen(null);
       refreshCounts(acc);
@@ -705,7 +705,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     if (open && ids.has(open.uid)) setOpen(null);
     setMessages((ms) => ms.filter((m) => !ids.has(m.uid)));
     setSelected(new Set()); setSelectAllFolder(false);
-    // EIN Request statt N: alle UIDs in einer IMAP-Session loeschen (ein Login).
+    // EIN Request statt N: alle UIDs in einer IMAP-Session löschen (ein Login).
     // Im Hintergrund; bei Fehler echte Liste wiederherstellen.
     api.post(`/mail/${acc}/messages/batch-delete`, { folder: fol, uids: [...ids] })
       .then(() => { refreshCounts(acc); if (wasAll && selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); })
@@ -776,7 +776,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     } catch (e) { setErr((e as Error).message); }
   }
 
-  // Absender der offenen Mail ins Adressbuch uebernehmen (Name + Adresse).
+  // Absender der offenen Mail ins Adressbuch übernehmen (Name + Adresse).
   async function saveSenderAsContact() {
     if (!open) return;
     const { name, email } = parseAddr(open.from);
@@ -795,7 +795,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const cur = hiddenByAcc[accId] || [];
     if (cur.includes(path)) return;
     persistHidden({ ...hiddenByAcc, [accId]: [...cur, path] });
-    // War der ausgeblendete Ordner gerade aktiv → zurueck auf den Posteingang.
+    // War der ausgeblendete Ordner gerade aktiv → zurück auf den Posteingang.
     if (activeId === accId && folder === path) setSel({ acc: accId, folder: "INBOX" });
   }
   function unhideFolder(accId: number, path: string) {
@@ -852,7 +852,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const activeFolders = foldersByAcc[activeId ?? -1] || [];
   const folderNames = activeFolders.map((f) => f.name);
   // Spam-Ordner des aktiven Kontos (für den Spam-Button): Backend-`special`
-  // bevorzugen, sonst auf die Namens-Heuristik zurueckfallen.
+  // bevorzugen, sonst auf die Namens-Heuristik zurückfallen.
   const spamFolder = (
     activeFolders.find((f) => f.special === "spam")?.name ??
     folderNames.find((f) => specialKind(f.split(/[/.]/).pop() || f) === "spam")
@@ -866,7 +866,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     .filter((m) => !filter?.starred || m.flagged)
     .filter((m) => !filter?.attachments || m.has_attachments)
     .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo));
-  // Gesamtzahl/Seitenzahl des aktiven Ordners aus den Zaehlern (IMAP STATUS).
+  // Gesamtzahl/Seitenzahl des aktiven Ordners aus den Zählern (IMAP STATUS).
   const folderTotal = (foldersByAcc[activeId ?? -1] || []).find((f) => f.name === folder)?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(folderTotal / PAGE_SIZE));
   const allSelected = visible.length > 0 && visible.every((m) => selected.has(m.uid));
@@ -1094,8 +1094,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                 <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ width: "auto" }} />
                 <span className="muted" style={{ fontSize: "0.78rem" }}>{t("mail.selectAll")}</span>
               </label>
-              {/* Ordnerweites "Alle auswaehlen" NUR ohne Suche — bei Suche soll
-                  "Alle auswaehlen" ausschliesslich die sichtbaren Treffer markieren. */}
+              {/* Ordnerweites "Alle auswählen" NUR ohne Suche — bei Suche soll
+                  "Alle auswählen" ausschließlich die sichtbaren Treffer markieren. */}
               {!searchActive && (selectAllFolder ? (
                 <span className="sel-all-note">
                   {t("mail.allFolderSelected", { n: folderTotal })}
@@ -1201,7 +1201,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                     </div>
                   );
                 })()}
-                {/* Empfaengeradresse (oft die eigene) nicht im Kopf zeigen — sie steht
+                {/* Empfängeradresse (oft die eigene) nicht im Kopf zeigen — sie steht
                     in den aufgeklappten Details. Hier nur der Aufklapp-Schalter. */}
                 <button className="mail-head-toexp" onClick={() => setDetailsOpen((v) => !v)} title={t("mail.details")}>
                   Details <span aria-hidden>{detailsOpen ? "▴" : "▾"}</span>

@@ -44,7 +44,7 @@ def test_change_password_roundtrip(client, admin):
     r = client.post("/api/v1/auth/password", headers=admin,
                     json={"current_password": "falsch", "new_password": "neuesPW-123"})
     assert r.status_code == 400
-    # Richtiges aktuelles PW -> ok, dann wieder zurueck aendern
+    # Richtiges aktuelles PW -> ok, dann wieder zurück ändern
     r = client.post("/api/v1/auth/password", headers=admin,
                     json={"current_password": "supersecret-123", "new_password": "neuesPW-123"})
     assert r.status_code == 200

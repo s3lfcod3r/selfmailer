@@ -1,9 +1,9 @@
 """Kalender: lokale Events pro User (CRUD) + Zwei-Wege-Sync mit Google.
 
-Der lokale Store ist eigenstaendig nutzbar. Ist ein Termin einem Google-Konto
-(DavKind.gcal) zugeordnet, werden Anlegen/Aendern/Loeschen zusaetzlich in die
-Google Calendar API zurueckgeschrieben (Push). Der Gegenrichtungs-Pull lebt in
-``api/dav.py`` (run_dav_sync). external_uid ist durchgaengig ``{calId}::{eventId}``.
+Der lokale Store ist eigenständig nutzbar. Ist ein Termin einem Google-Konto
+(DavKind.gcal) zugeordnet, werden Anlegen/Ändern/Löschen zusätzlich in die
+Google Calendar API zurückgeschrieben (Push). Der Gegenrichtungs-Pull lebt in
+``api/dav.py`` (run_dav_sync). external_uid ist durchgängig ``{calId}::{eventId}``.
 
 Zeiten werden im Store als **naive UTC** gehalten (Pull-Konvention); eingehende
 aware-Datetimes werden hier normalisiert.
@@ -33,12 +33,12 @@ router = APIRouter(prefix="/api/v1/calendar", tags=["calendar"])
 
 
 def _to_utc_naive(d: dt.datetime) -> dt.datetime:
-    """aware → naive UTC; naive bleibt unveraendert (gilt bereits als UTC)."""
+    """aware → naive UTC; naive bleibt unverändert (gilt bereits als UTC)."""
     return d.astimezone(dt.timezone.utc).replace(tzinfo=None) if d.tzinfo else d
 
 
 def _ev_dict(ev: CalendarEvent) -> dict:
-    """CalendarEvent → schlankes Dict fuer die Google-Push-Funktionen."""
+    """CalendarEvent → schlankes Dict für die Google-Push-Funktionen."""
     return {
         "title": ev.title, "description": ev.description, "location": ev.location,
         "start": ev.start, "end": ev.end, "all_day": ev.all_day,
@@ -50,14 +50,14 @@ def _gcal_account(account_id: int, user: User, session: Session) -> DavAccount:
     if acc is None or acc.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Kalender-Konto nicht gefunden")
     if acc.kind != DavKind.gcal:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zurueckschreiben nur fuer Google-Konten")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zurückschreiben nur für Google-Konten")
     return acc
 
 
 def _push_error(exc: httpx.HTTPError) -> HTTPException:
-    """Uebersetzt einen Google-Fehler in eine sprechende HTTP-Antwort.
+    """Übersetzt einen Google-Fehler in eine sprechende HTTP-Antwort.
 
-    403 mit gueltigem Token = meist fehlender Schreib-Scope (Token wurde nur mit
+    403 mit gültigem Token = meist fehlender Schreib-Scope (Token wurde nur mit
     calendar.readonly geholt) → klarer Hinweis statt kryptischem 502."""
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
@@ -79,7 +79,7 @@ def export_ics(
 ) -> Response:
     """Liefert alle Termine des Users als abonnierbaren iCalendar-Feed.
 
-    Auth ueber ``?token=`` (Abo) oder Bearer (Direkt-Download).
+    Auth über ``?token=`` (Abo) oder Bearer (Direkt-Download).
     """
     stmt = select(CalendarEvent).where(CalendarEvent.user_id == user.id).order_by(
         CalendarEvent.start
@@ -122,7 +122,7 @@ def put_hidden(
     user: User = Depends(feed_or_bearer_user),
     session: Session = Depends(get_session),
 ) -> HiddenCals:
-    """Setzt die ausgeblendeten Kalender (ersetzt die Liste vollstaendig)."""
+    """Setzt die ausgeblendeten Kalender (ersetzt die Liste vollständig)."""
     keys = sorted({str(k) for k in data.keys if str(k)})
     db_user = session.get(User, user.id)
     if db_user is None:
@@ -151,7 +151,7 @@ def list_events(
 
 def _persist_event(data: EventCreate, user: User, session: Session) -> CalendarEvent:
     """Legt einen Termin im lokalen Store an und schreibt ihn optional in einen
-    Google-Kalender zurueck (Zwei-Wege-Push). Kern von ``POST /events`` — egal ob
+    Google-Kalender zurück (Zwei-Wege-Push). Kern von ``POST /events`` — egal ob
     der Aufruf per Login (WebUI) oder per Feed-Token (Dashboard) kommt."""
     if data.end < data.start:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ende liegt vor Beginn")
@@ -163,7 +163,7 @@ def _persist_event(data: EventCreate, user: User, session: Session) -> CalendarE
         source_key="local", source_name="",  # lokal; Frontend zeigt "Lokal"
     )
 
-    # Zwei-Wege: optional gleich in einen Google-Kalender zurueckschreiben.
+    # Zwei-Wege: optional gleich in einen Google-Kalender zurückschreiben.
     if data.dav_account_id is not None:
         acc = _gcal_account(data.dav_account_id, user, session)
         try:
@@ -175,7 +175,7 @@ def _persist_event(data: EventCreate, user: User, session: Session) -> CalendarE
             raise _push_error(exc)
         ev.dav_account_id = acc.id
         ev.external_uid = f"{cal_id}::{event_id}"
-        # Quell-Kalender direkt setzen (Name/Farbe ergaenzt der naechste Pull).
+        # Quell-Kalender direkt setzen (Name/Farbe ergänzt der nächste Pull).
         ev.source_key = cal_id
 
     session.add(ev)
@@ -337,7 +337,7 @@ def delete_event(
 ) -> None:
     ev = _owned(event_id, user, session)
 
-    # Google-Termin auch dort loeschen (sonst kaeme er beim naechsten Pull zurueck).
+    # Google-Termin auch dort löschen (sonst kaeme er beim nächsten Pull zurück).
     if ev.dav_account_id is not None and ev.external_uid:
         acc = session.get(DavAccount, ev.dav_account_id)
         if acc is not None and acc.kind == DavKind.gcal:
@@ -354,12 +354,12 @@ def delete_event(
 
 
 # ---------------------------------------------------------------------------
-# Externe Dashboard-Schnittstelle: waehlbare Ziel-Kalender (Feed-Token-Auth)
+# Externe Dashboard-Schnittstelle: wählbare Ziel-Kalender (Feed-Token-Auth)
 # ---------------------------------------------------------------------------
 # Die Event-CRUD oben akzeptiert bereits ``?token=`` (feed_or_bearer_user),
-# also kann ein Dashboard ueber denselben Mechanismus wie die Mail-Uebersicht
-# (``api/dashboard.py``) Termine lesen/anlegen/aendern/loeschen — der Google-
-# Push haengt an der CRUD-Logik. Hier fehlt nur noch die Liste der moeglichen
+# also kann ein Dashboard über denselben Mechanismus wie die Mail-Übersicht
+# (``api/dashboard.py``) Termine lesen/anlegen/ändern/löschen — der Google-
+# Push hängt an der CRUD-Logik. Hier fehlt nur noch die Liste der möglichen
 # Ziel-Kalender, damit ein externes Widget ein "in welchen Kalender?"-Dropdown
 # bauen kann (Lokal + beschreibbare Google-Kalender).
 
@@ -369,12 +369,12 @@ def targets(
     user: User = Depends(feed_or_bearer_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    """Waehlbare Ziel-Kalender fuers Anlegen: ``Lokal`` plus alle beschreibbaren
+    """Wählbare Ziel-Kalender fürs Anlegen: ``Lokal`` plus alle beschreibbaren
     Google-Kalender des Users. Der ``key`` wird beim Anlegen zerlegt: ``local``
     → rein lokal, ``{accId}::{calId}`` → ``dav_account_id`` + ``gcal_calendar_id``
     in ``POST /events``. Ein Konto, das gerade nicht erreichbar ist, wird
-    uebersprungen statt die Liste zu kippen. Heavier (Google-Call) → vom Widget
-    nur beim Oeffnen des Anlege-Dialogs holen, nicht beim Polling."""
+    übersprungen statt die Liste zu kippen. Heavier (Google-Call) → vom Widget
+    nur beim Öffnen des Anlege-Dialogs holen, nicht beim Polling."""
     out: list[dict] = [
         {"key": "local", "label": "Lokal", "color": "", "primary": False},
     ]
@@ -404,8 +404,8 @@ def all_calendars(
     user: User = Depends(feed_or_bearer_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    """ALLE Quell-Kalender des Users fuer den Filter eines externen Dashboards:
-    ``Lokal`` plus saemtliche Google-Kalender (auch read-only/leere — Feiertage,
+    """ALLE Quell-Kalender des Users für den Filter eines externen Dashboards:
+    ``Lokal`` plus sämtliche Google-Kalender (auch read-only/leere — Feiertage,
     Geburtstage, abonnierte). ``key`` matcht den ``source_key`` der Events
     (Google-Kalender-ID bzw. ``local``), damit das Widget ALLE Kalender auflisten
     kann, nicht nur die mit Terminen im sichtbaren Zeitraum. Heavier (Google-Call)

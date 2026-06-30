@@ -1,7 +1,7 @@
-"""Admin: Mailkonten FUER einen bestimmten User vorkonfigurieren.
+"""Admin: Mailkonten FÜR einen bestimmten User vorkonfigurieren.
 
 Spiegelt accounts.py, aber adressiert ein fremdes User-Konto (admin-only).
-Zugangsdaten werden ebenfalls verschluesselt gespeichert (secret_enc).
+Zugangsdaten werden ebenfalls verschlüsselt gespeichert (secret_enc).
 """
 from __future__ import annotations
 

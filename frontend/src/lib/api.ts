@@ -1,4 +1,4 @@
-// Schmaler API-Client. Auth laeuft im Web ueber ein httpOnly-Session-Cookie
+// Schmaler API-Client. Auth läuft im Web über ein httpOnly-Session-Cookie
 // (vom Browser automatisch mitgesendet) — KEIN Token im localStorage mehr, damit
 // es per XSS nicht ausgelesen werden kann. Die native APK nutzt weiterhin den
 // Bearer-Header; das Backend akzeptiert beides.
@@ -33,8 +33,8 @@ export const api = {
   del: (p: string) => req<void>("DELETE", p),
 };
 
-// Text in die Zwischenablage — mit Fallback fuer http/LAN (kein Secure Context,
-// dort ist navigator.clipboard nicht verfuegbar): unsichtbares Textarea + execCommand.
+// Text in die Zwischenablage — mit Fallback für http/LAN (kein Secure Context,
+// dort ist navigator.clipboard nicht verfügbar): unsichtbares Textarea + execCommand.
 export async function copyText(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -56,7 +56,7 @@ export async function copyText(text: string): Promise<boolean> {
   } catch { return false; }
 }
 
-// Binaer-Download — Auth ueber das Session-Cookie (ein <a href> kann keinen
+// Binaer-Download — Auth über das Session-Cookie (ein <a href> kann keinen
 // Bearer setzen, das Cookie wird aber automatisch mitgesendet).
 export async function download(path: string): Promise<void> {
   const res = await fetch(`/api/v1${path}`, { credentials: "same-origin" });
@@ -91,7 +91,7 @@ export type Account = {
   imap_host: string; imap_port: number; imap_ssl: boolean;
   smtp_host: string; smtp_port: number; smtp_starttls: boolean;
   auth_user: string; signature: string;
-  // -1 = aus | 0 = sofort | N>0 = Mails aelter als N Tage endgueltig loeschen
+  // -1 = aus | 0 = sofort | N>0 = Mails älter als N Tage endgültig löschen
   spam_purge_days: number;
   trash_purge_days: number;
 };
@@ -141,11 +141,11 @@ export type Rule = {
 export type SyncResult = {
   ok: boolean; imported: number; updated: number; removed: number; error: string;
 };
-// Ordnerzaehler je IMAP-Ordner. `special` markiert provider-einheitlich die Art
+// Ordnerzähler je IMAP-Ordner. `special` markiert provider-einheitlich die Art
 // des Sonderordners (SPECIAL-USE bzw. Backend-Heuristik):
 //   "inbox"|"drafts"|"sent"|"spam"|"trash"|"archive" = einheitliche Sondergruppe (oben),
-//   "all"     = Gmail „Alle Nachrichten" (als normaler Ordner fuehren, NICHT oben),
-//   "noselect"= nicht-selektierbarer Container (z. B. Gmail „[Gmail]") -> aufloesen,
+//   "all"     = Gmail „Alle Nachrichten" (als normaler Ordner führen, NICHT oben),
+//   "noselect"= nicht-selektierbarer Container (z. B. Gmail „[Gmail]") -> auflösen,
 //   ""        = normaler Ordner (dann greift die Namens-Heuristik im Frontend).
 export type FolderCount = { name: string; unseen: number; total: number; special?: string };
 export type MigrateFolder = { source: string; dest: string; count: number; copied: number; skipped: number };

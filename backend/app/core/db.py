@@ -30,7 +30,7 @@ def _sqlite_pragmas(dbapi_conn, _record) -> None:
     """Performance-PRAGMAs pro Verbindung.
 
     WAL ist DER Hebel hier: Leser blockieren Schreiber nicht mehr (UI-Abfragen
-    laufen weiter, waehrend der Hintergrund-Sync schreibt). synchronous=NORMAL ist
+    laufen weiter, während der Hintergrund-Sync schreibt). synchronous=NORMAL ist
     mit WAL crash-sicher und spart die meisten fsyncs. busy_timeout verhindert
     sofortige Lock-Fehler; temp_store/cache_size halten Sortierungen im RAM.
     """
@@ -41,13 +41,13 @@ def _sqlite_pragmas(dbapi_conn, _record) -> None:
     cur.execute("PRAGMA temp_store=MEMORY")
     cur.execute("PRAGMA cache_size=-16000")  # ~16 MB Page-Cache je Verbindung
     # KEIN foreign_keys=ON: das Schema definiert keine ON DELETE CASCADE-Regeln.
-    # Mit erzwungenen FKs wuerde z. B. das Loeschen eines Kontos mit Cache-Zeilen
-    # an einer Constraint scheitern. Kinder werden im Code aufgeraeumt.
+    # Mit erzwungenen FKs würde z. B. das Löschen eines Kontos mit Cache-Zeilen
+    # an einer Constraint scheitern. Kinder werden im Code aufgeräumt.
     cur.close()
 
 
-# Additive Spalten, die ggf. in einer aelteren DB fehlen (SQLite kennt kein
-# automatisches Hinzufuegen ueber create_all). Tabelle -> [(Spalte, DDL-Typ)].
+# Additive Spalten, die ggf. in einer älteren DB fehlen (SQLite kennt kein
+# automatisches Hinzufügen über create_all). Tabelle -> [(Spalte, DDL-Typ)].
 _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "user": [
         ("totp_secret", "VARCHAR"),
@@ -93,10 +93,10 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
 
 
 def _ensure_columns() -> None:
-    """Fuegt fehlende additive Spalten in bestehenden Tabellen nach.
+    """Fügt fehlende additive Spalten in bestehenden Tabellen nach.
 
-    Idempotent: vorhandene Spalten werden uebersprungen. Neue Tabellen legt
-    create_all bereits vollstaendig an, daher hier nur Bestands-Tabellen.
+    Idempotent: vorhandene Spalten werden übersprungen. Neue Tabellen legt
+    create_all bereits vollständig an, daher hier nur Bestands-Tabellen.
     """
     with engine.begin() as conn:
         existing_tables = {
@@ -114,8 +114,8 @@ def _ensure_columns() -> None:
             for name, ddl_type in columns:
                 if name not in present:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}"))
-                # Text-Spalten duerfen nicht NULL sein: Bestandszeilen, die ueber
-                # ADD COLUMN (ohne DEFAULT) NULL bekamen, wuerden sonst die
+                # Text-Spalten dürfen nicht NULL sein: Bestandszeilen, die über
+                # ADD COLUMN (ohne DEFAULT) NULL bekamen, würden sonst die
                 # Response-Schemas (str) brechen. Idempotenter Backfill.
                 if ddl_type == "VARCHAR":
                     conn.execute(
@@ -123,18 +123,18 @@ def _ensure_columns() -> None:
                     )
 
 
-# Zusammengesetzte Indizes fuer die Hot-Path-Queries. Die einzelnen
+# Zusammengesetzte Indizes für die Hot-Path-Queries. Die einzelnen
 # Field(index=True) decken Mehrspalten-Filter+Sortierung nicht gut ab; diese
-# Composite-Indizes machen die Listen-, Detail- und Zaehler-Abfragen schnell —
-# besonders bei grossen Ordnern (mehrere tausend Mails).
+# Composite-Indizes machen die Listen-, Detail- und Zähler-Abfragen schnell —
+# besonders bei großen Ordnern (mehrere tausend Mails).
 _INDEXES: list[str] = [
     # Listenanzeige + recent_unseen: WHERE account_id, folder ORDER BY sort_date DESC
     "CREATE INDEX IF NOT EXISTS ix_cm_acc_folder_sort "
     "ON cachedmessage (account_id, folder, sort_date DESC)",
-    # Einzelmail (Detail/Flags/Loeschen): WHERE account_id, folder, uid
+    # Einzelmail (Detail/Flags/Löschen): WHERE account_id, folder, uid
     "CREATE INDEX IF NOT EXISTS ix_cm_acc_folder_uid "
     "ON cachedmessage (account_id, folder, uid)",
-    # FolderSync-Zaehler: WHERE account_id (+ folder)
+    # FolderSync-Zähler: WHERE account_id (+ folder)
     "CREATE INDEX IF NOT EXISTS ix_fs_acc_folder "
     "ON foldersync (account_id, folder)",
     # Gecachte Ordnerliste: WHERE account_id ORDER BY idx
@@ -161,8 +161,8 @@ def init_db() -> None:
 
 
 def _run_one_time_backfills() -> None:
-    """Einmalige Daten-Reparaturen, gesteuert ueber PRAGMA user_version (jeder Schritt
-    laeuft nur einmal pro DB)."""
+    """Einmalige Daten-Reparaturen, gesteuert über PRAGMA user_version (jeder Schritt
+    läuft nur einmal pro DB)."""
     with engine.begin() as conn:
         ver = int(conn.execute(text("PRAGMA user_version")).scalar() or 0)
     if ver < 1:

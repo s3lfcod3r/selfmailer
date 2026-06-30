@@ -1,9 +1,9 @@
 """Push bei neuer Mail — ntfy (self-hosted) UND/ODER FCM (Google).
 
-Der Hintergrund-Sync erkennt steigende Ungelesen-Zahlen je ausgewaehltem Ordner
+Der Hintergrund-Sync erkennt steigende Ungelesen-Zahlen je ausgewähltem Ordner
 und ruft ``push_new_mail`` auf. Wir bauen eine kurze Vorschau und schicken sie an
 beide aktivierten Kanaele: ntfy (an den ntfy-Server des Users) und FCM (an die
-Android-Geraetetokens des Users). Best-effort — ein Fehler darf den Sync nie kippen.
+Android-Gerätetokens des Users). Best-effort — ein Fehler darf den Sync nie kippen.
 """
 from __future__ import annotations
 
@@ -20,13 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 def _preview(session: Session, account: MailAccount, folder: str, count: int) -> tuple[str, str, str | None]:
-    """Liefert (Titel, Text, uid) fuer die Benachrichtigung — uid = neueste
-    ungelesene Mail (fuer den Deep-Link „direkt zur Nachricht")."""
+    """Liefert (Titel, Text, uid) für die Benachrichtigung — uid = neueste
+    ungelesene Mail (für den Deep-Link „direkt zur Nachricht")."""
     label = account.label or account.email
     leaf = folder.rsplit("/", 1)[-1].rsplit(".", 1)[-1]
     is_inbox = folder.upper().endswith("INBOX")
 
-    # Vorschau (Absender/Betreff) nur fuer gecachte Ordner (i. d. R. INBOX).
+    # Vorschau (Absender/Betreff) nur für gecachte Ordner (i. d. R. INBOX).
     msg = session.exec(
         select(CachedMessage)
         .where(
@@ -51,7 +51,7 @@ def _push_ntfy(session: Session, account: MailAccount, title: str, text: str) ->
     cfg = session.exec(select(PushConfig).where(PushConfig.user_id == account.user_id)).first()
     if cfg is None or not cfg.enabled or not cfg.ntfy_url or not cfg.topic:
         return
-    # SSRF-Schutz: Altbestand-URLs (vor Validierung gespeichert) defensiv pruefen.
+    # SSRF-Schutz: Altbestand-URLs (vor Validierung gespeichert) defensiv prüfen.
     try:
         validate_external_url(cfg.ntfy_url.rstrip("/"))
     except DavUrlError:

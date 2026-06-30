@@ -3,7 +3,7 @@
 Ein Handy-Kalender/-Adressbuch abonniert eine URL und kann dabei keinen
 Bearer-Header setzen. Deshalb authentifiziert ein geheimer Token in der URL
 (``?token=...``). Pro User genau ein Token, jederzeit rotierbar; eine Rotation
-macht alte Abo-Links sofort ungueltig.
+macht alte Abo-Links sofort ungültig.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def get_or_create_token(user: User, session: Session) -> FeedToken:
 
 
 def user_for_feed_token(token: str, session: Session) -> User | None:
-    """Loest einen Feed-Token zu einem aktiven User auf (oder None)."""
+    """Löst einen Feed-Token zu einem aktiven User auf (oder None)."""
     if not token:
         return None
     ft = session.exec(select(FeedToken).where(FeedToken.token == token)).first()
@@ -55,7 +55,7 @@ def feed_or_bearer_user(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     session: Session = Depends(get_session),
 ) -> User:
-    """Auth fuer Export-Endpoints: erst ``?token=``, sonst Login (Cookie/Bearer).
+    """Auth für Export-Endpoints: erst ``?token=``, sonst Login (Cookie/Bearer).
 
     So funktioniert derselbe Endpoint als abonnierbarer Feed (Token in der URL)
     und als direkter Aufruf aus der WebUI (httpOnly-Cookie) oder der APK (Bearer).
@@ -63,9 +63,9 @@ def feed_or_bearer_user(
     if token:
         user = user_for_feed_token(token, session)
         if user is None:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Feed-Token ungueltig")
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Feed-Token ungültig")
         return user
-    # get_current_user erwartet (request, creds, session) — request fuer den Cookie-Fallback.
+    # get_current_user erwartet (request, creds, session) — request für den Cookie-Fallback.
     return get_current_user(request, creds, session)
 
 
@@ -82,7 +82,7 @@ def show_token(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> FeedTokenOut:
-    """Liefert (und erzeugt bei Bedarf) den persoenlichen Feed-Token + URLs."""
+    """Liefert (und erzeugt bei Bedarf) den persönlichen Feed-Token + URLs."""
     return _payload(get_or_create_token(user, session).token)
 
 
@@ -91,7 +91,7 @@ def rotate_token(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> FeedTokenOut:
-    """Setzt einen neuen Token; alte Abo-Links werden dadurch ungueltig."""
+    """Setzt einen neuen Token; alte Abo-Links werden dadurch ungültig."""
     ft = get_or_create_token(user, session)
     ft.token = _new_token()
     session.add(ft)

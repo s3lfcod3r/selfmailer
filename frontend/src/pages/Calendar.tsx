@@ -20,7 +20,7 @@ function ymd(d: Date): string {
 function localInput(d: Date): string {
   return `${ymd(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
-// ISO-8601-Kalenderwoche (Mo-basiert, KW1 enthaelt den 4. Januar).
+// ISO-8601-Kalenderwoche (Mo-basiert, KW1 enthält den 4. Januar).
 function isoWeek(d: Date): number {
   const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7) + 3);
@@ -75,7 +75,7 @@ export function Calendar() {
   const [hiddenCals, setHiddenCals] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("selfmailer.hiddenCals") || "[]")); } catch { return new Set(); }
   });
-  // Quell-Kalender eines Termins (Schluessel/Name/Farbe) — mit Fallbacks.
+  // Quell-Kalender eines Termins (Schlüssel/Name/Farbe) — mit Fallbacks.
   const keyOf = (ev: CalEvent) => ev.source_key || (ev.dav_account_id ? `dav:${ev.dav_account_id}` : "local");
   const nameOf = (ev: CalEvent) => ev.source_name || (keyOf(ev) === "local" ? "Lokal" : keyOf(ev));
   const sources = useMemo(() => {
@@ -211,7 +211,7 @@ export function Calendar() {
     e.preventDefault();
     setErr("");
     if (!form.title || !form.start || !form.end) { setErr(t("cal.needFields")); return; }
-    // datetime-local ist Lokalzeit → als UTC-ISO (Z) senden; Store haelt UTC.
+    // datetime-local ist Lokalzeit → als UTC-ISO (Z) senden; Store hält UTC.
     const payload: Record<string, unknown> = {
       title: form.title, location: form.location, description: form.description,
       start: new Date(form.start).toISOString(), end: new Date(form.end).toISOString(),
@@ -452,7 +452,7 @@ export function Calendar() {
             </div>
             <textarea placeholder={t("cal.description")} value={form.description} onChange={(e) => set("description", e.target.value)} rows={8} style={{ minHeight: "11rem" }} />
 
-            {/* Ziel-Kalender direkt waehlbar (Lokal + alle beschreibbaren Google-Kalender).
+            {/* Ziel-Kalender direkt wählbar (Lokal + alle beschreibbaren Google-Kalender).
                 Beim Bearbeiten nur, wenn der Termin umzielbar ist (nicht fremdes CalDAV). */}
             {gcalAccounts.length > 0 && canRetarget && (
               <div className="row">

@@ -84,7 +84,7 @@ def calendars(access_tok: str) -> list[dict[str, Any]]:
     Familienkalender …). Gibt ``[{id, name, primary, access_role}, …]`` zurück.
 
     ``access_role`` ist ``owner``/``writer``/``reader``/``freeBusyReader`` — nur
-    owner/writer sind beschreibbar (relevant fuer die Ziel-Auswahl beim Anlegen)."""
+    owner/writer sind beschreibbar (relevant für die Ziel-Auswahl beim Anlegen)."""
     headers = {"Authorization": f"Bearer {access_tok}"}
     out: list[dict[str, Any]] = []
     page: str | None = None
@@ -129,8 +129,8 @@ def primary_calendar_id(access_tok: str) -> str:
 def _to_google_body(ev: dict[str, Any]) -> dict[str, Any]:
     """SelfMailer-Event-Dict → Google-REST-Event-Body.
 
-    Der lokale Store haelt Zeiten als **naive UTC** (so liefert sie auch der
-    Pull, siehe ``_utc_naive``) → beim Zurueckschreiben als UTC mit ``Z`` senden.
+    Der lokale Store hält Zeiten als **naive UTC** (so liefert sie auch der
+    Pull, siehe ``_utc_naive``) → beim Zurückschreiben als UTC mit ``Z`` senden.
     Ganztags: Google ``end.date`` ist EXKLUSIV → inklusiven letzten Tag + 1 Tag.
     """
     start: dt.datetime = ev["start"]
@@ -160,7 +160,7 @@ def _iso_z(d: dt.datetime) -> str:
 
 
 def create_event(access_tok: str, calendar_id: str, ev: dict[str, Any]) -> str:
-    """Legt einen Termin in Google an und gibt dessen Event-ID zurueck."""
+    """Legt einen Termin in Google an und gibt dessen Event-ID zurück."""
     headers = {"Authorization": f"Bearer {access_tok}"}
     url = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
     with httpx.Client(timeout=_TIMEOUT) as http:
@@ -180,7 +180,7 @@ def patch_event(access_tok: str, calendar_id: str, event_id: str, ev: dict[str, 
 
 
 def delete_event(access_tok: str, calendar_id: str, event_id: str) -> None:
-    """Loescht einen Google-Termin. Bereits-geloescht (404/410) gilt als Erfolg."""
+    """Löscht einen Google-Termin. Bereits-gelöscht (404/410) gilt als Erfolg."""
     headers = {"Authorization": f"Bearer {access_tok}"}
     base = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
     url = f"{base}/{urllib.parse.quote(event_id, safe='')}"

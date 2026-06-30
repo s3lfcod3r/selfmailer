@@ -2,11 +2,11 @@
 
 Client-Proxy-Modell (Variante B aus KONZEPT.md): SelfMailer bindet fremde
 DAV-Collections an und spiegelt sie in den lokalen Store. Der lokale Store
-bleibt die Quelle fuer WebUI/Export; importierte Eintraege tragen
+bleibt die Quelle für WebUI/Export; importierte Einträge tragen
 dav_account_id + external_uid und werden bei jedem Sync abgeglichen.
 
-Zugangsdaten werden Fernet-verschluesselt gespeichert (secret_enc), analog zu
-den Mailkonten. Klartext existiert nur transient waehrend des Sync.
+Zugangsdaten werden Fernet-verschlüsselt gespeichert (secret_enc), analog zu
+den Mailkonten. Klartext existiert nur transient während des Sync.
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ router = APIRouter(prefix="/api/v1/dav", tags=["dav"])
 
 def gcal_token(acc: DavAccount) -> str:
     """Mintet aus den gespeicherten OAuth-Daten eines gcal-Kontos ein frisches
-    access_token. Gemeinsame Stelle fuer Sync (Pull) UND Push (calendar.py)."""
+    access_token. Gemeinsame Stelle für Sync (Pull) UND Push (calendar.py)."""
     return google.access_token(
         acc.oauth_client_id,
         decrypt(acc.oauth_secret_enc),
@@ -173,7 +173,7 @@ def delete_dav_account(
     session: Session = Depends(get_session),
 ) -> None:
     acc = _owned(account_id, user, session)
-    # Importierte lokale Eintraege dieses Kontos mitloeschen.
+    # Importierte lokale Einträge dieses Kontos mitlöschen.
     for ev in session.exec(
         select(CalendarEvent).where(CalendarEvent.dav_account_id == account_id)
     ).all():
@@ -230,8 +230,8 @@ def _upsert_events(
             target.start = ev["start"]
             target.end = ev["end"]
             target.all_day = ev["all_day"]
-            # Quell-Kalender fuer Farben/Filter: gcal liefert cal_id/calendar/color,
-            # CalDAV/iCal fallen auf das Konto zurueck.
+            # Quell-Kalender für Farben/Filter: gcal liefert cal_id/calendar/color,
+            # CalDAV/iCal fallen auf das Konto zurück.
             target.source_key = ev.get("cal_id") or f"dav:{acc.id}"
             target.source_name = ev.get("calendar") or acc.label
             target.source_color = ev.get("color") or ""
@@ -291,7 +291,7 @@ def _sync_contacts(
 
 
 def _prune(model, account_id: int, seen: set[str], session: Session) -> int:
-    """Loescht lokale Eintraege dieses DAV-Kontos, deren UID nicht mehr in der
+    """Löscht lokale Einträge dieses DAV-Kontos, deren UID nicht mehr in der
     Quelle vorkommt."""
     removed = 0
     for row in session.exec(select(model).where(model.dav_account_id == account_id)).all():

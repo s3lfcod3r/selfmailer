@@ -51,7 +51,7 @@ def translate(
     payload: dict = {"q": text, "source": data.source or "auto", "target": data.target or "de", "format": "text"}
     if settings.translate_api_key.strip():
         payload["api_key"] = settings.translate_api_key.strip()
-    # SSRF-Schutz: die admin-konfigurierte Ziel-URL gegen die Blockliste pruefen
+    # SSRF-Schutz: die admin-konfigurierte Ziel-URL gegen die Blockliste prüfen
     # (loopback/link-local/Cloud-Metadata; privat nur bei DAV_BLOCK_PRIVATE).
     try:
         validate_external_url(f"{base}/translate")

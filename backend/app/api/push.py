@@ -108,7 +108,7 @@ def set_notify_folders(
     return sorted(wanted)
 
 
-# ---- FCM-Geraetetokens (Google-Push) ------------------------------------
+# ---- FCM-Gerätetokens (Google-Push) ------------------------------------
 @router.post("/device", status_code=status.HTTP_204_NO_CONTENT)
 def register_device(
     data: DeviceTokenIn,

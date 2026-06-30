@@ -6,7 +6,7 @@ import { safeLinkUrl } from "../lib/url";
 
 /**
  * Kleiner Rich-Text-Editor (contentEditable + Formatier-Toolbar via
- * execCommand). Liefert HTML ueber onChange. Wiederverwendbar fuer Signatur
+ * execCommand). Liefert HTML über onChange. Wiederverwendbar für Signatur
  * (Konten) und potenziell andere Felder. Initialwert wird einmalig gesetzt,
  * damit der Cursor beim Tippen nicht springt.
  */
@@ -30,7 +30,7 @@ export function RichEditor({
   const { t } = useLang();
   const ref = useRef<HTMLDivElement>(null);
 
-  // Externen Wert sanitisiert uebernehmen. Nur setzen, wenn der Editor nicht
+  // Externen Wert sanitisiert übernehmen. Nur setzen, wenn der Editor nicht
   // fokussiert ist und sich der Inhalt unterscheidet, damit der Cursor beim
   // Tippen nicht springt.
   useEffect(() => {

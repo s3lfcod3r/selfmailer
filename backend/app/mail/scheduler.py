@@ -1,7 +1,7 @@
-"""Hintergrund-Sync: haelt den lokalen Cache dauerhaft WARM.
+"""Hintergrund-Sync: hält den lokalen Cache dauerhaft WARM.
 
-Idee: Ein Daemon-Thread synct in Intervallen je Konto den INBOX (neue Koepfe,
-geloeschte raus, Flags) und die Ordnerzaehler in die DB. Dadurch kommt die WebUI
+Idee: Ein Daemon-Thread synct in Intervallen je Konto den INBOX (neue Köpfe,
+gelöschte raus, Flags) und die Ordnerzähler in die DB. Dadurch kommt die WebUI
 immer SOFORT aus dem Cache und muss nie auf einen langsamen IMAP-Provider warten.
 
 Bewusst SYNCHRON in einem eigenen Thread (passt zu imap_tools/SQLite). Je Konto
@@ -9,11 +9,11 @@ eine eigene kurze Session; ein defektes/langsames Konto kippt den Lauf nie. Per
 Env steuerbar:
   SELFMAILER_SYNC_DISABLE=1        -> aus
   SELFMAILER_SYNC_INTERVAL=120     -> Sekunden zwischen den Mail-Laeufen (Default 120)
-  SELFMAILER_DAV_SYNC_INTERVAL=120 -> Kalender/Adressbuch getrennt + haeufiger (Default 120)
+  SELFMAILER_DAV_SYNC_INTERVAL=120 -> Kalender/Adressbuch getrennt + häufiger (Default 120)
 
-Kalender/Adressbuecher (DAV) werden bewusst in einem EIGENEN, kuerzeren Takt
-abgeglichen als die IMAP-Postfaecher: ein Termin aus Google soll schneller
-auftauchen, ohne dafuer jeden IMAP-Provider oefter pollen zu muessen.
+Kalender/Adressbücher (DAV) werden bewusst in einem EIGENEN, kürzeren Takt
+abgeglichen als die IMAP-Postfächer: ein Termin aus Google soll schneller
+auftauchen, ohne dafür jeden IMAP-Provider öfter pollen zu müssen.
 """
 from __future__ import annotations
 
@@ -36,13 +36,13 @@ from . import push as push_mod
 logger = logging.getLogger(__name__)
 
 _INTERVAL = max(60, int(os.getenv("SELFMAILER_SYNC_INTERVAL", "120") or 120))
-# DAV (Kalender/Kontakte) laeuft getrennt + haeufiger; min 30s als Schutz vor
-# uebermaessigen Google-API-Calls.
+# DAV (Kalender/Kontakte) läuft getrennt + häufiger; min 30s als Schutz vor
+# übermäßigen Google-API-Calls.
 _DAV_INTERVAL = max(30, int(os.getenv("SELFMAILER_DAV_SYNC_INTERVAL", "120") or 120))
 _TICK = min(_INTERVAL, _DAV_INTERVAL)   # Basis-Takt des Loops (kleinstes Intervall)
 _WARM_FOLDERS = ["INBOX"]          # Ordner, deren NACHRICHTEN warmgehalten werden
 _STARTUP_DELAY = 15.0              # nicht direkt beim Boot loslegen
-_BACKUP_HOUR = 3                   # naechtliches DB-Backup ~03:00 Ortszeit
+_BACKUP_HOUR = 3                   # nächtliches DB-Backup ~03:00 Ortszeit
 
 _started = False
 _thread: threading.Thread | None = None
@@ -51,16 +51,16 @@ _last_backup_date: date | None = None   # an welchem Tag zuletzt gesichert wurde
 
 
 def _sync_account(acc: MailAccount) -> None:
-    """Einen Account warmhalten: INBOX-Nachrichten + alle Ordnerzaehler."""
+    """Einen Account warmhalten: INBOX-Nachrichten + alle Ordnerzähler."""
     try:
         pw = decrypt(acc.secret_enc)
-    except Exception:  # noqa: BLE001 - z. B. Schluessel-Mismatch -> Konto ueberspringen
-        logger.warning("Sync uebersprungen: Entschluesselung fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+    except Exception:  # noqa: BLE001 - z. B. Schlüssel-Mismatch -> Konto überspringen
+        logger.warning("Sync uebersprungen: Entschlüsselung fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
         return
 
-    # 0) Filterregeln automatisch anwenden (loeschen/verschieben/markieren), BEVOR
-    #    der Cache gefuellt und gepusht wird — so taucht geblockter Spam gar nicht
-    #    erst als „neue Mail" auf. Danach ggf. den Spam-Ordner endgueltig leeren.
+    # 0) Filterregeln automatisch anwenden (löschen/verschieben/markieren), BEVOR
+    #    der Cache gefüllt und gepusht wird — so taucht geblockter Spam gar nicht
+    #    erst als „neue Mail" auf. Danach ggf. den Spam-Ordner endgültig leeren.
     try:
         with Session(engine) as s:
             rules = list(
@@ -72,7 +72,7 @@ def _sync_account(acc: MailAccount) -> None:
             )
         if rules and not _stop.is_set():
             imap_mod.apply_rules(acc, pw, rules)
-    except Exception:  # noqa: BLE001 - Regeln duerfen den Sync nie kippen
+    except Exception:  # noqa: BLE001 - Regeln dürfen den Sync nie kippen
         logger.warning("Auto-Regeln fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
     if acc.spam_purge_days >= 0 and not _stop.is_set():
@@ -87,11 +87,11 @@ def _sync_account(acc: MailAccount) -> None:
         except Exception:  # noqa: BLE001 - Papierkorb-Purge darf den Sync nie kippen
             logger.warning("Papierkorb-Auto-Purge fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
-    # 1) Nachrichten der wichtigen Ordner (Delta-Sync fuellt CachedMessage + Counts).
+    # 1) Nachrichten der wichtigen Ordner (Delta-Sync füllt CachedMessage + Counts).
     #    Kamen NEUE Mails an, sofort ein Live-Sync-Event senden, damit offene
-    #    Clients (Web/App) auffrischen — UNABHAENGIG von Benachrichtigungs-Ordnern.
+    #    Clients (Web/App) auffrischen — UNABHÄNGIG von Benachrichtigungs-Ordnern.
     #    (Die eigentliche Push-Notification weiter unten bleibt an FolderNotify
-    #    gebunden; das hier ist nur das „bitte neu laden" fuer offene Ansichten.)
+    #    gebunden; das hier ist nur das „bitte neu laden" für offene Ansichten.)
     for folder in _WARM_FOLDERS:
         if _stop.is_set():
             return
@@ -105,7 +105,7 @@ def _sync_account(acc: MailAccount) -> None:
                 "Hintergrund-Sync fehlgeschlagen (account_id=%s, folder=%s)", acc.id, folder, exc_info=True
             )
 
-    # 2) Ordnerliste + Zaehler fuer die Seitenleiste (CachedFolder)
+    # 2) Ordnerliste + Zähler für die Seitenleiste (CachedFolder)
     if _stop.is_set():
         return
     counts: list[dict] | None = None
@@ -114,9 +114,9 @@ def _sync_account(acc: MailAccount) -> None:
         with Session(engine) as s:
             cache_mod.write_folder_counts(s, acc.id, counts)
     except Exception:  # noqa: BLE001
-        logger.warning("Ordnerzaehler-Sync fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+        logger.warning("Ordnerzähler-Sync fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
-    # 3) Push bei neuer Mail: pro ausgewaehltem Ordner die Ungelesen-Zahl mit der
+    # 3) Push bei neuer Mail: pro ausgewähltem Ordner die Ungelesen-Zahl mit der
     #    zuletzt gemeldeten vergleichen. Erster Lauf (Basis -1) setzt nur die Basis.
     if counts is not None and not _stop.is_set():
         try:
@@ -160,7 +160,7 @@ def _sync_once() -> None:
                 ).all()
             )
     except Exception:  # noqa: BLE001
-        logger.warning("Konten fuer Hintergrund-Sync laden fehlgeschlagen", exc_info=True)
+        logger.warning("Konten für Hintergrund-Sync laden fehlgeschlagen", exc_info=True)
         return
     for acc in accounts:
         if _stop.is_set():
@@ -184,7 +184,7 @@ def _sync_dav() -> None:
                 ).all()
             )
     except Exception:  # noqa: BLE001
-        logger.warning("DAV-Konten fuer Hintergrund-Sync laden fehlgeschlagen", exc_info=True)
+        logger.warning("DAV-Konten für Hintergrund-Sync laden fehlgeschlagen", exc_info=True)
         return
     for acc in accs:
         if _stop.is_set():
@@ -201,10 +201,10 @@ def _sync_dav() -> None:
 def _maybe_backup() -> None:
     """Einmal pro Tag (ab ~03:00) ein konsistentes DB-Backup ziehen.
 
-    Der Loop tickt im Sync-Intervall; dieser Wachposten loest hoechstens einmal
+    Der Loop tickt im Sync-Intervall; dieser Wachposten löst höchstens einmal
     je Kalendertag aus, sobald die Backup-Stunde erreicht ist. Ein Fehler im
     Backup darf den Scheduler/Container NIE kippen (try/except + Logging, wie
-    ueberall hier). Lazy-Import vermeidet Import-Zyklen beim Boot.
+    überall hier). Lazy-Import vermeidet Import-Zyklen beim Boot.
     """
     global _last_backup_date
     now = datetime.now()
@@ -217,9 +217,9 @@ def _maybe_backup() -> None:
         create_backup()
         _last_backup_date = now.date()
     except Exception:  # noqa: BLE001 - Backup darf den Scheduler nie kippen
-        logger.warning("Naechtliches DB-Backup fehlgeschlagen", exc_info=True)
+        logger.warning("Nächtliches DB-Backup fehlgeschlagen", exc_info=True)
         # Tag trotzdem markieren, damit ein dauerhaft kaputtes Backup nicht jeden
-        # Loop-Durchlauf erneut feuert (Log-Flut). Naechster Versuch morgen.
+        # Loop-Durchlauf erneut feuert (Log-Flut). Nächster Versuch morgen.
         _last_backup_date = now.date()
 
 
@@ -227,8 +227,8 @@ def _loop() -> None:
     # kleiner Anlauf, damit der Sync nicht mit dem App-Boot kollidiert
     if _stop.wait(_STARTUP_DELAY):
         return
-    # Getrennte Faelligkeits-Timer: der Loop tickt im kleinsten Intervall (_TICK),
-    # Mail und DAV feuern unabhaengig nach ihrem eigenen Intervall. Start bei 0.0
+    # Getrennte Fälligkeits-Timer: der Loop tickt im kleinsten Intervall (_TICK),
+    # Mail und DAV feuern unabhängig nach ihrem eigenen Intervall. Start bei 0.0
     # => beide laufen direkt im ersten Tick (initialer Sync).
     last_mail = 0.0
     last_dav = 0.0

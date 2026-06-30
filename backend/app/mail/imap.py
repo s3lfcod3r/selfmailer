@@ -1,5 +1,5 @@
-"""IMAP-Zugriff via imap-tools (synchron; FastAPI faehrt sync-Endpunkte im
-Threadpool). Verbindungen sind kurzlebig: oeffnen, lesen, schliessen.
+"""IMAP-Zugriff via imap-tools (synchron; FastAPI fährt sync-Endpunkte im
+Threadpool). Verbindungen sind kurzlebig: öffnen, lesen, schließen.
 """
 from __future__ import annotations
 
@@ -24,19 +24,19 @@ SEEN = r"\Seen"
 FLAGGED = r"\Flagged"
 
 # --- Verbindungs-Pool -------------------------------------------------------
-# IMAP-LOGIN (TCP+TLS+AUTH) kostet je Provider 0,5-3 s. Frueher wurde pro
-# Aktion neu eingeloggt -> Ordnerwechsel/Mail-Oeffnen fuehlten sich zaeh an.
+# IMAP-LOGIN (TCP+TLS+AUTH) kostet je Provider 0,5-3 s. Früher wurde pro
+# Aktion neu eingeloggt -> Ordnerwechsel/Mail-Öffnen fühlten sich zäh an.
 # Jetzt: pro Konto EINE Verbindung offen halten und wiederverwenden.
 #
 # imap_tools/imaplib sind NICHT thread-safe -> ein Lock je Konto serialisiert
 # die Nutzung (ein Konto kann ohnehin nur eine IMAP-Operation gleichzeitig).
-# Nach Leerlauf wird geschlossen; vor Wiederverwendung per NOOP geprueft und bei
+# Nach Leerlauf wird geschlossen; vor Wiederverwendung per NOOP geprüft und bei
 # Bedarf neu verbunden. Per Env SELFMAILER_IMAP_POOL=0 komplett abschaltbar.
 _POOL_ENABLED = os.getenv("SELFMAILER_IMAP_POOL", "1").strip().lower() not in {"0", "false", "no"}
-_IDLE_TTL = 240.0  # Sekunden Leerlauf, danach Verbindung schliessen
+_IDLE_TTL = 240.0  # Sekunden Leerlauf, danach Verbindung schließen
 # Socket-Timeout je IMAP-Operation. OHNE das blockiert ein totes/langsames
-# Postfach (z. B. ein Provider, der die Verbindung still fallen laesst) den
-# Worker-Thread UNENDLICH -> "alles haengt". Mit Timeout schlaegt es sauber fehl.
+# Postfach (z. B. ein Provider, der die Verbindung still fallen lässt) den
+# Worker-Thread UNENDLICH -> "alles hängt". Mit Timeout schlägt es sauber fehl.
 _IMAP_TIMEOUT = float(os.getenv("SELFMAILER_IMAP_TIMEOUT", "15") or 15)
 _POOL: dict[str, "_PooledBox"] = {}
 _POOL_LOCK = threading.Lock()
@@ -57,8 +57,8 @@ def _pool_key(account: MailAccount, login: str) -> str:
 
 
 def _connect(account: MailAccount, login: str, password: str, folder: str) -> MailBox:
-    # timeout bei der Konstruktion bindet schon den TCP-Connect; faellt die
-    # imap_tools-Version ohne timeout-Param zurueck, setzen wir es danach am Socket.
+    # timeout bei der Konstruktion bindet schon den TCP-Connect; fällt die
+    # imap_tools-Version ohne timeout-Param zurück, setzen wir es danach am Socket.
     try:
         box = MailBox(account.imap_host, port=account.imap_port, timeout=_IMAP_TIMEOUT)
     except TypeError:
@@ -66,7 +66,7 @@ def _connect(account: MailAccount, login: str, password: str, folder: str) -> Ma
     box.login(login, password, initial_folder=folder)
     try:
         box.client.sock.settimeout(_IMAP_TIMEOUT)
-    except Exception:  # noqa: BLE001 - best effort, falls Socket anders heisst
+    except Exception:  # noqa: BLE001 - best effort, falls Socket anders heißt
         pass
     return box
 
@@ -81,10 +81,10 @@ def _close(box: MailBox | None) -> None:
 
 
 def _reap_idle() -> None:
-    """Schliesst Verbindungen, die laenger als _IDLE_TTL ungenutzt sind.
+    """Schließt Verbindungen, die länger als _IDLE_TTL ungenutzt sind.
 
-    Nur Eintraege, deren Lock gerade frei ist (non-blocking), damit das Aufraeumen
-    nie eine laufende Operation stoert."""
+    Nur Einträge, deren Lock gerade frei ist (non-blocking), damit das Aufräumen
+    nie eine laufende Operation stört."""
     now = time.monotonic()
     with _POOL_LOCK:
         keys = list(_POOL)
@@ -129,7 +129,7 @@ def _ensure_box(entry: _PooledBox, account: MailAccount, login: str, password: s
 def _mailbox(account: MailAccount, password: str, folder: str = "INBOX") -> Iterator[MailBox]:
     login = account.auth_user or account.email
 
-    # Pool aus (oder Konto ohne id) -> altes Verhalten: oeffnen, nutzen, schliessen.
+    # Pool aus (oder Konto ohne id) -> altes Verhalten: öffnen, nutzen, schließen.
     if not _POOL_ENABLED or account.id is None:
         box = _connect(account, login, password, folder)
         try:
@@ -152,7 +152,7 @@ def _mailbox(account: MailAccount, password: str, folder: str = "INBOX") -> Iter
         yield box
         entry.last_used = time.monotonic()
     except Exception:
-        # Verbindung koennte nach einem Fehler in unklarem Zustand sein -> verwerfen.
+        # Verbindung könnte nach einem Fehler in unklarem Zustand sein -> verwerfen.
         _close(entry.box)
         entry.box = None
         entry.folder = None
@@ -188,21 +188,21 @@ def list_folders(account: MailAccount, password: str) -> list[str]:
 
 
 def list_uids(account: MailAccount, password: str, folder: str = "INBOX") -> list[str]:
-    """Alle UIDs eines Ordners (neueste zuerst). Live-Fallback fuer "Alle
-    auswaehlen", wenn der Cache nicht greift. Nur UIDs, kein Body."""
+    """Alle UIDs eines Ordners (neueste zuerst). Live-Fallback für "Alle
+    auswählen", wenn der Cache nicht greift. Nur UIDs, kein Body."""
     with _mailbox(account, password, folder=folder) as box:
         return list(reversed([u for u in box.uids() if u]))
 
 
 def folder_counts(account: MailAccount, password: str) -> list[dict]:
-    """Wie list_folders, aber mit Ungelesen-/Gesamt-Zaehlern je Ordner (IMAP STATUS).
+    """Wie list_folders, aber mit Ungelesen-/Gesamt-Zählern je Ordner (IMAP STATUS).
 
     Pro Ordner ein STATUS-Aufruf; bei sehr vielen Ordnern entsprechend langsamer.
-    Fehler bei einzelnen Ordnern werden geschluckt (Zaehler dann 0).
+    Fehler bei einzelnen Ordnern werden geschluckt (Zähler dann 0).
     """
     seen: dict[str, None] = {}
-    # Flags je Ordnername fuer die SPECIAL-USE-Erkennung. Beim Dedup die ZUERST
-    # gesehenen Flags behalten (spaetere LIST-Varianten ueberschreiben nicht).
+    # Flags je Ordnername für die SPECIAL-USE-Erkennung. Beim Dedup die ZUERST
+    # gesehenen Flags behalten (spätere LIST-Varianten überschreiben nicht).
     flags_by_name: dict[str, tuple] = {}
     out: list[dict] = []
     with _mailbox(account, password) as box:
@@ -227,7 +227,7 @@ def folder_counts(account: MailAccount, password: str) -> list[dict]:
             special = _folder_special(name, flags)
             unseen = total = 0
             # \Noselect-Ordner (z. B. Gmail-Container "[Gmail]") sind nicht
-            # selektierbar -> STATUS scheitert; daher ueberspringen, Zaehler 0.
+            # selektierbar -> STATUS scheitert; daher überspringen, Zähler 0.
             if special != "noselect":
                 try:
                     st = box.folder.status(name, ["MESSAGES", "UNSEEN"])
@@ -241,8 +241,8 @@ def folder_counts(account: MailAccount, password: str) -> list[dict]:
 
 def inbox_unseen(account: MailAccount, password: str, folder: str = "INBOX") -> int:
     """Nur die Ungelesen-Zahl EINES Ordners via IMAP STATUS — schnell (1 Login,
-    1 STATUS, KEIN Header-Download). Fuer die Dashboard-Uebersicht, damit der
-    Live-Abruf nicht in einen vollen Sync grosser Postfaecher laeuft (Timeout)."""
+    1 STATUS, KEIN Header-Download). Für die Dashboard-Übersicht, damit der
+    Live-Abruf nicht in einen vollen Sync großer Postfächer läuft (Timeout)."""
     with _mailbox(account, password) as box:
         st = box.folder.status(folder, ["UNSEEN"])
         return int(st.get("UNSEEN", 0) or 0)
@@ -252,10 +252,10 @@ def set_flags_many(
     account: MailAccount, password: str, uids: list[str], folder: str = "INBOX",
     *, seen: bool | None = None, flagged: bool | None = None,
 ) -> int:
-    """Setzt Seen/Flagged fuer VIELE UIDs in EINER IMAP-Session (statt N Logins).
+    """Setzt Seen/Flagged für VIELE UIDs in EINER IMAP-Session (statt N Logins).
 
     In 200er-Chunks, damit das STORE-Kommando nicht zu lang wird (manche Server
-    begrenzen die Zeilenlaenge). Fuer "alles als gelesen" bei grossen Ordnern."""
+    begrenzen die Zeilenlänge). Für "alles als gelesen" bei großen Ordnern."""
     uids = [u for u in uids if u]
     if not uids or (seen is None and flagged is None):
         return 0
@@ -284,7 +284,7 @@ def list_messages(
     # Kostenfaktor: ~50 Einzel-Fetches → 1 Sammel-Fetch. headers_only bleibt aus,
     # damit Vorschau (snippet) und Anhang-Indikator erhalten bleiben.
     # offset/limit als Slice (auf die nach Datum absteigende Liste) = Paginierung
-    # zum Weiterblättern bei grossen Postfaechern.
+    # zum Weiterblättern bei großen Postfächern.
     page = slice(offset, offset + limit)
     with _mailbox(account, password, folder=folder) as box:
         for msg in box.fetch(AND(all=True), reverse=True, limit=page, mark_seen=False, bulk=True):
@@ -373,12 +373,12 @@ def _detail_dict(msg, account: MailAccount) -> dict:
 
 
 def get_raw(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> str | None:
-    """Rohe RFC822-Quelle einer Mail (Header + Body) fuer „Original anzeigen"."""
+    """Rohe RFC822-Quelle einer Mail (Header + Body) für „Original anzeigen"."""
     with _mailbox(account, password, folder=folder) as box:
         for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
             try:
                 return msg.obj.as_string()
-            except Exception:  # noqa: BLE001 - Fallback ueber Bytes
+            except Exception:  # noqa: BLE001 - Fallback über Bytes
                 return (msg.obj.as_bytes() or b"").decode("utf-8", "replace")
     return None
 
@@ -393,7 +393,7 @@ def get_message(account: MailAccount, password: str, uid: str, folder: str = "IN
 def get_messages(account: MailAccount, password: str, uids: list[str], folder: str = "INBOX") -> list[dict]:
     """Volltext MEHRERER Mails in EINER IMAP-Session (ein Login + ein Sammel-Fetch).
 
-    Fuer das Vorwaermen des Body-Caches einer ganzen Listenseite, damit jeder
+    Für das Vorwärmen des Body-Caches einer ganzen Listenseite, damit jeder
     Klick danach sofort aus der DB kommt.
     """
     if not uids:
@@ -432,7 +432,7 @@ def set_flags(
     seen: bool | None = None,
     flagged: bool | None = None,
 ) -> None:
-    """Setzt/entfernt \\Seen bzw. \\Flagged fuer eine Nachricht (nur uebergebene Flags)."""
+    """Setzt/entfernt \\Seen bzw. \\Flagged für eine Nachricht (nur übergebene Flags)."""
     with _mailbox(account, password, folder=folder) as box:
         if seen is not None:
             box.flag(uid, SEEN, seen)
@@ -457,7 +457,7 @@ def _trash_folder(box: MailBox, current: str) -> str | None:
 
 def _spam_folder(box: MailBox) -> str | None:
     """Findet den Spam/Junk-Ordner: erst per SPECIAL-USE-Flag \\Junk, dann per
-    Namensheuristik (nutzt dieselbe Erkennung wie die Ordnerzaehler)."""
+    Namensheuristik (nutzt dieselbe Erkennung wie die Ordnerzähler)."""
     names: list[str] = []
     for f in box.folder.list():
         flags = " ".join(getattr(f, "flags", ()) or ()).lower()
@@ -485,9 +485,9 @@ def _find_trash_folder(account: MailAccount, password: str) -> str | None:
 
 
 def _purge_folder(account: MailAccount, password: str, folder: str | None, older_than_days: int) -> dict:
-    """Loescht Mails eines Ordners ENDGUELTIG (expunge).
+    """Löscht Mails eines Ordners ENDGÜLTIG (expunge).
 
-    older_than_days: 0 = alle | N>0 = nur Mails aelter als N Tage | negativ = nichts.
+    older_than_days: 0 = alle | N>0 = nur Mails älter als N Tage | negativ = nichts.
     """
     if older_than_days < 0 or not folder:
         return {"deleted": 0}
@@ -504,14 +504,14 @@ def _purge_folder(account: MailAccount, password: str, folder: str | None, older
 
 
 def purge_spam(account: MailAccount, password: str, older_than_days: int) -> dict:
-    """Spam/Junk-Ordner endgueltig leeren (siehe _purge_folder)."""
+    """Spam/Junk-Ordner endgültig leeren (siehe _purge_folder)."""
     if older_than_days < 0:
         return {"deleted": 0}
     return _purge_folder(account, password, _find_spam_folder(account, password), older_than_days)
 
 
 def purge_trash(account: MailAccount, password: str, older_than_days: int) -> dict:
-    """Papierkorb endgueltig leeren (siehe _purge_folder). So verschwinden auch die
+    """Papierkorb endgültig leeren (siehe _purge_folder). So verschwinden auch die
     beim Blockieren verschobenen Mails nach Ablauf des Reue-Fensters von selbst."""
     if older_than_days < 0:
         return {"deleted": 0}
@@ -520,12 +520,12 @@ def purge_trash(account: MailAccount, password: str, older_than_days: int) -> di
 
 def _soft_delete(box: MailBox, uids: list[str], current_folder: str) -> None:
     """Mails in den Papierkorb verschieben + als gelesen markieren. Ist kein
-    Papierkorb da (oder wir sind schon drin), hart loeschen (expunge)."""
+    Papierkorb da (oder wir sind schon drin), hart löschen (expunge)."""
     if not uids:
         return
     trash = _trash_folder(box, current_folder)
     try:
-        box.flag(uids, SEEN, True)  # im Papierkorb nicht als ungelesen zaehlen
+        box.flag(uids, SEEN, True)  # im Papierkorb nicht als ungelesen zählen
     except Exception:  # noqa: BLE001 - Markieren ist Beiwerk, darf das Verschieben nicht kippen
         logger.warning("SEEN-Flag vor Soft-Delete fehlgeschlagen", exc_info=True)
     if trash and trash != current_folder:
@@ -574,7 +574,7 @@ def delete_by_sender(
 
 
 def delete_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> str:
-    """In den Papierkorb verschieben; ist keiner da (oder schon im Papierkorb) -> hart loeschen."""
+    """In den Papierkorb verschieben; ist keiner da (oder schon im Papierkorb) -> hart löschen."""
     with _mailbox(account, password, folder=folder) as box:
         trash = _trash_folder(box, folder)
         if trash and trash != folder:
@@ -590,10 +590,10 @@ def move_message(account: MailAccount, password: str, uid: str, dest: str, folde
 
 
 def delete_messages(account: MailAccount, password: str, uids: list[str], folder: str = "INBOX") -> dict:
-    """Mehrere Mails in EINER IMAP-Session loeschen (Papierkorb oder hart).
+    """Mehrere Mails in EINER IMAP-Session löschen (Papierkorb oder hart).
 
     Statt pro Mail eine eigene Verbindung (N Logins) ein einziger Login + EIN
-    MOVE/DELETE ueber die ganze UID-Liste — auf entfernten Servern (web.de) ist
+    MOVE/DELETE über die ganze UID-Liste — auf entfernten Servern (web.de) ist
     der Login-/Round-Trip der dominierende Kostenfaktor.
     """
     if not uids:
@@ -640,8 +640,8 @@ def delete_folder(account: MailAccount, password: str, name: str) -> None:
 def _draft_folder(box: MailBox) -> str:
     """Findet den Entwürfe-Ordner (SPECIAL-USE \\Drafts oder Namensheuristik).
 
-    Bevorzugt den SERVER-eigenen Ordner vor einem evtl. von uns frueher angelegten
-    "INBOX/Drafts", damit Entwuerfe dort landen, wo der Anbieter sie erwartet.
+    Bevorzugt den SERVER-eigenen Ordner vor einem evtl. von uns früher angelegten
+    "INBOX/Drafts", damit Entwürfe dort landen, wo der Anbieter sie erwartet.
     """
     delim = _delimiter(box)
     ours = {f"INBOX{delim}{s}" for s in DEFAULT_SUBFOLDERS}
@@ -651,7 +651,7 @@ def _draft_folder(box: MailBox) -> str:
         if "\\drafts" in flags:
             return f.name
         low = f.name.lower()
-        if any(k in low for k in ("drafts", "entwurf", "entwürfe", "entwuerfe")):
+        if any(k in low for k in ("drafts", "entwurf", "entwürfe", "entwürfe")):
             matches.append(f.name)
     for name in matches:  # Server-eigenen Ordner bevorzugen
         if name not in ours:
@@ -733,7 +733,7 @@ def save_draft(
 
 def move_folder(account: MailAccount, password: str, name: str, new_parent: str) -> str:
     """Verschiebt einen Ordner unter new_parent (leer = oberste Ebene) per IMAP-
-    RENAME. Der Blattname bleibt; nur der Eltern-Pfad aendert sich."""
+    RENAME. Der Blattname bleibt; nur der Eltern-Pfad ändert sich."""
     with _mailbox(account, password) as box:
         delim = _delimiter(box)
         leaf = name.rsplit(delim, 1)[-1] if delim in name else name
@@ -777,7 +777,7 @@ def _special_kind(last_part: str) -> str | None:
 
 
 # IMAP SPECIAL-USE-Flags (RFC 6154) -> unsere special-Art. Vergleich case-
-# insensitiv und OHNE fuehrenden Backslash (siehe _folder_special).
+# insensitiv und OHNE führenden Backslash (siehe _folder_special).
 _FLAG_KIND = {"sent": "sent", "drafts": "drafts", "junk": "spam", "trash": "trash", "archive": "archive",
               "all": "all", "flagged": "flagged", "important": "important"}
 
@@ -807,8 +807,8 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
         matches: list[tuple[str, object]] = []
         # Regeln prüfen nur Header (from/to/subject) → headers_only spart den
         # Body-Download; bulk=True bündelt die Round-Trips. reverse=True ist
-        # ENTSCHEIDEND: ohne es holt imap-tools die AELTESTEN Mails — bei grossen
-        # Postfaechern werden so die neuen (zu sortierenden) Mails nie gesehen.
+        # ENTSCHEIDEND: ohne es holt imap-tools die ÄLTESTEN Mails — bei großen
+        # Postfächern werden so die neuen (zu sortierenden) Mails nie gesehen.
         for msg in box.fetch(AND(all=True), reverse=True, mark_seen=False, limit=500, headers_only=True, bulk=True):
             for rule in rules:
                 if not getattr(rule, "enabled", True) or not rule.value:
@@ -817,7 +817,7 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
                 # (z. B. "slot, casino, bonus"). Einzelwert = Teilstring wie bisher.
                 terms = [t.strip().lower() for t in rule.value.split(",") if t.strip()]
                 if rule.field == "from":
-                    # Adresse UND Anzeigename pruefen (vorher nur die Adresse —
+                    # Adresse UND Anzeigename prüfen (vorher nur die Adresse —
                     # darum trafen Regeln auf den Klarnamen nicht).
                     fv = getattr(msg, "from_values", None)
                     name = getattr(fv, "name", "") if fv else ""
@@ -837,7 +837,7 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
                     break  # erste passende Regel gewinnt
         to_delete: list[str] = []
         for uid, rule in matches:
-            # "Loeschen" hat Vorrang vor allen anderen Aktionen: getroffene Mail
+            # "Löschen" hat Vorrang vor allen anderen Aktionen: getroffene Mail
             # wandert in den Papierkorb (als gelesen) — kein Verschieben/Markieren mehr.
             if getattr(rule, "delete_msg", False):
                 to_delete.append(uid)
@@ -854,7 +854,7 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
             except Exception as exc:  # noqa: BLE001 - einzelne Aktion darf scheitern
                 if len(errors) < 3:
                     errors.append(f"{getattr(rule, 'target_folder', '')}: {type(exc).__name__}: {exc}")
-        # Loeschungen gebuendelt in den Papierkorb (ein MOVE statt N Round-Trips).
+        # Löschungen gebündelt in den Papierkorb (ein MOVE statt N Round-Trips).
         if to_delete:
             try:
                 _soft_delete(box, to_delete, "INBOX")
@@ -868,12 +868,12 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
 def ensure_default_folders(account: MailAccount, password: str) -> None:
     """Bringt die Sonderordner in Ordnung (best effort).
 
-    1. Frueher von UNS angelegte LEERE Doppel (INBOX/Sent|Drafts|Trash|Spam|Archive)
-       werden geloescht, sobald der Server einen eigenen Ordner derselben Art mit-
+    1. Früher von UNS angelegte LEERE Doppel (INBOX/Sent|Drafts|Trash|Spam|Archive)
+       werden gelöscht, sobald der Server einen eigenen Ordner derselben Art mit-
        bringt. Server-Ordner haben immer Vorrang.
     2. Nur KOMPLETT fehlende Arten werden neu angelegt (z. B. Server mit nur INBOX),
-       damit Entwuerfe/Papierkorb-Funktionen einen Zielordner haben.
-    Es wird nie ein nicht-leerer Ordner geloescht.
+       damit Entwürfe/Papierkorb-Funktionen einen Zielordner haben.
+    Es wird nie ein nicht-leerer Ordner gelöscht.
     """
     with _mailbox(account, password) as box:
         delim = _delimiter(box)
@@ -884,7 +884,7 @@ def ensure_default_folders(account: MailAccount, password: str) -> None:
             return _special_kind(re.split(r"[/.]", name)[-1])
 
         # 1) Unsere Doppel auf den Server-Ordner gleicher Art zusammenfuehren:
-        #    evtl. Inhalt dorthin VERSCHIEBEN (kein Verlust), dann unseren Ordner loeschen.
+        #    evtl. Inhalt dorthin VERSCHIEBEN (kein Verlust), dann unseren Ordner löschen.
         for path, kind in ours.items():
             if path not in names:
                 continue

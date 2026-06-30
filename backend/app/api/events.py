@@ -33,8 +33,8 @@ def _stream_user(request: Request) -> User:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Nicht angemeldet")
     payload = decode_token(raw)
     if not payload or payload.get("stage") == "mfa":
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token ungueltig")
-    # Kurzlebige Session nur fuer den Auth-Lookup (keine Dauer-Connection halten).
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token ungültig")
+    # Kurzlebige Session nur für den Auth-Lookup (keine Dauer-Connection halten).
     with Session(engine) as session:
         user = session.exec(select(User).where(User.username == payload.get("sub"))).first()
         if user is None or not user.is_active:

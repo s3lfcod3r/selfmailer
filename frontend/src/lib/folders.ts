@@ -3,7 +3,7 @@
 
 // Die 6 oberen Sonderordner bilden die einheitliche Gruppe (in dieser Reihenfolge).
 // "all" = Gmail „Alle Nachrichten" — eigene Art, wird aber UNTEN bei den normalen
-// Ordnern gefuehrt (eigenes Icon), NICHT in der oberen Gruppe.
+// Ordnern geführt (eigenes Icon), NICHT in der oberen Gruppe.
 export type SpecialKind = "inbox" | "drafts" | "sent" | "spam" | "trash" | "archive" | "all";
 
 export type FolderNode = {
@@ -26,7 +26,7 @@ const SPECIAL_PATTERNS: [SpecialKind, RegExp][] = [
   ["archive", /^(archive|archiv|archiviert)$/i],
 ];
 
-// Reihenfolge der Sonderordner in der Sidebar (Posteingang zuerst). "all" gehoert
+// Reihenfolge der Sonderordner in der Sidebar (Posteingang zuerst). "all" gehört
 // NICHT in die obere Gruppe -> hoher Wert, damit es bei den normalen Ordnern landet.
 export const SPECIAL_ORDER: Record<SpecialKind, number> = {
   inbox: 0, drafts: 1, sent: 2, spam: 3, trash: 4, archive: 5, all: 100,
@@ -84,7 +84,7 @@ const CANONICAL_NAMES: Record<SpecialKind, RegExp> = {
   trash: /^(trash|deleted items|papierkorb)$/i,
   archive: /^(archive|archiv)$/i,
   // "all" kommt nur vom Backend und kann nicht heuristisch doppelt entstehen;
-  // ein nie matchender Eintrag haelt nur den Record-Typ vollstaendig.
+  // ein nie matchender Eintrag hält nur den Record-Typ vollständig.
   all: /(?!)/,
 };
 
@@ -134,8 +134,8 @@ export function buildFolderTree(folders: FolderLike[]): FolderNode[] {
 
   let roots: FolderNode[] = [];
   const byPath = new Map<string, FolderNode>();
-  // Nicht-selektierbare Container (Gmail „[Gmail]") merken, um sie spaeter
-  // aufzuloesen (ihre Kinder werden auf die Wurzel-Ebene hochgezogen).
+  // Nicht-selektierbare Container (Gmail „[Gmail]") merken, um sie später
+  // aufzulösen (ihre Kinder werden auf die Wurzel-Ebene hochgezogen).
   const containers: FolderNode[] = [];
 
   // Eltern vor Kindern einsortieren (nach Tiefe, dann alphabetisch).
@@ -164,7 +164,7 @@ export function buildFolderTree(folders: FolderLike[]): FolderNode[] {
   }
 
   // Nicht-selektierbare Container (Gmail „[Gmail]") auflisten: der Container selbst
-  // verschwindet, seine Kinder ruecken auf die Wurzel-Ebene (so wird aus
+  // verschwindet, seine Kinder rücken auf die Wurzel-Ebene (so wird aus
   // „[Gmail]/Gesendet" ein Wurzel-„Gesendet" → landet oben in der Sondergruppe).
   if (containers.length) {
     const drop = new Set(containers);

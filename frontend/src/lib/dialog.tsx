@@ -1,9 +1,9 @@
-// App-weiter Dialog (Bestaetigung/Eingabe) im eigenen Design statt window.confirm/
+// App-weiter Dialog (Bestätigung/Eingabe) im eigenen Design statt window.confirm/
 // window.prompt. Imperativ aufrufbar aus jeder Komponente:
 //   if (await confirmDialog("wirklich?")) { ... }
 //   const name = await promptDialog("Name?", "Vorgabe");
 // <DialogHost/> wird EINMAL in App.tsx montiert. Ist er (noch) nicht montiert,
-// fallen die Funktionen auf die nativen Dialoge zurueck.
+// fallen die Funktionen auf die nativen Dialoge zurück.
 import { useEffect, useState } from "react";
 import { useLang } from "./i18n";
 

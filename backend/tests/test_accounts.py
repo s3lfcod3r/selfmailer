@@ -24,7 +24,7 @@ def test_account_crud(client, admin):
     assert r.status_code == 200
     assert r.json()["label"] == "Neu"
 
-    # loeschen
+    # löschen
     r = client.delete(f"/api/v1/accounts/{aid}", headers=admin)
     assert r.status_code == 204
     r = client.get("/api/v1/accounts", headers=admin)
@@ -39,9 +39,9 @@ def test_account_requires_auth(client):
 def test_account_rejects_internal_host_ssrf(client, admin):
     """SSRF-Schutz: imap_host darf kein internes Ziel (Loopback/Metadata) sein.
 
-    conftest neutralisiert den Validator global fuer die uebrigen CRUD-Tests;
-    hier stellen wir die echte Pruefung gezielt wieder her und erwarten 400.
-    Loopback (127.0.0.1) wird unabhaengig von dav_block_private IMMER geblockt.
+    conftest neutralisiert den Validator global für die uebrigen CRUD-Tests;
+    hier stellen wir die echte Prüfung gezielt wieder her und erwarten 400.
+    Loopback (127.0.0.1) wird unabhängig von dav_block_private IMMER geblockt.
     """
     import app.api.accounts as accounts_mod
     from app.dav.client import validate_external_url as real_validate

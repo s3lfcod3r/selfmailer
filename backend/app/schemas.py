@@ -1,6 +1,6 @@
-"""Pydantic-Schemas fuer Requests/Responses.
+"""Pydantic-Schemas für Requests/Responses.
 
-Wichtig: Response-Schemas geben NIE secret_enc oder Passwoerter aus.
+Wichtig: Response-Schemas geben NIE secret_enc oder Passwörter aus.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class PasswordChange(BaseModel):
 
 
 class PasswordReset(BaseModel):
-    """Admin setzt das Passwort eines Users zurueck. Im Body (NICHT als Query-
+    """Admin setzt das Passwort eines Users zurück. Im Body (NICHT als Query-
     Parameter), damit das Passwort nicht in Server-/Proxy-Logs landet."""
     new_password: str = Field(min_length=8)
 
@@ -44,8 +44,8 @@ class TokenResponse(BaseModel):
 class LoginResponse(BaseModel):
     """Login-Antwort: entweder fertiges Token ODER 2FA-Anforderung.
 
-    Bei aktiver 2FA bleibt access_token leer, needs_totp=True und mfa_token traegt
-    den kurzlebigen Zwischen-Token fuer POST /auth/login/totp.
+    Bei aktiver 2FA bleibt access_token leer, needs_totp=True und mfa_token trägt
+    den kurzlebigen Zwischen-Token für POST /auth/login/totp.
     """
     access_token: str = ""
     token_type: str = "bearer"
@@ -70,7 +70,7 @@ class TotpSetupOut(BaseModel):
 
 
 class TotpEnableRequest(BaseModel):
-    code: str  # zur Bestaetigung, dass die App korrekt eingerichtet ist
+    code: str  # zur Bestätigung, dass die App korrekt eingerichtet ist
 
 
 class TotpEnableOut(BaseModel):
@@ -109,7 +109,7 @@ class AccountCreate(BaseModel):
     smtp_port: int = 587
     smtp_starttls: bool = True
     auth_user: str = ""
-    password: str  # Klartext nur im Request; wird verschluesselt gespeichert
+    password: str  # Klartext nur im Request; wird verschlüsselt gespeichert
 
 
 class AccountOut(BaseModel):
@@ -130,10 +130,10 @@ class AccountOut(BaseModel):
 
 
 class AccountUpdate(BaseModel):
-    """Aenderbare Felder eines Kontos. Alles optional (Patch-Semantik).
+    """Änderbare Felder eines Kontos. Alles optional (Patch-Semantik).
 
-    password: nur setzen, wenn die Zugangsdaten geaendert werden sollen –
-    wird dann verschluesselt in secret_enc abgelegt (kein direktes Feld).
+    password: nur setzen, wenn die Zugangsdaten geändert werden sollen –
+    wird dann verschlüsselt in secret_enc abgelegt (kein direktes Feld).
     """
     label: str | None = None
     email: EmailStr | None = None
@@ -147,7 +147,7 @@ class AccountUpdate(BaseModel):
     auth_user: str | None = None
     signature: str | None = None
     password: str | None = None
-    # -1 = aus | 0 = sofort | N>0 = Mails aelter als N Tage endgueltig loeschen
+    # -1 = aus | 0 = sofort | N>0 = Mails älter als N Tage endgültig löschen
     spam_purge_days: int | None = Field(default=None, ge=-1, le=3650)
     trash_purge_days: int | None = Field(default=None, ge=-1, le=3650)
 
@@ -195,7 +195,7 @@ class MessageDetail(MessageHeader):
 
 
 class AttachmentIn(BaseModel):
-    """Anhang im Sende-Request: Inhalt als base64 (ggf. mit data:-Praefix)."""
+    """Anhang im Sende-Request: Inhalt als base64 (ggf. mit data:-Präfix)."""
     filename: str
     content_type: str = "application/octet-stream"
     content_b64: str
@@ -247,14 +247,14 @@ class TransferRequest(BaseModel):
 
 
 class BatchRequest(BaseModel):
-    """Mehrere Mails desselben Ordners in einem Rutsch loeschen/verschieben."""
+    """Mehrere Mails desselben Ordners in einem Rutsch löschen/verschieben."""
     folder: str = "INBOX"
     uids: list[str]
     dest: str | None = None              # Zielordner (nur beim Verschieben)
 
 
 class RuleUpdate(BaseModel):
-    """Teil-Update einer Regel (Bearbeiten). Nur gesetzte Felder werden geaendert."""
+    """Teil-Update einer Regel (Bearbeiten). Nur gesetzte Felder werden geändert."""
     field: RuleField | None = None
     value: str | None = None
     target_folder: str | None = None
@@ -277,11 +277,11 @@ class RuleOut(BaseModel):
 
 
 class BlockSenderRequest(BaseModel):
-    """Absender blockieren: legt eine Loesch-Regel an und raeumt optional die schon
+    """Absender blockieren: legt eine Lösch-Regel an und räumt optional die schon
     vorhandenen Mails dieses Absenders sofort weg."""
     sender: str                          # E-Mail-Adresse oder Anzeigename (Teilstring)
     by_domain: bool = False              # True = ganze Absender-Domain blockieren
-    delete_existing: bool = True         # vorhandene Mails sofort endgueltig loeschen
+    delete_existing: bool = True         # vorhandene Mails sofort endgültig löschen
 
 
 class BlockSenderResult(BaseModel):
@@ -327,7 +327,7 @@ class EventCreate(BaseModel):
     end: dt.datetime
     all_day: bool = False
     # Optionales Ziel: in welches externe Konto (nur Google/gcal) der Termin
-    # zurueckgeschrieben wird. None = rein lokaler Termin (altes Verhalten).
+    # zurückgeschrieben wird. None = rein lokaler Termin (altes Verhalten).
     dav_account_id: int | None = None
     gcal_calendar_id: str = ""   # leer = Hauptkalender (primary)
 
@@ -353,25 +353,25 @@ class EventOut(BaseModel):
     start: dt.datetime
     end: dt.datetime
     all_day: bool
-    # Herkunft: gesetzt, wenn der Termin zu einem externen Konto gehoert
-    # (Google). Das Frontend markiert solche Termine und schreibt Aenderungen
-    # zurueck.
+    # Herkunft: gesetzt, wenn der Termin zu einem externen Konto gehört
+    # (Google). Das Frontend markiert solche Termine und schreibt Änderungen
+    # zurück.
     dav_account_id: int | None = None
-    # Quell-Kalender (fuer Farben/Filter pro Unterkalender):
+    # Quell-Kalender (für Farben/Filter pro Unterkalender):
     source_key: str = ""
     source_name: str = ""
     source_color: str = ""
 
     @field_serializer("start", "end")
     def _serialize_utc(self, value: dt.datetime) -> str:
-        """Store haelt naive UTC → explizit mit ``Z`` ausgeben, damit das
+        """Store hält naive UTC → explizit mit ``Z`` ausgeben, damit das
         Frontend (new Date(...)) die Zeit korrekt als UTC liest und lokal anzeigt."""
         base = value.replace(tzinfo=None) if value.tzinfo else value
         return base.isoformat(timespec="seconds") + "Z"
 
 
 class GcalCalendarOut(BaseModel):
-    """Ein Google-Kalender (fuer Filter + Ziel-Auswahl). ``writable`` = beschreibbar
+    """Ein Google-Kalender (für Filter + Ziel-Auswahl). ``writable`` = beschreibbar
     (owner/writer) → nur solche taugen als Ziel beim Anlegen."""
     id: str
     name: str
@@ -466,7 +466,7 @@ class DavAccountCreate(BaseModel):
     label: str = ""
     url: str
     username: str = ""
-    password: str  # Klartext nur im Request; wird verschluesselt gespeichert
+    password: str  # Klartext nur im Request; wird verschlüsselt gespeichert
 
 
 class DavAccountOut(BaseModel):
@@ -516,7 +516,7 @@ class TranslateResponse(BaseModel):
 
 class GoogleCalCreate(BaseModel):
     """Google-Kalender via OAuth (refresh_token-Verfahren). Klartext nur im
-    Request; client_secret + refresh_token werden verschluesselt gespeichert."""
+    Request; client_secret + refresh_token werden verschlüsselt gespeichert."""
     email: str
     client_id: str
     client_secret: str
@@ -547,7 +547,7 @@ class PushConfigOut(BaseModel):
 
 class FolderNotifyIn(BaseModel):
     account_id: int
-    folders: list[str] = []   # vollstaendige Liste der zu benachrichtigenden Ordner
+    folders: list[str] = []   # vollständige Liste der zu benachrichtigenden Ordner
 
 
 class DeviceTokenIn(BaseModel):
@@ -560,4 +560,4 @@ class FeedTokenOut(BaseModel):
     token: str
     calendar_url: str
     contacts_url: str
-    dashboard_url: str = ""   # gebuendelte Mail-Uebersicht fuer ein externes Dashboard
+    dashboard_url: str = ""   # gebündelte Mail-Übersicht für ein externes Dashboard

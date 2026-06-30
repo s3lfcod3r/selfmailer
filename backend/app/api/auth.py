@@ -40,8 +40,8 @@ from .deps import get_current_user
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 # Konstanter Dummy-Hash gegen User-Enumeration per Timing: bei unbekanntem
-# Benutzer wird trotzdem ein Argon2-Verify ausgefuehrt, damit die Antwortzeit
-# nicht verraet, ob der Benutzer existiert.
+# Benutzer wird trotzdem ein Argon2-Verify ausgeführt, damit die Antwortzeit
+# nicht verrät, ob der Benutzer existiert.
 _DUMMY_HASH = hash_password("selfmailer-timing-dummy-do-not-use")
 
 
@@ -63,7 +63,7 @@ def _clear_backup_codes(session: Session, user_id: int) -> None:
 
 
 def _verify_second_factor(session: Session, user: User, code: str) -> bool:
-    """Prueft 2FA: zuerst TOTP (mit Replay-Schutz), dann Einmal-Backup-Code."""
+    """Prüft 2FA: zuerst TOTP (mit Replay-Schutz), dann Einmal-Backup-Code."""
     # 1) TOTP
     if user.totp_secret:
         try:
@@ -137,8 +137,8 @@ def login(
 ) -> LoginResponse:
     check_rate_limit(f"login:{client_ip(request)}", limit=10, window_s=60)
     user = session.exec(select(User).where(User.username == data.username)).first()
-    # Immer ein Argon2-Verify ausfuehren (Dummy-Hash bei unbekanntem User), damit
-    # die Antwortzeit nicht verraet, ob der Benutzername existiert.
+    # Immer ein Argon2-Verify ausführen (Dummy-Hash bei unbekanntem User), damit
+    # die Antwortzeit nicht verrät, ob der Benutzername existiert.
     password_ok = verify_password(data.password, user.password_hash if user else _DUMMY_HASH)
     if user is None or not password_ok:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Anmeldedaten falsch")
@@ -159,14 +159,14 @@ def login_totp(
 ) -> TokenResponse:
     """Zweiter Login-Schritt: TOTP- oder Backup-Code gegen den mfa_token."""
     # Strenger als der Passwort-Login: ein 6-stelliger TOTP-Code hat nur 10^6
-    # Moeglichkeiten — ohne Limit waere Online-Brute-Force denkbar.
+    # Möglichkeiten — ohne Limit wäre Online-Brute-Force denkbar.
     check_rate_limit(f"totp:{client_ip(request)}", limit=5, window_s=60)
     payload = decode_token(data.mfa_token)
     if not payload or payload.get("stage") != "mfa":
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA-Sitzung ungueltig oder abgelaufen")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA-Sitzung ungültig oder abgelaufen")
     user = session.exec(select(User).where(User.username == payload.get("sub"))).first()
     if user is None or not user.is_active or not user.totp_enabled:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA-Sitzung ungueltig")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA-Sitzung ungültig")
     if not _verify_second_factor(session, user, data.code):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Code falsch")
     token = create_access_token(user.username, user.role.value)
@@ -176,7 +176,7 @@ def login_totp(
 
 @router.post("/logout")
 def logout(response: Response) -> dict:
-    """Loescht das Session-Cookie (Web). Bearer-Tokens der APK sind davon nicht
+    """Löscht das Session-Cookie (Web). Bearer-Tokens der APK sind davon nicht
     betroffen — die App verwirft ihr Token lokal."""
     clear_session_cookie(response)
     return {"ok": True}
@@ -223,7 +223,7 @@ def totp_setup(
     if user.totp_enabled:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "2FA ist bereits aktiv")
     secret = totp_lib.generate_secret()
-    user.totp_secret = encrypt(secret)  # at-rest verschluesselt
+    user.totp_secret = encrypt(secret)  # at-rest verschlüsselt
     user.totp_last_step = 0
     session.add(user)
     session.commit()
@@ -239,7 +239,7 @@ def totp_enable(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> TotpEnableOut:
-    """Aktivieren: App-Code bestaetigen -> 2FA an + Backup-Codes (einmalig)."""
+    """Aktivieren: App-Code bestätigen -> 2FA an + Backup-Codes (einmalig)."""
     if user.totp_enabled:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "2FA ist bereits aktiv")
     if not user.totp_secret:
@@ -247,7 +247,7 @@ def totp_enable(
     try:
         secret = decrypt(user.totp_secret)
     except ValueError:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Einrichtung ungueltig, bitte neu starten")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Einrichtung ungültig, bitte neu starten")
     step = totp_lib.verify_code_step(secret, data.code)
     if step is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Code falsch")
@@ -274,7 +274,7 @@ def totp_disable(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    """Deaktivieren: Passwort bestaetigen -> Secret + Backup-Codes loeschen."""
+    """Deaktivieren: Passwort bestätigen -> Secret + Backup-Codes löschen."""
     if not verify_password(data.password, user.password_hash):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Passwort falsch")
     user.totp_secret = ""

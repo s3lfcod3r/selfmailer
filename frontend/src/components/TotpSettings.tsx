@@ -5,10 +5,10 @@ import { useLang } from "../lib/i18n";
 
 /**
  * 2FA-Verwaltung als Modal-Inhalt. Drei Zustaende:
- *  - geladen + aus  -> Einrichtung starten (QR + Secret, dann Code bestaetigen)
+ *  - geladen + aus  -> Einrichtung starten (QR + Secret, dann Code bestätigen)
  *  - geladen + an   -> Status + Deaktivieren (Passwort)
  *  - frisch aktiviert -> Backup-Codes einmalig anzeigen
- * Der QR wird lokal aus der otpauth-URI gerendert; das Secret verlaesst den
+ * Der QR wird lokal aus der otpauth-URI gerendert; das Secret verlässt den
  * Browser nie an einen Dritt-Dienst.
  */
 export function TotpSettings({ onClose }: { onClose: () => void }) {
@@ -124,7 +124,7 @@ export function TotpSettings({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {/* Im Setup: QR + Secret + Code bestaetigen */}
+        {/* Im Setup: QR + Secret + Code bestätigen */}
         {setup && (
           <div className="stack">
             <p className="muted" style={{ margin: 0, fontSize: "0.88rem" }}>{t("totp.scanHint")}</p>

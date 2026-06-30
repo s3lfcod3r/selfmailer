@@ -1,6 +1,6 @@
 """Aufgaben / To-dos: pro User (CRUD).
 
-Eigenstaendiger lokaler Store, analog zu Notizen/Kalender. Wird u. a. im
+Eigenständiger lokaler Store, analog zu Notizen/Kalender. Wird u. a. im
 Kalender-Seitenpanel angezeigt.
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ def list_tasks(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[Task]:
-    # Offen zuerst, dann nach Position und Faelligkeit.
+    # Offen zuerst, dann nach Position und Fälligkeit.
     stmt = (
         select(Task)
         .where(Task.user_id == user.id)

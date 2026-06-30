@@ -58,7 +58,7 @@ def enabled() -> bool:
 
 
 def _access_token(sa: dict) -> str:
-    """Gemintetes, kurzlebig gecachtes OAuth-Token fuer die FCM-API."""
+    """Gemintetes, kurzlebig gecachtes OAuth-Token für die FCM-API."""
     global _token, _token_exp
     now = time.time()
     with _lock:

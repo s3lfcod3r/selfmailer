@@ -77,7 +77,7 @@ from app.core.crypto import decrypt
 with Session(engine) as s:
     acc = s.exec(select(MailAccount)).first()
     assert acc.secret_enc != "app-pw-secret", "Passwort liegt im Klartext!"
-    assert decrypt(acc.secret_enc) == "app-pw-secret", "Entschluesselung fehlgeschlagen"
+    assert decrypt(acc.secret_enc) == "app-pw-secret", "Entschlüsselung fehlgeschlagen"
 print("at-rest encryption OK (stored != plaintext, decrypts correctly)")
 
 # user must NOT reach admin endpoints
@@ -85,21 +85,21 @@ r = c.get("/api/v1/admin/users", headers=uH)
 assert r.status_code==403, r.text
 print("RBAC OK: user blocked from admin (403)")
 
-# Mehr-User: zweiten User anlegen, Liste pruefen
+# Mehr-User: zweiten User anlegen, Liste prüfen
 r = c.post("/api/v1/admin/users", json={"username":"lisa@self","password":"lisapass12","role":"user"}, headers=H)
 assert r.status_code==201, r.text
 r = c.get("/api/v1/admin/users", headers=H)
 assert len(r.json()) == 3, r.text  # admin + sven + lisa
 print("multi-user OK: total users =", len(r.json()))
 
-# Selbstschutz: Admin (id=1) darf sich nicht loeschen / deaktivieren
+# Selbstschutz: Admin (id=1) darf sich nicht löschen / deaktivieren
 r = c.delete("/api/v1/admin/users/1", headers=H)
 assert r.status_code==400, r.text
 r = c.patch("/api/v1/admin/users/1/active?active=false", headers=H)
 assert r.status_code==400, r.text
 print("self-protect OK: admin cannot delete/deactivate self (400)")
 
-# Admin kann User-Passwort zuruecksetzen, danach Login mit neuem PW
+# Admin kann User-Passwort zurücksetzen, danach Login mit neuem PW
 sven_id = next(u["id"] for u in c.get("/api/v1/admin/users", headers=H).json() if u["username"]=="sven@self")
 r = c.patch(f"/api/v1/admin/users/{sven_id}/password", json={"new_password":"neuespass99"}, headers=H)
 assert r.status_code==200, r.text
@@ -107,7 +107,7 @@ r = c.post("/api/v1/auth/login", json={"username":"sven@self","password":"neuesp
 assert r.status_code==200, r.text
 print("admin password-reset OK")
 
-# Admin konfiguriert Mailkonto FUER einen User vor
+# Admin konfiguriert Mailkonto FÜR einen User vor
 r = c.post(f"/api/v1/admin/users/{sven_id}/accounts", json={
     "label":"Arbeit","email":"sven@firma.de","password":"firmenpw123",
     "imap_host":"imap.firma.de","smtp_host":"smtp.firma.de"
@@ -116,7 +116,7 @@ assert r.status_code==201, r.text
 admin_acc_id = r.json()["id"]
 r = c.get(f"/api/v1/admin/users/{sven_id}/accounts", headers=H)
 assert any(a["email"]=="sven@firma.de" for a in r.json()), r.text
-print("admin-preconfigured account OK:", len(r.json()), "Konten fuer User")
+print("admin-preconfigured account OK:", len(r.json()), "Konten für User")
 
 # Sven sieht das vom Admin angelegte Konto in seiner eigenen Liste
 r = c.post("/api/v1/auth/login", json={"username":"sven@self","password":"neuespass99"})
@@ -125,12 +125,12 @@ r = c.get("/api/v1/accounts", headers=svenH)
 assert any(a["email"]=="sven@firma.de" for a in r.json()), r.text
 print("user sees admin-configured account OK")
 
-# Admin loescht das Konto wieder
+# Admin löscht das Konto wieder
 r = c.delete(f"/api/v1/admin/users/{sven_id}/accounts/{admin_acc_id}", headers=H)
 assert r.status_code==204, r.text
 print("admin delete user-account OK")
 
-# Kalender: Event anlegen, listen, Range-Filter, loeschen
+# Kalender: Event anlegen, listen, Range-Filter, löschen
 ev = {"title":"Zahnarzt","location":"Praxis","start":"2026-07-01T09:00:00","end":"2026-07-01T09:30:00"}
 r = c.post("/api/v1/calendar/events", json=ev, headers=svenH); assert r.status_code==201, r.text
 eid = r.json()["id"]
@@ -142,7 +142,7 @@ assert any(e["title"]=="Zahnarzt" for e in r.json()), r.text
 print("calendar OK:", len(r.json()), "Event(s) im Zeitraum")
 r = c.delete(f"/api/v1/calendar/events/{eid}", headers=svenH); assert r.status_code==204, r.text
 
-# Kontakte: anlegen, Suche, aktualisieren, loeschen
+# Kontakte: anlegen, Suche, aktualisieren, löschen
 r = c.post("/api/v1/contacts", json={"first_name":"Lisa","last_name":"Meier","email":"lisa@example.de","organization":"ACME"}, headers=svenH)
 assert r.status_code==201, r.text
 cid = r.json()["id"]
@@ -197,12 +197,12 @@ print("vcard roundtrip OK (escape, structured N/ORG)")
 # ---- Export-Feeds: Token + Auth-Varianten ----
 r = c.get("/api/v1/feeds/token", headers=svenH); assert r.status_code==200, r.text
 ftok = r.json()["token"]; assert ftok and r.json()["calendar_url"].endswith(ftok)
-# lokale Daten fuer den Export anlegen
+# lokale Daten für den Export anlegen
 c.post("/api/v1/calendar/events", json={"title":"Export-Test, x; y","location":"Büro",
        "start":"2026-09-01T08:00:00","end":"2026-09-01T09:00:00"}, headers=svenH)
 c.post("/api/v1/contacts", json={"first_name":"Max","last_name":"Mustermann",
        "email":"max@example.de","phone":"+49 30 1234"}, headers=svenH)
-# Export via Token (ohne Bearer) — so wuerde ein Handy-Kalender abonnieren
+# Export via Token (ohne Bearer) — so würde ein Handy-Kalender abonnieren
 r = c.get(f"/api/v1/calendar/export.ics?token={ftok}")
 assert r.status_code==200 and "text/calendar" in r.headers["content-type"], r.text
 assert "BEGIN:VCALENDAR" in r.text and "Export-Test\\, x\\; y" in r.text, r.text
@@ -213,7 +213,7 @@ assert r.status_code==200 and "BEGIN:VCARD" in r.text and "FN:Max Mustermann" in
 assert c.get("/api/v1/calendar/export.ics?token=falsch").status_code==401
 # Ohne jede Auth -> 401
 assert c.get("/api/v1/calendar/export.ics").status_code==401
-# Rotation macht alten Token ungueltig
+# Rotation macht alten Token ungültig
 r = c.post("/api/v1/feeds/token/rotate", headers=svenH); newtok = r.json()["token"]
 assert newtok != ftok
 assert c.get(f"/api/v1/calendar/export.ics?token={ftok}").status_code==401
@@ -231,18 +231,18 @@ r = c.post("/api/v1/dav/accounts", json={"kind":"caldav","label":"Nextcloud",
 assert r.status_code==201, r.text
 dav_cal_id = r.json()["id"]
 assert "password" not in r.text.lower() and "secret_enc" not in r.json(), r.text
-# verschluesselt gespeichert?
+# verschlüsselt gespeichert?
 from app.models import DavAccount as _DavAcc
 with Session(engine) as s:
     dacc = s.get(_DavAcc, dav_cal_id)
-    assert dacc.secret_enc != "dav-pw" and decrypt(dacc.secret_enc) == "dav-pw", "DAV-Secret nicht verschluesselt"
+    assert dacc.secret_enc != "dav-pw" and decrypt(dacc.secret_enc) == "dav-pw", "DAV-Secret nicht verschlüsselt"
 # Erst-Sync: 2 importiert
 r = c.post(f"/api/v1/dav/accounts/{dav_cal_id}/sync", headers=svenH).json()
 assert r["ok"] is True and r["imported"]==2 and r["updated"]==0, r
 # importierte Events erscheinen lokal + im Export
 r = c.get(f"/api/v1/calendar/export.ics?token={newtok}")
 assert "Extern A" in r.text and "Extern B" in r.text, "Import nicht im Export sichtbar"
-# Re-Sync mit geaenderter Quelle: A geaendert, B weg, C neu -> 1 updated, 1 imported, 1 removed
+# Re-Sync mit geänderter Quelle: A geändert, B weg, C neu -> 1 updated, 1 imported, 1 removed
 ext_a2 = NS(id=None, external_uid="ext-1@srv", title="Extern A neu", description="d", location="",
             start=_utc(2026,10,1,10,0), end=_utc(2026,10,1,12,0), all_day=False)
 ext_c = NS(id=None, external_uid="ext-3@srv", title="Extern C", description="", location="",
@@ -276,13 +276,13 @@ gev = r.json()
 assert _pushed["create"][0]=="primary@cal", _pushed
 assert gev["dav_account_id"]==gacc_id, gev
 gev_id = gev["id"]
-# Aendern -> Push patch auf die richtige Event-ID
+# Ändern -> Push patch auf die richtige Event-ID
 r = c.patch(f"/api/v1/calendar/events/{gev_id}", json={"title":"GMeet v2"}, headers=svenH)
 assert r.status_code==200 and _pushed["patch"]==("primary@cal","EVT123"), (r.text, _pushed)
-# Loeschen -> Push delete (sonst kaeme der Termin beim naechsten Pull zurueck)
+# Löschen -> Push delete (sonst kaeme der Termin beim nächsten Pull zurück)
 r = c.delete(f"/api/v1/calendar/events/{gev_id}", headers=svenH)
 assert r.status_code==204 and _pushed["delete"]==("primary@cal","EVT123"), _pushed
-# Rein lokaler Termin (kein Ziel) loest KEINEN Google-Call aus
+# Rein lokaler Termin (kein Ziel) löst KEINEN Google-Call aus
 _pushed.clear()
 r = c.post("/api/v1/calendar/events", json={"title":"Lokal","start":"2026-11-02T09:00:00Z",
        "end":"2026-11-02T10:00:00Z"}, headers=svenH)
@@ -312,10 +312,10 @@ r = c.post(f"/api/v1/dav/accounts/{dav_cal_id}/sync", headers=svenH).json()
 assert r["ok"] is False and "Verbindungsfehler" in r["error"], r
 print("dav error handling OK (ok=false, message surfaced)")
 
-# ---- DAV-Konto loeschen raeumt importierte Eintraege ----
+# ---- DAV-Konto löschen räumt importierte Einträge ----
 r = c.delete(f"/api/v1/dav/accounts/{dav_cal_id}", headers=svenH); assert r.status_code==204, r.text
 r = c.get("/api/v1/calendar/events?start_from=2026-01-01T00:00:00&start_to=2027-01-01T00:00:00", headers=svenH)
-assert not any(e["title"].startswith("Extern") for e in r.json()), "Importierte Events nach Konto-Loeschung uebrig"
+assert not any(e["title"].startswith("Extern") for e in r.json()), "Importierte Events nach Konto-Löschung uebrig"
 r = c.delete(f"/api/v1/dav/accounts/{dav_card_id}", headers=svenH); assert r.status_code==204, r.text
 print("dav account delete cleans imported entries OK")
 

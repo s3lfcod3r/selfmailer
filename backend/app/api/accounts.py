@@ -1,6 +1,6 @@
 """Mailkonten des angemeldeten Users (Self-Service).
 
-Zugangsdaten werden verschluesselt gespeichert (secret_enc) und nie zurueck-
+Zugangsdaten werden verschlüsselt gespeichert (secret_enc) und nie zurück-
 gegeben. Klartext nur transient beim Verbindungsaufbau.
 """
 from __future__ import annotations
@@ -41,10 +41,10 @@ def _owned(account_id: int, user: User, session: Session) -> MailAccount:
 
 def _check_mail_host(label: str, host: str, port: int) -> None:
     """SSRF-Schutz: der Server verbindet sich serverseitig zu imap_host/smtp_host.
-    Ohne Pruefung koennte ein angemeldeter Nutzer interne Ziele (Loopback,
+    Ohne Prüfung könnte ein angemeldeter Nutzer interne Ziele (Loopback,
     link-local 169.254.169.254 Cloud-Metadata, LAN) ansteuern. Dieselbe
-    Blockliste/DNS-Aufloesung wie bei DAV/ntfy wiederverwenden. Eine ``http``-
-    URL ist nur Traeger fuer Host+Port — geprueft wird die aufgeloeste IP, nicht
+    Blockliste/DNS-Auflösung wie bei DAV/ntfy wiederverwenden. Eine ``http``-
+    URL ist nur Träger für Host+Port — geprüft wird die aufgelöste IP, nicht
     das Schema."""
     host = (host or "").strip()
     if not host:
@@ -99,12 +99,12 @@ def update_account(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> MailAccount:
-    """Aendert Felder des eigenen Kontos. Passwort wird verschluesselt abgelegt."""
+    """Ändert Felder des eigenen Kontos. Passwort wird verschlüsselt abgelegt."""
     acc = _owned(account_id, user, session)
     fields = data.model_dump(exclude_unset=True)
     password = fields.pop("password", None)
-    # SSRF: geaenderte Hosts/Ports gegen die effektiven Werte pruefen, bevor sie
-    # gespeichert und spaeter serverseitig angesteuert werden.
+    # SSRF: geänderte Hosts/Ports gegen die effektiven Werte prüfen, bevor sie
+    # gespeichert und später serverseitig angesteuert werden.
     if "imap_host" in fields or "imap_port" in fields:
         _check_mail_host(
             "IMAP-Host",
@@ -117,7 +117,7 @@ def update_account(
             fields.get("smtp_host", acc.smtp_host),
             fields.get("smtp_port", acc.smtp_port),
         )
-    if password:  # leeres Passwort = Zugangsdaten nicht aendern
+    if password:  # leeres Passwort = Zugangsdaten nicht ändern
         acc.secret_enc = encrypt(password)
     for field, value in fields.items():
         setattr(acc, field, value)
@@ -133,10 +133,10 @@ def test_account(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    """Prueft den IMAP-Login. Nuetzlich direkt nach dem Anlegen."""
+    """Prüft den IMAP-Login. Nützlich direkt nach dem Anlegen."""
     acc = _owned(account_id, user, session)
     if acc.protocol != Protocol.imap:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Test nur fuer IMAP")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Test nur für IMAP")
     try:
         folders = imap_mod.list_folders(acc, decrypt(acc.secret_enc))
         return {"ok": True, "folders": folders}
@@ -153,7 +153,7 @@ def delete_account(
 ) -> None:
     acc = _owned(account_id, user, session)
     # Kinder-Zeilen zuerst per Bulk-DELETE entfernen (sonst Waisen + langsames
-    # Commit hinter laufendem Sync = "haengt"). account_id ist indiziert.
+    # Commit hinter laufendem Sync = "hängt"). account_id ist indiziert.
     for model in (CachedMessage, FolderSync, CachedFolder, MailRule):
         session.execute(sa_delete(model).where(model.account_id == account_id))
     session.delete(acc)

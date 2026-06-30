@@ -1,4 +1,4 @@
-"""SelfMailer FastAPI-App. Bedient API fuer WebUI und (spaeter) APK.
+"""SelfMailer FastAPI-App. Bedient API für WebUI und (später) APK.
 
 Wenn ein gebautes Frontend unter ../frontend/dist liegt, wird es als Static-
 SPA mitausgeliefert (Single-Container-Deployment).
@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
     from .events import bus
     bus.set_loop(asyncio.get_running_loop())
     from .mail.scheduler import start_scheduler, stop_scheduler
-    start_scheduler()  # haelt den Cache im Hintergrund warm -> UI wartet nie auf IMAP
+    start_scheduler()  # hält den Cache im Hintergrund warm -> UI wartet nie auf IMAP
     try:
         yield
     finally:
@@ -61,9 +61,9 @@ app = FastAPI(title=settings.app_name, version=APP_VERSION, lifespan=lifespan)
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     """Setzt defensive Response-Header. Bewusst KEIN HSTS (TLS wird extern
-    terminiert; http-Zugriff im LAN soll moeglich bleiben) und KEINE CSP
+    terminiert; http-Zugriff im LAN soll möglich bleiben) und KEINE CSP
     (die Mail-Vorschau nutzt ein sandboxed srcdoc-iframe — eine strikte CSP
-    wuerde das brechen)."""
+    würde das brechen)."""
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
@@ -98,8 +98,8 @@ app.include_router(events.router)
 app.include_router(translate.router)
 
 
-# Build-Marker: erlaubt von aussen zu pruefen, welche Version wirklich LAEUFT
-# (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhoehen.
+# Build-Marker: erlaubt von außen zu prüfen, welche Version wirklich LÄUFT
+# (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhöhen.
 APP_BUILD = "2026-06-22-cal-timewindow-age"
 
 
@@ -112,7 +112,7 @@ def health() -> dict:
 # Umgebung: lokal liegt main.py unter backend/app/ (zwei Ebenen bis zum Repo-
 # Root), im Container kopiert das Dockerfile nur den backend-Inhalt nach /app,
 # sodass main.py unter /app/app/ liegt (nur eine Ebene bis /app). Beide
-# Kandidaten pruefen und den ersten existierenden mounten.
+# Kandidaten prüfen und den ersten existierenden mounten.
 _here = os.path.dirname(__file__)
 _dist_candidates = [
     os.path.join(_here, "..", "..", "frontend", "dist"),  # lokal: repo-root/frontend/dist

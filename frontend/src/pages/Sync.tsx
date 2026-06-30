@@ -6,7 +6,7 @@ import { safeLinkUrl } from "../lib/url";
 
 const EMPTY = { kind: "caldav" as DavKind, label: "", url: "", username: "", password: "" };
 
-// Macht eine ggf. relative Feed-URL fuer Kopieren/Abo absolut.
+// Macht eine ggf. relative Feed-URL für Kopieren/Abo absolut.
 function absolute(url: string): string {
   return url.startsWith("http") ? url : window.location.origin + url;
 }
@@ -218,7 +218,7 @@ export function Sync() {
       {note && <div className="card" style={{ padding: "0.6rem 1rem" }}>{note}</div>}
 
       {/* Postfach-Migration: aus einem Quellkonto (z. B. Synology IMAP) in die
-          passenden Zielkonten anhand des Empfaengers. */}
+          passenden Zielkonten anhand des Empfängers. */}
       <section className="stack">
         <div className="label">{t("mig.heading")}</div>
         <p className="muted" style={{ margin: 0 }}>{t("mig.hint")}</p>

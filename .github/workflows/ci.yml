@@ -1,9 +1,9 @@
 name: CI & Deploy
 
 # Test-Gate VOR dem Deploy: backend-test (pytest + ruff-Lint) und
-# frontend-check (tsc Typecheck) muessen GRUEN sein, sonst wird KEIN
-# Docker-Image gebaut/gepusht. Der build-Job uebernimmt 1:1 die bisherige
-# Build/Push-Logik aus docker-image.yml und haengt nur per `needs` an den
+# frontend-check (tsc Typecheck) müssen GRÜN sein, sonst wird KEIN
+# Docker-Image gebaut/gepusht. Der build-Job übernimmt 1:1 die bisherige
+# Build/Push-Logik aus docker-image.yml und hängt nur per `needs` an den
 # Test-Jobs.
 
 on:
@@ -49,7 +49,7 @@ jobs:
 
       - name: Run tests
         # SELFMAILER_SECRET wird von conftest.py via setdefault gesetzt; hier
-        # zusaetzlich explizit, damit pytest auch ohne conftest-Default laeuft.
+        # zusätzlich explizit, damit pytest auch ohne conftest-Default läuft.
         env:
           SELFMAILER_SECRET: ci-test-secret-this-is-long-enough-1234567890
         run: pytest -q
@@ -78,7 +78,7 @@ jobs:
         run: npx tsc --noEmit
 
   build:
-    # Deploy-Gate: laeuft NUR, wenn beide Test-Jobs gruen sind.
+    # Deploy-Gate: läuft NUR, wenn beide Test-Jobs grün sind.
     needs: [backend-test, frontend-check]
     # Bei Pull Requests nur testen, nicht deployen (kein Push ins Registry).
     if: github.event_name != 'pull_request'

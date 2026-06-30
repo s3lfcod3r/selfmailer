@@ -4,10 +4,10 @@ name: Build & Push Container (manual)
 # Der Dockerfile liegt in backend/, braucht aber das Repo-Root als Context
 # (er kopiert sowohl frontend/ als auch backend/).
 #
-# HINWEIS: Der automatische Deploy auf `main`/Tags laeuft jetzt ueber ci.yml
+# HINWEIS: Der automatische Deploy auf `main`/Tags läuft jetzt über ci.yml
 # HINTER dem Test-Gate (backend-test + frontend-check). Dieser Workflow bleibt
 # nur als MANUELLER Notfall-Build erhalten (workflow_dispatch) und triggert
-# bewusst NICHT mehr automatisch auf Push — sonst wuerde doppelt gebaut/gepusht
+# bewusst NICHT mehr automatisch auf Push — sonst würde doppelt gebaut/gepusht
 # und das Test-Gate umgangen.
 
 on:

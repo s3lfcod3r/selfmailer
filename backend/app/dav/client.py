@@ -4,10 +4,10 @@ Bewusst minimal: kein Discovery-Tanz (well-known, current-user-principal).
 Der User hinterlegt die direkte Collection-URL seines Servers (z. B.
 Nextcloud ``.../remote.php/dav/calendars/<user>/personal/``). Wir machen ein
 PROPFIND Depth:1, sammeln die Member-Hrefs und holen jede Ressource per GET.
-Das genuegt fuer einen read-only Pull und bleibt serveruebergreifend robust.
+Das genügt für einen read-only Pull und bleibt serverübergreifend robust.
 
-Sicherheit: TLS-Zertifikate werden geprueft (httpx-Default). Credentials nur
-transient im Speicher; persistiert wird ausschliesslich Fernet-verschluesselt.
+Sicherheit: TLS-Zertifikate werden geprüft (httpx-Default). Credentials nur
+transient im Speicher; persistiert wird ausschließlich Fernet-verschlüsselt.
 """
 from __future__ import annotations
 
@@ -22,13 +22,13 @@ from ..core.config import get_settings
 
 _ALLOWED_SCHEMES = {"http", "https"}
 # RFC 6598 Shared Address Space (CGNAT, z. B. Tailscale 100.64.0.0/10) — von
-# ipaddress je nach Version nicht als is_private gefuehrt, daher explizit.
+# ipaddress je nach Version nicht als is_private geführt, daher explizit.
 _CGNAT = ipaddress.ip_network("100.64.0.0/10")
 _CGNAT6 = ipaddress.ip_network("100::/64")  # IPv6 Discard-Only (RFC 6666)
 
 
 class DavUrlError(ValueError):
-    """Die Ziel-URL ist aus Sicherheitsgruenden nicht erlaubt (SSRF-Schutz)."""
+    """Die Ziel-URL ist aus Sicherheitsgründen nicht erlaubt (SSRF-Schutz)."""
 
 
 def _ip_blocked(ip: ipaddress._BaseAddress, block_private: bool) -> bool:
@@ -45,7 +45,7 @@ def _ip_blocked(ip: ipaddress._BaseAddress, block_private: bool) -> bool:
 
 
 def _validate_dav_url(url: str) -> None:
-    """SSRF-Schutz: Schema pruefen und alle aufgeloesten IPs gegen die Blockliste.
+    """SSRF-Schutz: Schema prüfen und alle aufgelösten IPs gegen die Blockliste.
 
     link-local/loopback/metadata werden immer abgelehnt; private LAN-Ziele nur,
     wenn ``SELFMAILER_DAV_BLOCK_PRIVATE=true`` gesetzt ist (untrusted Multi-User).
@@ -67,9 +67,9 @@ def _validate_dav_url(url: str) -> None:
             raise DavUrlError(f"Interne/gesperrte Adresse blockiert: {host} → {ip}")
 
 def validate_external_url(url: str) -> None:
-    """Oeffentliche SSRF-Pruefung fuer beliebige user-konfigurierte Ziel-URLs.
+    """Öffentliche SSRF-Prüfung für beliebige user-konfigurierte Ziel-URLs.
 
-    Wird neben DAV auch fuer den ntfy-Push genutzt. Blockt immer
+    Wird neben DAV auch für den ntfy-Push genutzt. Blockt immer
     loopback/link-local/Cloud-Metadata; private LAN-Ziele nur bei
     ``SELFMAILER_DAV_BLOCK_PRIVATE=true``. Raises ``DavUrlError``.
     """
@@ -143,7 +143,7 @@ _LIST_BODY = (
 
 
 def _propfind(http: httpx.Client, url: str, body: str, depth: str) -> httpx.Response:
-    """PROPFIND mit MANUELLEM Redirect-Folgen (jede Ziel-URL SSRF-geprueft)."""
+    """PROPFIND mit MANUELLEM Redirect-Folgen (jede Ziel-URL SSRF-geprüft)."""
     cur = url
     for _ in range(5):
         _validate_dav_url(cur)
@@ -205,7 +205,7 @@ def discover_collections(base_url: str, username: str, password: str, *, want_co
     """Findet automatisch die Kalender-/Adressbuch-Collections eines Servers.
 
     Standard-CalDAV-Discovery: (well-known →) current-user-principal →
-    calendar-home-set → Collections auflisten. Gibt ``[{url, name}, …]`` zurueck.
+    calendar-home-set → Collections auflisten. Gibt ``[{url, name}, …]`` zurück.
     Der Nutzer muss so nur Server + E-Mail + (App-)Passwort eingeben.
     """
     _validate_dav_url(base_url)
@@ -240,8 +240,8 @@ def discover_collections(base_url: str, username: str, password: str, *, want_co
 def fetch_ics(url: str, username: str = "", password: str = "") -> str:
     """Liest einen einzelnen iCal-Feed (eine .ics-Datei) per GET.
 
-    Fuer read-only Abos wie Googles geheime iCal-URL (kein OAuth noetig). Folgt
-    Redirects MANUELL und prueft jede Ziel-URL gegen die SSRF-Blockliste.
+    Für read-only Abos wie Googles geheime iCal-URL (kein OAuth nötig). Folgt
+    Redirects MANUELL und prüft jede Ziel-URL gegen die SSRF-Blockliste.
     BasicAuth nur, wenn ein Benutzer gesetzt ist (Google-Feed braucht keinen).
     """
     auth = httpx.BasicAuth(username, password) if username else None
@@ -269,8 +269,8 @@ def fetch_collection(url: str, username: str, password: str, *, token: str | Non
     auth = None if token else httpx.BasicAuth(username, password)
     headers = {"Authorization": f"Bearer {token}"} if token else None
     collection_path = httpx.URL(url).path
-    # follow_redirects=False: ein boesartiger/uebernommener Server koennte sonst
-    # per 3xx auf eine interne Adresse umleiten und damit die Vorab-Pruefung
+    # follow_redirects=False: ein bösartiger/übernommener Server könnte sonst
+    # per 3xx auf eine interne Adresse umleiten und damit die Vorab-Prüfung
     # umgehen (SSRF via Redirect).
     with httpx.Client(auth=auth, headers=headers, timeout=_TIMEOUT, follow_redirects=False) as client:
         pf = client.request(
@@ -285,7 +285,7 @@ def fetch_collection(url: str, username: str, password: str, *, token: str | Non
         results: list[tuple[str, str]] = []
         for href in hrefs:
             resource_url = urljoin(str(pf.url), href)
-            # Ein boeser Server koennte absolute hrefs auf interne Ziele liefern.
+            # Ein böser Server könnte absolute hrefs auf interne Ziele liefern.
             _validate_dav_url(resource_url)
             r = client.get(resource_url)
             r.raise_for_status()

@@ -6,7 +6,7 @@ import { Login } from "./pages/Login";
 import { Mail } from "./pages/Mail";
 import { Wordmark } from "./components/Wordmark";
 
-// Lazy-Import mit Selbstheilung: schlaegt das Laden eines Chunks fehl — typisch
+// Lazy-Import mit Selbstheilung: schlägt das Laden eines Chunks fehl — typisch
 // direkt NACH einem Deploy, wenn die alten Chunk-Hashes nicht mehr existieren und
 // ein noch offener Tab sie anfordert — wird die Seite EINMAL hart neu geladen, um
 // frisches index.html + die neuen Chunks zu holen. Der Zeit-Guard verhindert eine
@@ -21,7 +21,7 @@ function lazyWithReload<T extends ComponentType<any>>(
       if (Date.now() - last > 10000) {
         sessionStorage.setItem("selfmailer.chunkReload", String(Date.now()));
         window.location.reload();
-        return new Promise<{ default: T }>(() => {}); // haengt bis zum Reload
+        return new Promise<{ default: T }>(() => {}); // hängt bis zum Reload
       }
       throw err;
     }),
@@ -46,9 +46,9 @@ type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "
 // --- Theme-Anpassung: eigene Farben als CSS-Variablen-Overrides ---------------
 type ThemeCustom = { bg: string; surface: string; text: string; accent: string; unread: string };
 const EMPTY_CUSTOM: ThemeCustom = { bg: "", surface: "", text: "", accent: "", unread: "" };
-// Akzent-Vorschlaege (erster = Self-Teal-Standard).
+// Akzent-Vorschläge (erster = Self-Teal-Standard).
 const ACCENTS = ["#33a78c", "#1db8d4", "#7c6cf0", "#3fb950", "#e0883a", "#e0588f"];
-// Standard-Farben je Modus (Vorschau-Default der Farbwaehler, wenn nichts eigenes gesetzt ist).
+// Standard-Farben je Modus (Vorschau-Default der Farbwähler, wenn nichts eigenes gesetzt ist).
 const THEME_DEFAULTS: Record<string, ThemeCustom> = {
   dark: { bg: "#080c11", surface: "#161b22", text: "#d4e4de", accent: "#33a78c", unread: "#33a78c" },
   light: { bg: "#eef1f6", surface: "#ffffff", text: "#1a2230", accent: "#0a9d8c", unread: "#0a9d8c" },
@@ -100,7 +100,7 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>("mail");
-  // Gesamt-Ungelesen (von Mail gemeldet) — Badge am Mail-Icon, auch ausserhalb des Mailbereichs.
+  // Gesamt-Ungelesen (von Mail gemeldet) — Badge am Mail-Icon, auch außerhalb des Mailbereichs.
   const [mailUnseen, setMailUnseen] = useState(0);
   const [search, setSearch] = useState("");
   const [menu, setMenu] = useState<"apps" | "user" | "filter" | null>(null);
@@ -117,14 +117,14 @@ export function App() {
     const v = Number(localStorage.getItem("selfmailer.pollMin"));
     return [0, 1, 5, 15, 30].includes(v) ? v : 5;
   });
-  // Externe Bilder (Tracking-Pixel) standardmaessig blockieren — Datenschutz/Sicherheit.
+  // Externe Bilder (Tracking-Pixel) standardmäßig blockieren — Datenschutz/Sicherheit.
   const [blockImages, setBlockImages] = useState<boolean>(() => localStorage.getItem("selfmailer.blockImages") !== "0");
-  // Helle Mails automatisch in den dunklen Look umfaerben (global; pro Mail uebersteuerbar).
-  // Default AN: der frueher unlesbare Fall (hell-auf-hell) lag an einem Bug im Dunkel-Stil
+  // Helle Mails automatisch in den dunklen Look umfaerben (global; pro Mail übersteuerbar).
+  // Default AN: der früher unlesbare Fall (hell-auf-hell) lag an einem Bug im Dunkel-Stil
   // (Hintergrund wurde mitinvertiert) — behoben. Pro Mail per 🌙/☀️ umschaltbar.
   const [darkMail, setDarkMail] = useState<boolean>(() => localStorage.getItem("selfmailer.darkMail") !== "0");
-  // App-eigene Textgroesse (skaliert alle rem-Einheiten ueber die Wurzel-Schrift),
-  // damit Lesbarkeit OHNE Browser-Zoom (der die Layout-Breite schrumpft) moeglich ist.
+  // App-eigene Textgröße (skaliert alle rem-Einheiten über die Wurzel-Schrift),
+  // damit Lesbarkeit OHNE Browser-Zoom (der die Layout-Breite schrumpft) möglich ist.
   const [uiScale, setUiScale] = useState<number>(() => {
     const v = Number(localStorage.getItem("selfmailer.uiScale"));
     return [100, 110, 125, 150].includes(v) ? v : 100;
@@ -141,12 +141,12 @@ export function App() {
     document.documentElement.style.fontSize = uiScale === 100 ? "" : `${uiScale}%`;
     localStorage.setItem("selfmailer.uiScale", String(uiScale));
   }, [uiScale]);
-  // Eigene Theme-Farben (Overrides). Leerer Wert = Standard des gewaehlten Modus.
+  // Eigene Theme-Farben (Overrides). Leerer Wert = Standard des gewählten Modus.
   // Eigene Farben GETRENNT pro Modus (dunkel/hell haben jeweils eigene Werte).
   const [themeCustomAll, setThemeCustomAll] = useState<{ dark: ThemeCustom; light: ThemeCustom }>(() => {
     try {
       const raw = JSON.parse(localStorage.getItem("selfmailer.themeCustom") || "{}");
-      // Migration: alte (modus-uebergreifende) Werte dem Dunkel-Modus zuordnen.
+      // Migration: alte (modus-übergreifende) Werte dem Dunkel-Modus zuordnen.
       if (raw && ("bg" in raw || "accent" in raw || "text" in raw || "surface" in raw)) {
         return { dark: { ...EMPTY_CUSTOM, ...raw }, light: { ...EMPTY_CUSTOM } };
       }

@@ -1,11 +1,11 @@
 """Konsistentes SQLite-Backup der SelfMailer-DB.
 
 Warum die Online-Backup-API statt File-Copy: Ein einfaches Kopieren der
-.db-Datei waehrend laufender Schreibvorgaenge (Hintergrund-Sync schreibt im WAL)
+.db-Datei während laufender Schreibvorgänge (Hintergrund-Sync schreibt im WAL)
 kann ein korruptes oder inkonsistentes Backup erzeugen. ``sqlite3.Connection.backup()``
 nimmt einen transaktional konsistenten Snapshot — auch bei aktivem WAL und
 gleichzeitigen Schreibern. Das Ergebnis ist eine einzelne, in sich geschlossene
-.db-Datei (kein -wal/-shm noetig).
+.db-Datei (kein -wal/-shm nötig).
 
 Ziel: ``<db-dir>/backups/selfmailer-YYYYMMDD-HHMMSS.db``.
 Rotation: nur die letzten N Backups behalten (Default 7, per Env steuerbar).
@@ -33,16 +33,16 @@ _TIMESTAMP_FMT = "%Y%m%d-%H%M%S"
 
 
 def _backup_dir(db_path: str) -> Path:
-    """Verzeichnis fuer Backups neben der DB (``<db-dir>/backups``)."""
+    """Verzeichnis für Backups neben der DB (``<db-dir>/backups``)."""
     parent = Path(db_path).resolve().parent
     return parent / _BACKUP_DIR_NAME
 
 
 def _rotate(backup_dir: Path, keep: int) -> None:
-    """Aeltere Backups loeschen, sodass nur die letzten ``keep`` bleiben.
+    """Ältere Backups löschen, sodass nur die letzten ``keep`` bleiben.
 
-    keep <= 0 deaktiviert die Rotation (alle behalten). Loeschfehler einzelner
-    Dateien duerfen den Lauf nicht kippen — sie werden nur geloggt.
+    keep <= 0 deaktiviert die Rotation (alle behalten). Löschfehler einzelner
+    Dateien dürfen den Lauf nicht kippen — sie werden nur geloggt.
     """
     if keep <= 0:
         return
@@ -57,7 +57,7 @@ def _rotate(backup_dir: Path, keep: int) -> None:
             old.unlink()
             logger.info("Altes DB-Backup entfernt: %s", old.name)
         except OSError:
-            logger.warning("Altes DB-Backup konnte nicht geloescht werden: %s", old, exc_info=True)
+            logger.warning("Altes DB-Backup konnte nicht gelöscht werden: %s", old, exc_info=True)
 
 
 def create_backup() -> Path | None:
@@ -65,7 +65,7 @@ def create_backup() -> Path | None:
 
     Returns: Pfad der erzeugten Backup-Datei oder ``None``, wenn Backup
     deaktiviert ist bzw. die Quell-DB (noch) nicht existiert. Wirft KEINE
-    Exception fuer Routinefaelle; echte Fehler werden propagiert und vom
+    Exception für Routinefälle; echte Fehler werden propagiert und vom
     Aufrufer (Scheduler) abgefangen/geloggt.
     """
     settings = get_settings()
@@ -85,7 +85,7 @@ def create_backup() -> Path | None:
     target = backup_dir / f"{_FILE_PREFIX}{timestamp}{_FILE_SUFFIX}"
 
     # Online-Backup-API: konsistenter Snapshot trotz laufender Schreiber.
-    # Read-only auf die Quelle (uri=...mode=ro) — wir veraendern die Live-DB nie.
+    # Read-only auf die Quelle (uri=...mode=ro) — wir verändern die Live-DB nie.
     source_uri = f"file:{Path(db_path).as_posix()}?mode=ro"
     source = sqlite3.connect(source_uri, uri=True, timeout=30)
     try:

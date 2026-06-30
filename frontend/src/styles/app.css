@@ -116,7 +116,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 .mail-from { color: var(--self-text-2); font-size: 0.82rem; }
 
 /* 3-Spalten-Webmail: Ordner | Liste | Lesebereich */
-/* Mail fuellt die volle verfuegbare Hoehe (kein toter Raum mehr unten). */
+/* Mail füllt die volle verfügbare Höhe (kein toter Raum mehr unten). */
 .mail-page { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .mail-layout { display: flex; gap: 0.8rem; align-items: stretch; flex: 1 1 auto; min-height: 0; }
 .mail-folders {
@@ -149,7 +149,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   border-radius: 999px; padding: 0 0.38rem; min-width: 1.05rem; text-align: center;
   line-height: 1.25rem; height: 1.25rem;
 }
-/* Ungelesen-Badge am Mail-Icon der oberen Navigation (auch ausserhalb des Mailbereichs). */
+/* Ungelesen-Badge am Mail-Icon der oberen Navigation (auch außerhalb des Mailbereichs). */
 .nav-badge {
   position: absolute; top: -3px; right: -5px;
   background: var(--self-teal); color: #04130f; font-size: 0.6rem; font-weight: 700;
@@ -270,9 +270,9 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 .mail-readcol {
   flex: 1.7 1 0; min-width: 0; min-height: 0; overflow-y: auto;
   padding-left: 0.8rem;  /* Trenner kommt vom Resize-Griff — kein zweiter Rand (sonst Doppellinie) */
-  display: flex; flex-direction: column;  /* Body-iframe soll die Resthoehe fuellen */
+  display: flex; flex-direction: column;  /* Body-iframe soll die Resthöhe füllen */
 }
-/* Mail-Body (HTML-iframe) nutzt den verfuegbaren Platz statt fester Hoehe. */
+/* Mail-Body (HTML-iframe) nutzt den verfügbaren Platz statt fester Höhe. */
 .mail-body-frame { flex: 1 1 auto; min-height: 320px; width: 100%; border: none; background: #fff; border-radius: 6px; }
 .mail-folder.drop { background: color-mix(in srgb, var(--self-teal) 22%, transparent); }
 .resize-handle {
@@ -645,7 +645,7 @@ select.bulk-btn { max-width: 170px; }
 
 /* ── Scrollbar (Self-Markenfarben) ─────────────────────────────
    Firefox + Standard via scrollbar-color, WebKit via Pseudo-Elemente.
-   color-scheme: dark (tokens.css) sorgt zusaetzlich fuer dunkle
+   color-scheme: dark (tokens.css) sorgt zusätzlich für dunkle
    native Controls dort, wo diese Regeln nicht greifen (z. B. iframes). */
 * {
   scrollbar-width: thin;
@@ -719,7 +719,7 @@ select.bulk-btn { max-width: 170px; }
   user-select: all;
 }
 
-/* ── Konten-Seite (aufgeraeumt) ─────────────────────────────────── */
+/* ── Konten-Seite (aufgeräumt) ─────────────────────────────────── */
 .acc-page { max-width: 760px; }
 .acc-grid {
   display: grid;
@@ -764,7 +764,7 @@ select.bulk-btn { max-width: 170px; }
 .rich-editor .compose-toolbar { margin: 0; border-bottom: 1px solid var(--self-line); }
 .rich-editor .compose-editor { border: none; border-radius: 0; }
 
-/* ── Benutzer-Menue (gruppiert) ─────────────────────────────────── */
+/* ── Benutzer-Menü (gruppiert) ─────────────────────────────────── */
 .user-menu-header {
   padding: 0.2rem 0.6rem 0.6rem;
   border-bottom: 1px solid var(--self-line);
@@ -910,7 +910,7 @@ select.bulk-btn { max-width: 170px; }
   .topbar-actions { gap: 0.15rem; }
   .topbar-actions .icon-btn { padding: 0.3rem 0.4rem; font-size: 0.98rem; }
   /* Benutzer-Chip schlank: Name (nth-2) ist schon ab 720px weg, hier auch das
-     ▾-Caret (nth-3) — sonst laeuft die Topbar auf ~360px-Phones ueber. */
+     ▾-Caret (nth-3) — sonst läuft die Topbar auf ~360px-Phones über. */
   .user-chip { padding: 0.3rem 0.45rem; gap: 0.25rem; }
   .user-chip span:nth-child(3) { display: none; }
   .app-main { padding: 0.85rem 0.7rem; }
@@ -935,21 +935,21 @@ select.bulk-btn { max-width: 170px; }
     padding: 0.4rem 0.7rem;
   }
 
-  /* Modals fuellen auf dem Handy die Breite statt der 420px-Mindestbreite
-     (sonst laufen Passwort-/2FA-/Kalender-Termin-Dialoge ueber den Rand). */
+  /* Modals füllen auf dem Handy die Breite statt der 420px-Mindestbreite
+     (sonst laufen Passwort-/2FA-/Kalender-Termin-Dialoge über den Rand). */
   .modal-backdrop { padding: 0.6rem; }
   .modal {
     min-width: 0; width: 100%; max-width: 100%;
     max-height: 92vh; resize: none; padding: 1rem;
   }
-  /* Compose bleibt gross, aber randlos passend. */
+  /* Compose bleibt groß, aber randlos passend. */
   .compose-modal { height: 88vh; }
   /* Backup-Codes einspaltig, damit sie nicht gequetscht werden. */
   .totp-backup-grid { grid-template-columns: 1fr; }
 
   /* Konten-Karte: Titel/E-Mail + Aktions-Buttons passen nicht in eine Zeile →
      umbrechen. Info nimmt die ganze erste Zeile, Buttons rutschen darunter
-     (vorher quetschte/ueberlappte der Text die Buttons). */
+     (vorher quetschte/überlappte der Text die Buttons). */
   .acc-card-head { flex-wrap: wrap; row-gap: 0.5rem; }
   .acc-card-head > .grow { flex-basis: 100%; }
   .acc-card-head .mail-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

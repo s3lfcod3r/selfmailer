@@ -1,4 +1,4 @@
-"""Mail lesen/senden ueber ein hinterlegtes Konto des Users."""
+"""Mail lesen/senden über ein hinterlegtes Konto des Users."""
 from __future__ import annotations
 
 import logging
@@ -34,8 +34,8 @@ def _account(account_id: int, user: User, session: Session) -> MailAccount:
 
 
 def _account_secret(acc: MailAccount) -> str:
-    """Entschluesselt das gespeicherte Konto-Passwort. Schlaegt die Entschluesselung
-    fehl (z. B. nach Schluesselwechsel/Datenkorruption), wird ein sauberes 400
+    """Entschlüsselt das gespeicherte Konto-Passwort. Schlägt die Entschlüsselung
+    fehl (z. B. nach Schlüsselwechsel/Datenkorruption), wird ein sauberes 400
     statt eines unbehandelten 500 geliefert."""
     try:
         return decrypt(acc.secret_enc)
@@ -60,12 +60,12 @@ def folder_counts(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[dict]:
-    """Ordner mit Ungelesen-/Gesamt-Zaehler (fuer die Thunderbird-Ansicht).
+    """Ordner mit Ungelesen-/Gesamt-Zähler (für die Thunderbird-Ansicht).
 
     Cache-first: ohne ?live=1 kommt die Liste SOFORT aus dem DB-Cache (kein
     IMAP). Ist der Cache leer (erster Aufruf), wird einmal live geholt. Das
     Frontend zeigt erst den Cache und ruft dann ?live=1 im Hintergrund zum
-    Auffrischen. Faellt der Live-Abruf aus, bleibt der Cache stehen.
+    Auffrischen. Fällt der Live-Abruf aus, bleibt der Cache stehen.
     """
     acc = _account(account_id, user, session)
     if not live:
@@ -159,7 +159,7 @@ def delete_folder(
     try:
         imap_mod.delete_folder(acc, _account_secret(acc), name)
     except Exception:  # noqa: BLE001
-        logger.warning("Ordner loeschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        logger.warning("Ordner löschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Ordner löschen fehlgeschlagen")
     return {"ok": True}
 
@@ -176,14 +176,14 @@ def messages(
     acc = _account(account_id, user, session)
     # Cache-first: ist der Ordner schon gecacht, kommt die Liste SOFORT aus der DB.
     # Beim ersten Mal wird nur die erste Seite live nachgeladen (schnell), den Rest
-    # holt der Hintergrund-Sync (/sync). Faellt der Cache aus → ganz normal live.
+    # holt der Hintergrund-Sync (/sync). Fällt der Cache aus → ganz normal live.
     try:
         pw = _account_secret(acc)
         if not cache_mod.has_cache(session, account_id, folder):
             cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
         msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset)
         # Self-heal: 1. Seite leer, obwohl der Ordner Mails hat (z. B. nach dem
-        # Loeschen der einzigen gecachten Seite) -> live nachsyncen und erneut lesen.
+        # Löschen der einzigen gecachten Seite) -> live nachsyncen und erneut lesen.
         if not msgs and offset == 0:
             cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
             msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset)
@@ -201,13 +201,13 @@ def folder_uids(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[str]:
-    """Alle UIDs eines Ordners (neueste zuerst) — fuer "Alle im Ordner auswaehlen"
-    ueber Seitengrenzen hinweg.
+    """Alle UIDs eines Ordners (neueste zuerst) — für "Alle im Ordner auswählen"
+    über Seitengrenzen hinweg.
 
-    LIVE-first: hier zaehlt VOLLSTAENDIGKEIT (wirklich ALLE Mails auswaehlen, z. B.
-    um 614 Mails zu loeschen). Der Cache ist oft nur teilweise gefuellt und wuerde
+    LIVE-first: hier zählt VOLLSTÄNDIGKEIT (wirklich ALLE Mails auswählen, z. B.
+    um 614 Mails zu löschen). Der Cache ist oft nur teilweise gefüllt und würde
     zu wenige UIDs liefern. ``box.uids()`` ist billig (nur UIDs, keine Inhalte) und
-    durch das IMAP-Timeout gebunden. Faellt der Live-Abruf aus -> Cache als Fallback."""
+    durch das IMAP-Timeout gebunden. Fällt der Live-Abruf aus -> Cache als Fallback."""
     acc = _account(account_id, user, session)
     try:
         return imap_mod.list_uids(acc, _account_secret(acc), folder)
@@ -222,7 +222,7 @@ def sync_messages(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    """Delta-Sync: holt neue Mails in den Cache, entfernt geloeschte, gleicht Flags
+    """Delta-Sync: holt neue Mails in den Cache, entfernt gelöschte, gleicht Flags
     ab. Das Frontend ruft das im Hintergrund auf, nachdem es den Cache gezeigt hat."""
     acc = _account(account_id, user, session)
     try:
@@ -240,10 +240,10 @@ def migrate_account(
     session: Session = Depends(get_session),
 ) -> dict:
     """Migriert Mails aus diesem Quellkonto (z. B. Synology) in die uebrigen
-    Konten des Users — pro Mail anhand des Empfaengers ins passende Postfach.
+    Konten des Users — pro Mail anhand des Empfängers ins passende Postfach.
     dry_run=True (Default) zeigt nur die Vorschau, schreibt nichts."""
     source = _account(account_id, user, session)
-    dest = _account(data.dest_account_id, user, session)  # prueft Eigentuemer
+    dest = _account(data.dest_account_id, user, session)  # prüft Eigentümer
     if dest.id == source.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Quelle und Ziel sind identisch")
     try:
@@ -274,7 +274,7 @@ def transfer(
             move=data.move, limit=data.limit,
         )
     except Exception:  # noqa: BLE001
-        logger.warning("Uebertragen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        logger.warning("Übertragen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Übertragen fehlgeschlagen")
 
 
@@ -287,7 +287,7 @@ def message(
     session: Session = Depends(get_session),
 ) -> dict:
     acc = _account(account_id, user, session)
-    # Cache-first: schon einmal geoeffnet → Body kommt SOFORT aus der DB (kein IMAP).
+    # Cache-first: schon einmal geöffnet → Body kommt SOFORT aus der DB (kein IMAP).
     try:
         cached = cache_mod.read_detail(session, account_id, folder, uid)
         # Alten Cache OHNE Echtheits-Analyse verwerfen -> live neu holen (mit auth).
@@ -297,7 +297,7 @@ def message(
         pass
     msg = imap_mod.get_message(acc, _account_secret(acc), uid, folder=folder)
     if msg is None:
-        # Die Mail ist serverseitig weg (verschoben/geloescht) — etwaigen stale
+        # Die Mail ist serverseitig weg (verschoben/gelöscht) — etwaigen stale
         # Cache-Eintrag entfernen, damit die Liste sich selbst heilt.
         try:
             cache_mod.remove_uids(session, account_id, folder, [uid])
@@ -399,10 +399,10 @@ def prefetch_bodies(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    """Waermt den Body-Cache fuer eine Liste von UIDs in EINER IMAP-Session vor.
+    """Wärmt den Body-Cache für eine Liste von UIDs in EINER IMAP-Session vor.
 
     Holt nur die noch nicht gecachten Bodies (ein Login + ein Sammel-Fetch) und
-    legt sie ab. Danach kommt jedes Oeffnen dieser Mails sofort aus der DB.
+    legt sie ab. Danach kommt jedes Öffnen dieser Mails sofort aus der DB.
     Best-effort: Fehler werden geschluckt (Cache ist reine Beschleunigung).
     """
     acc = _account(account_id, user, session)
@@ -414,7 +414,7 @@ def prefetch_bodies(
         for d in details:
             cache_mod.write_detail(session, account_id, data.folder, d.get("uid", ""), d)
         return {"ok": True, "cached": len(details)}
-    except Exception:  # noqa: BLE001 - Vorwaermen darf nie eine Anfrage kippen
+    except Exception:  # noqa: BLE001 - Vorwärmen darf nie eine Anfrage kippen
         return {"ok": False, "cached": 0}
 
 
@@ -425,13 +425,13 @@ def delete_messages_batch(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    """Loescht mehrere Mails in EINER IMAP-Session (statt N Einzel-Requests/Logins)."""
+    """Löscht mehrere Mails in EINER IMAP-Session (statt N Einzel-Requests/Logins)."""
     acc = _account(account_id, user, session)
     try:
         result = imap_mod.delete_messages(acc, _account_secret(acc), data.uids, folder=data.folder)
     except Exception:  # noqa: BLE001
-        logger.warning("Batch-Loeschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Loeschen fehlgeschlagen")
+        logger.warning("Batch-Löschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Löschen fehlgeschlagen")
     try:
         cache_mod.remove_uids(session, account_id, data.folder, data.uids)
     except Exception:  # noqa: BLE001
@@ -449,7 +449,7 @@ def set_flags_batch(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    """Setzt Seen/Flagged fuer VIELE Mails in EINER IMAP-Session (z. B. "alles als
+    """Setzt Seen/Flagged für VIELE Mails in EINER IMAP-Session (z. B. "alles als
     gelesen" bei tausenden Mails) — statt N Einzel-Requests/Logins."""
     acc = _account(account_id, user, session)
     try:
@@ -503,8 +503,8 @@ def delete_message(
     try:
         result = imap_mod.delete_message(acc, _account_secret(acc), uid, folder=folder)
     except Exception:  # noqa: BLE001
-        logger.warning("Nachricht loeschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Loeschen fehlgeschlagen")
+        logger.warning("Nachricht löschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Löschen fehlgeschlagen")
     try:
         cache_mod.remove_uids(session, account_id, folder, [uid])
     except Exception:  # noqa: BLE001
@@ -567,7 +567,7 @@ async def send(
             addrs = ", ".join(str(a) for a in exc.recipients)
         except Exception:  # noqa: BLE001
             addrs = ""
-        logger.warning("Versand: Empfaenger abgelehnt (account_id=%s): %s", account_id, addrs)
+        logger.warning("Versand: Empfänger abgelehnt (account_id=%s): %s", account_id, addrs)
         detail = "Empfänger abgelehnt" + (f": {addrs}" if addrs else "")
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail + " — Adresse prüfen (unbekannt oder ungültige Domain?).")
     except Exception:  # noqa: BLE001
@@ -575,7 +575,7 @@ async def send(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Versand fehlgeschlagen")
 
     # Kopie in „Gesendet" ablegen (best-effort; IMAP ist blockierend → Threadpool).
-    # Schlaegt das fehl, gilt der Versand trotzdem als erfolgreich.
+    # Schlägt das fehl, gilt der Versand trotzdem als erfolgreich.
     try:
         await run_in_threadpool(imap_mod.save_to_sent, acc, pw, raw)
     except Exception:  # noqa: BLE001

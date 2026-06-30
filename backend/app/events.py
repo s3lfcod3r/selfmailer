@@ -47,7 +47,7 @@ class EventBus:
             except Exception:  # noqa: BLE001 - Zustellung ist best-effort
                 # QueueFull o. ae.: verworfenes Event sichtbar machen (z. B. ein
                 # Client, der nicht schnell genug konsumiert).
-                logger.debug("EventBus: Event fuer user_id=%s verworfen", user_id, exc_info=True)
+                logger.debug("EventBus: Event für user_id=%s verworfen", user_id, exc_info=True)
 
 
 bus = EventBus()

@@ -20,7 +20,7 @@ export function Notes() {
   }
   useEffect(() => { load(); }, []);
 
-  // Angeheftete zuerst, dann nach letzter Aenderung.
+  // Angeheftete zuerst, dann nach letzter Änderung.
   const sorted = useMemo(() => {
     const f = q.trim().toLowerCase();
     return [...notes]
