@@ -5,6 +5,7 @@ import { DialogHost } from "./lib/dialog";
 import { Login } from "./pages/Login";
 import { Mail } from "./pages/Mail";
 import { Wordmark } from "./components/Wordmark";
+import { LangPicker } from "./components/LangPicker";
 
 // Lazy-Import mit Selbstheilung: schlägt das Laden eines Chunks fehl — typisch
 // direkt NACH einem Deploy, wenn die alten Chunk-Hashes nicht mehr existieren und
@@ -96,7 +97,7 @@ const SETTINGS: AppItem[] = [
 ];
 
 export function App() {
-  const { t, lang, setLang } = useLang();
+  const { t } = useLang();
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>("mail");
@@ -308,9 +309,10 @@ export function App() {
           </button>
 
           <div className="user-menu-section">{t("menu.appearance")}</div>
-          <button onClick={() => { setLang(lang === "de" ? "en" : "de"); setMenu(null); }}>
-            <span>🌐</span> {t("shell.langSwitch")}
-          </button>
+          <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
+            <span>🌐 {t("shell.langSwitch")}</span>
+            <LangPicker />
+          </div>
           <button onClick={() => setTheme((tm) => (tm === "dark" ? "light" : "dark"))}>
             <span>{theme === "dark" ? "☀" : "🌙"}</span> {theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}
           </button>

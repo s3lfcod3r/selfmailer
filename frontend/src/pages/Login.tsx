@@ -1,20 +1,15 @@
 import { useEffect, useState } from "react";
 import { api, type LoginResponse } from "../lib/api";
 import { useLang } from "../lib/i18n";
+import { LangPicker } from "../components/LangPicker";
 import { Wordmark } from "../components/Wordmark";
 
 export function Login({ onAuthed }: { onAuthed: () => void }) {
-  const { t, lang, setLang } = useLang();
+  const { t } = useLang();
 
-  // Sprach-Umschalter (oben rechts) — auf dem Login-Screen gibt es noch kein
+  // Sprachauswahl (oben rechts) — auf dem Login-Screen gibt es noch kein
   // Benutzermenü, daher hier separat.
-  const langToggle = (
-    <button
-      type="button"
-      className="ghost auth-lang"
-      onClick={() => setLang(lang === "de" ? "en" : "de")}
-    >🌐 {lang === "de" ? "EN" : "DE"}</button>
-  );
+  const langToggle = <LangPicker className="auth-lang" />;
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Contact, type DavAccount, type GcalCalendar } from "../lib/api";
-import { useLang, dateLocale, type TFunc } from "../lib/i18n";
+import { useLang, dateLocale, type Lang, type TFunc } from "../lib/i18n";
 import { confirmDialog } from "../lib/dialog";
 
 const EMPTY = {
@@ -12,10 +12,10 @@ type Form = typeof EMPTY;
 
 const SEARCH_DEBOUNCE_MS = 250;
 
-function fmtBirthday(iso: string, lang: string): string {
+function fmtBirthday(iso: string, lang: Lang): string {
   const d = new Date(iso + "T00:00:00");
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(dateLocale(lang as "de" | "en"), { day: "2-digit", month: "long", year: "numeric" });
+  return d.toLocaleDateString(dateLocale(lang), { day: "2-digit", month: "long", year: "numeric" });
 }
 
 function displayName(ct: Contact, fallback: string): string {
