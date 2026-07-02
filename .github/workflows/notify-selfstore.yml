@@ -1,0 +1,30 @@
+name: SelfStore-Sync ausloesen
+
+# Bei jedem veroeffentlichten Release den Katalog-Sync im selfstore-Repo anstossen,
+# damit store.selfcoder.de sofort die neue Version + APK zeigt. Braucht das Secret
+# SELFSTORE_SYNC_TOKEN (fine-grained PAT, nur Actions:write auf s3lfcod3r/selfstore).
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Katalog-Sync anstossen
+        env:
+          TOKEN: ${{ secrets.SELFSTORE_SYNC_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "Kein SELFSTORE_SYNC_TOKEN gesetzt - uebersprungen."
+            exit 0
+          fi
+          curl -sfS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/s3lfcod3r/selfstore/dispatches \
+            -d '{"event_type":"app-released"}'
+          echo "SelfStore-Sync ausgeloest."
