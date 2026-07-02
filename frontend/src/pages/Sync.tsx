@@ -87,11 +87,14 @@ export function Sync() {
       const accs = await api.get<DavAccount[]>("/dav/accounts");
       setAccounts(accs);
       setMailAccounts(await api.get<Account[]>("/accounts"));
-      // Kalender je Google-Konto laden (für die Ein-/Ausblenden-Verwaltung).
+      // Kalender je Google-Konto laden (für die Ein-/Ausblenden-Verwaltung) —
+      // unabhängige Konten parallel (allSettled: ein Fehler kippt die anderen nicht).
+      const gcals = accs.filter((x) => x.kind === "gcal");
+      const results = await Promise.allSettled(
+        gcals.map((a) => api.get<GcalCalendar[]>(`/dav/accounts/${a.id}/calendars`)),
+      );
       const map: Record<number, GcalCalendar[]> = {};
-      for (const a of accs.filter((x) => x.kind === "gcal")) {
-        try { map[a.id] = await api.get<GcalCalendar[]>(`/dav/accounts/${a.id}/calendars`); } catch { /* egal */ }
-      }
+      results.forEach((r, i) => { if (r.status === "fulfilled") map[gcals[i].id] = r.value; });
       setCalsByAcc(map);
     } catch (e) { setErr((e as Error).message); }
   }
@@ -206,9 +209,11 @@ export function Sync() {
   }
   async function syncAll() {
     setErr(""); setNote("");
-    for (const acc of accounts) {
-      try { await api.post<SyncResult>(`/dav/accounts/${acc.id}/sync`); } catch { /* einzeln ignorieren */ }
-    }
+    // Unabhängige Konten parallel abgleichen (allSettled: ein Fehler stoppt die
+    // übrigen nicht).
+    await Promise.allSettled(
+      accounts.map((acc) => api.post<SyncResult>(`/dav/accounts/${acc.id}/sync`)),
+    );
     setNote("Alle Kalender/Adressbücher abgeglichen."); load();
   }
 

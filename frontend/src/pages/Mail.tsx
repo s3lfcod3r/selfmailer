@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount } from "../lib/api";
+import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
@@ -91,6 +91,14 @@ type MailFilter = {
 function loadSet(key: string): Set<number> {
   try { const v = JSON.parse(localStorage.getItem(key) || "[]"); return new Set(Array.isArray(v) ? v : []); }
   catch { return new Set(); }
+}
+
+// Ist der Fehler ein „nicht gefunden" (Mail serverseitig weg)? Bevorzugt den
+// echten HTTP-Status (ApiError.status === 404); nur als Rückfall für Nicht-
+// ApiError-Fehler wird noch der Text geprüft.
+function isNotFound(e: unknown): boolean {
+  if (e instanceof ApiError) return e.status === 404;
+  return /nicht gefunden|not found|404/i.test((e as Error)?.message || "");
 }
 
 type AuthView = {
@@ -234,7 +242,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       .catch(() => { /* Cache/INBOX bleibt stehen */ });
   }
 
-  async function loadAccountFolders(a: Account, liveRefresh = true) {
+  async function loadAccountFolders(a: Account | undefined, liveRefresh = true) {
+    if (!a) return;  // Konto nicht (mehr) vorhanden -> nichts zu laden
     // Cache-first: ist die Ordnerliste schon gecacht, erscheint die Seitenleiste
     // SOFORT (kein IMAP). Live-Auffrischung NUR fürs aktive Konto (liveRefresh),
     // damit nicht 8 langsame IMAP-Abrufe gleichzeitig die App blockieren.
@@ -386,7 +395,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       loadAccountFolders(accountById(accId));
     } catch (e) { setErr((e as Error).message); }
   }
-  function accountById(id: number): Account { return accounts.find((a) => a.id === id)!; }
+  // Kann undefined liefern (Konto ggf. gerade entfernt) — Aufrufer defensiv (?.).
+  function accountById(id: number): Account | undefined { return accounts.find((a) => a.id === id); }
 
   // Eigener Bestätigungs-Dialog statt window.confirm (mittig, im App-Design).
   const [confirmBox, setConfirmBox] = useState<{ message: string; resolve: (ok: boolean) => void } | null>(null);
@@ -415,6 +425,32 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Versionszähler für loadAllForSearch: verwirft veraltete Antworten,
   // wenn während des Ladens erneut (anderer Ordner/Suche) geladen wurde.
   const searchLoadRef = useRef(0);
+  // Sequenzzähler je (Konto,Ordner) für bgSync: überlappende Sync-Aufrufe
+  // (Polling + 20-s-Refresh + SSE) laufen sonst parallel und schreiben in
+  // beliebiger Reihenfolge zurück. Nur die JÜNGSTE Antwort pro (acc,folder)
+  // darf die Liste aktualisieren; ältere Antworten werden verworfen.
+  const bgSyncSeqRef = useRef<Map<string, number>>(new Map());
+  // Aufeinanderfolgende Fehler je (Konto,Ordner) für den Backoff (siehe unten).
+  const bgSyncFailRef = useRef<Map<string, number>>(new Map());
+  // Frühester nächster Sync-Zeitpunkt je (Konto,Ordner) — für den Backoff.
+  const bgSyncNextRef = useRef<Map<string, number>>(new Map());
+
+  // Löst der 20-s-Refresh gerade aus, oder soll wegen Fehlern gewartet werden?
+  // Einfacher exponentieller Backoff: nach n Fehlern frühestens nach
+  // min(2^n * BASE, MAX) ms erneut versuchen. Bei Erfolg (siehe bgSync) wird der
+  // Fehlerzähler geleert, sodass der nächste Aufruf sofort wieder feuert.
+  function bgSyncDue(acc: number, fol: string): boolean {
+    const key = `${acc}:${fol}`;
+    const fails = bgSyncFailRef.current.get(key) ?? 0;
+    if (fails === 0) return true;
+    const now = Date.now();
+    const next = bgSyncNextRef.current.get(key) ?? 0;
+    if (now < next) return false;  // Backoff-Fenster noch nicht verstrichen
+    const BACKOFF_BASE_MS = 20000, BACKOFF_MAX_MS = 300000;  // 20 s … 5 min
+    const delay = Math.min(BACKOFF_BASE_MS * 2 ** fails, BACKOFF_MAX_MS);
+    bgSyncNextRef.current.set(key, now + delay);
+    return true;
+  }
 
   // Holt genau eine Seite (offset = (p-1)*PAGE_SIZE). Cache-first im Backend.
   function fetchPage(acc: number, fol: string, p: number) {
@@ -431,17 +467,29 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       .finally(() => { setLoading(false); bgSync(acc, fol, 1); });
   }
   // Hintergrund-Sync: neue Mails/Flags nachziehen, dann die Seite p still auffrischen.
+  // Guard: pro (Konto,Ordner) einen Sequenzzähler führen; nur die jüngste Antwort
+  // übernehmen — so überschreiben überlappende Aufrufe (Polling/20s/SSE) einander
+  // nicht mehr mit veralteten Daten.
   function bgSync(acc: number, fol: string, p: number = 1) {
+    const key = `${acc}:${fol}`;
+    const ver = (bgSyncSeqRef.current.get(key) ?? 0) + 1;
+    bgSyncSeqRef.current.set(key, ver);
+    const isLatest = () => bgSyncSeqRef.current.get(key) === ver;
     setSyncing(true);
     api.post(`/mail/${acc}/sync?folder=${encodeURIComponent(fol)}`)
       .then(() => fetchPage(acc, fol, p))
       .then((ms) => {
+        bgSyncFailRef.current.delete(key);  // Erfolg -> Backoff zurücksetzen
+        if (!isLatest()) return;  // veraltete Antwort: verwerfen
         if (selRef.current?.acc === acc && selRef.current?.folder === fol) setMessages(ms);
         warmBodies(acc, fol, ms);
         refreshCounts(acc);
       })
-      .catch(() => { /* Sync ist best-effort */ })
-      .finally(() => setSyncing(false));
+      .catch(() => {
+        // Fehlversuch zählen (für den exponentiellen Backoff der Auto-Refresher).
+        bgSyncFailRef.current.set(key, (bgSyncFailRef.current.get(key) ?? 0) + 1);
+      })
+      .finally(() => { if (isLatest()) setSyncing(false); });
   }
   // Zu Seite p springen: ersetzt die Liste. Auswahl bleibt erhalten (seitenübergreifend).
   function goPage(p: number) {
@@ -494,7 +542,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const id = window.setInterval(() => {
       // NUR das aktive Konto live auffrischen (nicht alle 8 gleichzeitig — das
       // hat bei langsamen Konten die App blockiert).
-      if (selRef.current) {
+      if (selRef.current && bgSyncDue(selRef.current.acc, selRef.current.folder)) {
         refreshCounts(selRef.current.acc);
         bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
       }
@@ -512,6 +560,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const FAST_REFRESH_MS = 20000;
     const id = window.setInterval(() => {
       if (document.hidden || !selRef.current) return;
+      if (!bgSyncDue(selRef.current.acc, selRef.current.folder)) return;  // Backoff bei Fehlern
       refreshCounts(selRef.current.acc);
       bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
     }, FAST_REFRESH_MS);
@@ -590,17 +639,16 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         bumpUnseen(activeId, folder, -1);
       }
     } catch (e) {
-      const msg = (e as Error).message || "";
       // Mail serverseitig weg (Cache war kurz veraltet): Zeile entfernen, klare
       // Meldung statt rohem Fehler, und still neu synchronisieren (selbstheilend).
-      if (/nicht gefunden|not found|404/i.test(msg)) {
+      if (isNotFound(e)) {
         setMessages((ms) => ms.filter((x) => x.uid !== uid));
         prefetchedRef.current.delete(`${activeId}:${folder}:${uid}`);
         if (open?.uid === uid) setOpen(null);
         setErr(t("mail.gone"));
         if (sel) bgSync(sel.acc, sel.folder, pageRef.current);
       } else {
-        setErr(msg);
+        setErr((e as Error).message || "");
       }
     }
   }
@@ -627,7 +675,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       .catch((e) => {
         // Geister-Mail (serverseitig weg) beim Hover: still aus der Liste nehmen,
         // NICHT erneut versuchen (Key bleibt gesetzt). Verhindert 404-Endlosschleife.
-        if (/nicht gefunden|not found|404/i.test((e as Error).message || "")) {
+        if (isNotFound(e)) {
           setMessages((ms) => ms.filter((x) => x.uid !== uid));
           if (open?.uid === uid) setOpen(null);
         }

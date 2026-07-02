@@ -3,6 +3,18 @@
 // es per XSS nicht ausgelesen werden kann. Die native APK nutzt weiterhin den
 // Bearer-Header; das Backend akzeptiert beides.
 
+// Fehler eines API-Aufrufs MIT HTTP-Status. So können Aufrufer zuverlässig auf
+// den Status (z. B. 404) prüfen, statt den — lokalisierten — Fehlertext per
+// Regex zu erraten.
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -20,7 +32,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     : await res.text();
   if (!res.ok) {
     const detail = (data as { detail?: string })?.detail ?? String(data);
-    throw new Error(detail || `HTTP ${res.status}`);
+    throw new ApiError(res.status, detail || `HTTP ${res.status}`);
   }
   return data as T;
 }

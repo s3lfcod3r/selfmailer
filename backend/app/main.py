@@ -58,17 +58,41 @@ APP_VERSION = "1.12.0"
 app = FastAPI(title=settings.app_name, version=APP_VERSION, lifespan=lifespan)
 
 
+# CSP für die App-Shell (die ausgelieferte React-SPA). Bewusst konservativ, damit
+# die App NICHT bricht:
+#  - default/script/connect 'self' (gehashte Vite-Assets + eigene API, same-origin);
+#  - style-src 'unsafe-inline' (React setzt Inline-Styles; Vite kann Style-Tags injizieren);
+#  - img/font data: (Icons/Inline-Bilder), img auch https: (externe Bilder nach Freigabe);
+#  - frame-src 'self' + frame-ancestors 'none' (Clickjacking-Schutz, ergänzt X-Frame-Options);
+#  - object-src 'none', base-uri 'self'.
+# Die Mail-Vorschau selbst ist ein sandboxed srcdoc-iframe mit EIGENER, strengerer
+# CSP im srcdoc — die hier gesetzte Header-CSP betrifft sie nicht.
+_APP_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: https:; "
+    "font-src 'self' data:; "
+    "connect-src 'self'; "
+    "frame-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "frame-ancestors 'none'"
+)
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     """Setzt defensive Response-Header. Bewusst KEIN HSTS (TLS wird extern
-    terminiert; http-Zugriff im LAN soll möglich bleiben) und KEINE CSP
-    (die Mail-Vorschau nutzt ein sandboxed srcdoc-iframe — eine strikte CSP
-    würde das brechen)."""
+    terminiert; http-Zugriff im LAN soll möglich bleiben). Die App-Shell bekommt
+    eine bewusst nachsichtige CSP (siehe _APP_CSP); die Mail-Vorschau nutzt ein
+    sandboxed srcdoc-iframe mit eigener, strengerer CSP im srcdoc."""
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Content-Security-Policy", _APP_CSP)
     return response
 
 

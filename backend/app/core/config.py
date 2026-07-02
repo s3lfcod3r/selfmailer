@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     # Private/LAN-Ziele (10/8, 172.16/12, 192.168/16, fc00::/7, 100.64/10 CGNAT)
     # bleiben standardmäßig erlaubt, damit Server hinter WireGuard/Tailscale
     # erreichbar sind. Für untrusted Multi-User auf True setzen → strikt LAN aus.
+    #
+    # BEWUSST NUR für die DAV-Pull-Ziele (dav/client.py). Der IMAP/SMTP-Host-Check
+    # in api/accounts.py (_check_mail_host) wird hierüber NICHT verschärft:
+    # sehr viele self-hosted Mailserver stehen im LAN (192.168.x/10.x). Würde man
+    # private Adressen auch dort blockieren, ließen sich legitime LAN-Mailserver
+    # nicht mehr einrichten. Die SSRF-Härtung bleibt daher gezielt auf DAV-Pull
+    # beschränkt; wer strikte Isolation braucht, setzt dav_block_private=True und
+    # betreibt Mailserver hinter einem erreichbaren (öffentlichen/VPN-)Hostnamen.
     dav_block_private: bool = False
 
     # CORS (Dev: Vite-Devserver)
