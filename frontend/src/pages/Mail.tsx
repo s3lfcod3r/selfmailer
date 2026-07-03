@@ -88,6 +88,11 @@ type MailFilter = {
   unread: boolean; starred: boolean; attachments: boolean;
 };
 
+// Virtuelle Gmail-Label-Ordner: "Alle Nachrichten" (all), "Wichtig" (important)
+// und "Markiert" (flagged) enthalten Kopien von Mails, die schon im echten
+// Ordner liegen. Aus Ungelesen-Summen ausklammern, sonst wird doppelt gezählt.
+const VIRTUAL_SPECIAL = new Set(["all", "important", "flagged"]);
+
 function loadSet(key: string): Set<number> {
   try { const v = JSON.parse(localStorage.getItem(key) || "[]"); return new Set(Array.isArray(v) ? v : []); }
   catch { return new Set(); }
@@ -305,8 +310,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function rollupUnseen(accId: number): number {
     // Ausgeblendete Ordner NICHT mitzählen — sonst zeigt der zugeklappte Konto-
     // Kopf eine Zahl, die in keinem sichtbaren Ordner auftaucht.
+    // Virtuelle Gmail-Label-Ordner ("Alle Nachrichten"/"Wichtig"/"Markiert")
+    // NICHT mitzählen — sie enthalten Kopien derselben Mails, die schon im
+    // echten Ordner (INBOX etc.) gezählt sind, sonst wird doppelt gezählt.
     const hidden = hiddenByAcc[accId] || [];
-    return (foldersByAcc[accId] || []).reduce((s, f) => s + (hidden.includes(f.name) ? 0 : (f.unseen || 0)), 0);
+    return (foldersByAcc[accId] || []).reduce(
+      (s, f) => s + (hidden.includes(f.name) || VIRTUAL_SPECIAL.has(f.special || "") ? 0 : (f.unseen || 0)),
+      0,
+    );
   }
   // Gesamt-Ungelesen (alle Konten, ohne ausgeblendete Ordner) nach oben melden —
   // für das Badge am Mail-Icon der oberen Navigation (auch außerhalb des Mailbereichs).
