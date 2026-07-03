@@ -5,6 +5,8 @@ import { confirmDialog } from "../lib/dialog";
 import { safeLinkUrl } from "../lib/url";
 
 const EMPTY = { kind: "caldav" as DavKind, label: "", url: "", username: "", password: "" };
+// Bearbeiten eines bestehenden DAV-Kontos (Passwort leer = unverändert).
+const EDIT_EMPTY = { label: "", url: "", username: "", password: "" };
 
 // Macht eine ggf. relative Feed-URL für Kopieren/Abo absolut.
 function absolute(url: string): string {
@@ -20,6 +22,9 @@ export function Sync() {
   const [feed, setFeed] = useState<FeedToken | null>(null);
   const [accounts, setAccounts] = useState<DavAccount[]>([]);
   const [form, setForm] = useState({ ...EMPTY });
+  // Bearbeiten-Modus: editId = welches Konto, editForm = dessen Felder.
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ ...EDIT_EMPTY });
   const [busy, setBusy] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [err, setErr] = useState("");
@@ -152,6 +157,31 @@ export function Sync() {
     if (!(await confirmDialog(t("sync.removeConfirm", { label: acc.label })))) return;
     try { await api.del(`/dav/accounts/${acc.id}`); load(); }
     catch (e) { setErr((e as Error).message); }
+  }
+
+  // Bearbeiten öffnen: URL/Benutzer/Bezeichnung vorbelegen (Passwort bleibt leer
+  // = unverändert, das Klartext-Passwort gibt der Server nie zurück).
+  function startEdit(acc: DavAccount) {
+    setEditId(acc.id);
+    setEditForm({ label: acc.label, url: acc.url, username: acc.username, password: "" });
+    setErr(""); setNote("");
+  }
+  function cancelEdit() { setEditId(null); setEditForm({ ...EDIT_EMPTY }); }
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (editId == null) return;
+    setErr(""); setNote("");
+    if (!editForm.url) { setErr(t("sync.needUrlPw")); return; }
+    // Passwort nur mitschicken, wenn wirklich geändert (leer = unverändert).
+    const body: Record<string, string> = {
+      label: editForm.label, url: editForm.url, username: editForm.username,
+    };
+    if (editForm.password) body.password = editForm.password;
+    try {
+      await api.patch<DavAccount>(`/dav/accounts/${editId}`, body);
+      cancelEdit();
+      load();
+    } catch (e) { setErr((e as Error).message); }
   }
 
   async function runDiscover(e: React.FormEvent) {
@@ -446,20 +476,42 @@ export function Sync() {
         {accounts.length === 0 && <p className="muted">{t("sync.externalEmpty")}</p>}
         <div className="stack">
           {accounts.map((acc) => (
-            <div className="card row" style={{ padding: "0.7rem 1rem" }} key={acc.id}>
-              <div className="grow">
-                <div style={{ fontWeight: 600 }}>
-                  {acc.label} <span className="label">{acc.kind === "carddav" ? t("sync.kindContacts") : t("sync.kindCalendar")}</span>
+            editId === acc.id ? (
+              <form className="card stack" style={{ padding: "0.7rem 1rem" }} key={acc.id} onSubmit={saveEdit}>
+                <input placeholder={t("common.label")} value={editForm.label}
+                       onChange={(e) => setEditForm((f) => ({ ...f, label: e.target.value }))} />
+                <input placeholder={t("sync.collectionUrl")} value={editForm.url}
+                       onChange={(e) => setEditForm((f) => ({ ...f, url: e.target.value }))} required />
+                <div className="row">
+                  <input placeholder={t("common.username")} value={editForm.username}
+                         onChange={(e) => setEditForm((f) => ({ ...f, username: e.target.value }))} />
+                  <input type="password" placeholder={t("sync.appToken")} value={editForm.password}
+                         onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))} />
                 </div>
-                <div className="mail-from">
-                  {t("sync.lastSync", { when: fmt(acc.last_sync, lang, t) })}{acc.last_status && acc.last_status !== "ok" ? ` · ${acc.last_status}` : ""}
+                <div className="row">
+                  <span className="grow" />
+                  <button type="button" className="ghost" onClick={cancelEdit}>{t("common.cancel")}</button>
+                  <button className="primary">{t("common.save")}</button>
                 </div>
+              </form>
+            ) : (
+              <div className="card row" style={{ padding: "0.7rem 1rem" }} key={acc.id}>
+                <div className="grow">
+                  <div style={{ fontWeight: 600 }}>
+                    {acc.label} <span className="label">{acc.kind === "carddav" ? t("sync.kindContacts") : t("sync.kindCalendar")}</span>
+                  </div>
+                  <div className="mail-from">
+                    {t("sync.lastSync", { when: fmt(acc.last_sync, lang, t) })}{acc.last_status && acc.last_status !== "ok" ? ` · ${acc.last_status}` : ""}
+                  </div>
+                  {acc.url && <div className="mail-from" style={{ opacity: 0.75 }}>{acc.url}</div>}
+                </div>
+                <button className="ghost" disabled={busy === acc.id} onClick={() => sync(acc)}>
+                  {busy === acc.id ? t("sync.syncing") : t("sync.syncNow")}
+                </button>
+                <button className="ghost" onClick={() => startEdit(acc)}>{t("common.edit")}</button>
+                <button className="ghost" onClick={() => remove(acc)}>{t("common.delete")}</button>
               </div>
-              <button className="ghost" disabled={busy === acc.id} onClick={() => sync(acc)}>
-                {busy === acc.id ? t("sync.syncing") : t("sync.syncNow")}
-              </button>
-              <button className="ghost" onClick={() => remove(acc)}>{t("common.delete")}</button>
-            </div>
+            )
           ))}
         </div>
       </section>

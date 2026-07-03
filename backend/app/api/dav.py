@@ -27,6 +27,7 @@ from ..models import CalendarEvent, Contact, DavAccount, DavKind, User
 from ..schemas import (
     DavAccountCreate,
     DavAccountOut,
+    DavAccountUpdate,
     DavDiscoverRequest,
     DiscoveredCollection,
     GcalCalendarOut,
@@ -104,6 +105,30 @@ def add_dav_account(
         username=data.username,
         secret_enc=encrypt(data.password),
     )
+    session.add(acc)
+    session.commit()
+    session.refresh(acc)
+    return acc
+
+
+@router.patch("/accounts/{account_id}", response_model=DavAccountOut)
+def update_dav_account(
+    account_id: int,
+    data: DavAccountUpdate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> DavAccount:
+    """Ändert Felder eines CalDAV/CardDAV-Kontos (Bezeichnung, Collection-URL,
+    Benutzername, optional Passwort). Leeres/fehlendes Passwort lässt die
+    gespeicherten Zugangsdaten unverändert. Die eigentliche SSRF-Prüfung der URL
+    passiert – wie beim Anlegen – erst beim Sync-Verbindungsaufbau."""
+    acc = _owned(account_id, user, session)
+    fields = data.model_dump(exclude_unset=True)
+    password = fields.pop("password", None)
+    if password:  # leer = Zugangsdaten nicht ändern
+        acc.secret_enc = encrypt(password)
+    for field, value in fields.items():
+        setattr(acc, field, value)
     session.add(acc)
     session.commit()
     session.refresh(acc)

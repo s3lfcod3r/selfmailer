@@ -124,7 +124,7 @@ app.include_router(translate.router)
 
 # Build-Marker: erlaubt von außen zu prüfen, welche Version wirklich LÄUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhöhen.
-APP_BUILD = "2026-06-22-cal-timewindow-age"
+APP_BUILD = "2026-07-03-dav-account-edit"
 
 
 @app.get("/api/health")

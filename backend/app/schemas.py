@@ -469,6 +469,18 @@ class DavAccountCreate(BaseModel):
     password: str  # Klartext nur im Request; wird verschlüsselt gespeichert
 
 
+class DavAccountUpdate(BaseModel):
+    """Änderbare Felder eines DAV-Kontos (Patch-Semantik, alles optional).
+
+    password: nur setzen, wenn die Zugangsdaten geändert werden sollen –
+    leer/weggelassen lässt das gespeicherte Passwort unverändert.
+    """
+    label: str | None = None
+    url: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
 class DavAccountOut(BaseModel):
     id: int
     kind: DavKind
