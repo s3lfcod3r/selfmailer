@@ -38,7 +38,12 @@ PER_ACCOUNT_RECENT = 5     # je Konto so viele neueste Ungelesene einsammeln
 # Bei folders=all NICHT mitzählende Sonderordner: dort liegt keine "neue
 # eingehende Mail" (Papierkorb/Spam/Gesendet/Entwürfe). Inbox/Archiv/eigene
 # Ordner + Unterordner zählen mit.
-_EXCLUDED_KINDS = {"trash", "spam", "sent", "drafts"}
+#
+# Zusätzlich die VIRTUELLEN Gmail-Label-Ordner ("Alle Nachrichten"=all,
+# "Wichtig"=important, "Markiert"=flagged): sie enthalten Kopien derselben
+# Mails, die schon im echten Ordner (INBOX etc.) gezählt sind — sonst wird bei
+# Gmail-Konten doppelt gezählt (Badge zeigt 2 statt 1).
+_EXCLUDED_KINDS = {"trash", "spam", "sent", "drafts", "all", "important", "flagged"}
 
 
 def _cached_unseen(session: Session, account_id: int) -> int:
@@ -59,7 +64,12 @@ def _all_folders_unseen(session: Session, account_id: int) -> int:
     total = 0
     for fc in cache_mod.read_folder_counts(session, account_id):
         name = fc.get("name") or ""
-        if imap_mod._special_kind(_leaf(name)) in _EXCLUDED_KINDS:
+        # special aus dem Cache nutzen (von _folder_special via IMAP-Flags +
+        # Namensheuristik) — nur so werden Gmails Flag-basierte Label-Ordner
+        # (all/important/flagged) erkannt. Fallback rein über den Namen, falls
+        # ein alter Cache-Eintrag noch kein special hinterlegt hat.
+        kind = (fc.get("special") or "") or imap_mod._special_kind(_leaf(name)) or ""
+        if kind in _EXCLUDED_KINDS:
             continue
         total += int(fc.get("unseen", 0) or 0)
     return total
