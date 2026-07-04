@@ -295,6 +295,7 @@ export const sv: Dict = {
   "cal.location": "Plats",
   "cal.start": "Start",
   "cal.end": "Slut",
+  "cal.allDay": "Heldag",
   "cal.empty": "Inga händelser ännu.",
   "cal.month": "Månad",
   "cal.agenda": "Agenda",

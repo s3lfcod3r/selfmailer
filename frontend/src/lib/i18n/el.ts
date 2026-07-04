@@ -295,6 +295,7 @@ export const el: Dict = {
   "cal.location": "Τοποθεσία",
   "cal.start": "Έναρξη",
   "cal.end": "Λήξη",
+  "cal.allDay": "Ολοήμερο",
   "cal.empty": "Δεν υπάρχουν συμβάντα ακόμη.",
   "cal.month": "Μήνας",
   "cal.agenda": "Ατζέντα",

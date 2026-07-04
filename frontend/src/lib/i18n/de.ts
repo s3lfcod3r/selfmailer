@@ -295,6 +295,7 @@ export const de: Dict = {
   "cal.location": "Ort",
   "cal.start": "Beginn",
   "cal.end": "Ende",
+  "cal.allDay": "Ganztägig",
   "cal.empty": "Noch keine Termine.",
   "cal.month": "Monat",
   "cal.agenda": "Agenda",

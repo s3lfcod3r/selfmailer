@@ -297,6 +297,7 @@ export const en = {
   "cal.location": "Location",
   "cal.start": "Start",
   "cal.end": "End",
+  "cal.allDay": "All day",
   "cal.empty": "No events yet.",
   "cal.month": "Month",
   "cal.agenda": "Agenda",

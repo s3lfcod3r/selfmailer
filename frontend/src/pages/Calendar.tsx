@@ -14,6 +14,39 @@ function fmtTime(iso: string, lang: Lang): string {
 function dayKey(iso: string, lang: Lang): string {
   return new Date(iso).toLocaleDateString(dateLocale(lang), { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
 }
+// Ganztages-Termine liegen im Store als 00:00 UTC → das Datum direkt aus dem
+// ISO-String nehmen (keine Zeitzonen-Verschiebung), 12:00 als DST-sicherer Anker.
+function allDayAnchor(iso: string): Date {
+  return new Date(iso.slice(0, 10) + "T12:00:00");
+}
+// Alle Kalendertage (ymd-Keys), die ein Termin überspannt — End-Tag inklusive.
+// Bei Zeit-Terminen zählt ein Ende um exakt 00:00 nicht mehr zum Folgetag.
+const MAX_SPAN_DAYS = 62;
+function spanDays(ev: CalEvent): string[] {
+  let s: Date, e: Date;
+  if (ev.all_day) {
+    s = allDayAnchor(ev.start);
+    e = allDayAnchor(ev.end);
+  } else {
+    s = new Date(ev.start);
+    e = new Date(ev.end);
+    if (e.getHours() === 0 && e.getMinutes() === 0 && e.getTime() > s.getTime()) e.setMinutes(-1);
+    s.setHours(12, 0, 0, 0);
+    e.setHours(12, 0, 0, 0);
+  }
+  const out: string[] = [];
+  for (const d = new Date(s); d.getTime() <= e.getTime() && out.length < MAX_SPAN_DAYS; d.setDate(d.getDate() + 1)) out.push(ymd(d));
+  return out.length ? out : [ymd(new Date(ev.start))];
+}
+// Anzeige-Zeitraum: Ganztags nur Datum (ohne „02:00"), sonst Datum+Uhrzeit.
+function fmtRange(ev: Pick<CalEvent, "start" | "end" | "all_day">, lang: Lang): string {
+  if (ev.all_day) {
+    const f = (iso: string) => allDayAnchor(iso).toLocaleDateString(dateLocale(lang), { dateStyle: "medium" });
+    const s = f(ev.start), e = f(ev.end);
+    return s === e ? s : `${s} – ${e}`;
+  }
+  return `${fmt(ev.start, lang)} – ${fmt(ev.end, lang)}`;
+}
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -137,6 +170,17 @@ export function Calendar() {
 
   function set<K extends keyof Form>(k: K, v: Form[K]) { setForm((f) => ({ ...f, [k]: v })); }
 
+  // Ganztägig umschalten: Feldwerte zwischen "YYYY-MM-DD" (date) und
+  // "YYYY-MM-DDTHH:mm" (datetime-local) konvertieren, damit die Inputs passen.
+  function toggleAllDay(on: boolean) {
+    setForm((f) => ({
+      ...f,
+      all_day: on,
+      start: on ? f.start.slice(0, 10) : (f.start.includes("T") ? f.start : `${f.start}T09:00`),
+      end: on ? f.end.slice(0, 10) : (f.end.includes("T") ? f.end : `${f.end}T10:00`),
+    }));
+  }
+
   // Alter bei Geburtstags-Terminen ("🎂 Vorname Nachname") aus dem Kontakt ableiten.
   function bdayAge(ev: CalEvent): number | null {
     if (!ev.title.includes("🎂")) return null;
@@ -199,7 +243,9 @@ export function Calendar() {
     const isGcalOrLocal = !ev.dav_account_id || gcalAccounts.some((a) => a.id === ev.dav_account_id);
     setForm({
       title: ev.title, location: ev.location, description: ev.description,
-      start: localInput(new Date(ev.start)), end: localInput(new Date(ev.end)),
+      // Ganztags: nur das Datum (Store = 00:00 UTC, End-Tag inklusive) → date-Input.
+      start: ev.all_day ? ev.start.slice(0, 10) : localInput(new Date(ev.start)),
+      end: ev.all_day ? ev.end.slice(0, 10) : localInput(new Date(ev.end)),
       all_day: ev.all_day, target, calendarId,
     });
     setInitialTarget(selValue(target, calendarId));
@@ -211,10 +257,14 @@ export function Calendar() {
     e.preventDefault();
     setErr("");
     if (!form.title || !form.start || !form.end) { setErr(t("cal.needFields")); return; }
+    if (form.end < form.start) { setErr(t("cal.needFields")); return; }
     // datetime-local ist Lokalzeit → als UTC-ISO (Z) senden; Store hält UTC.
+    // Ganztags: reines Datum ("YYYY-MM-DD") → 00:00 UTC, End-Tag inklusive
+    // (Store-Konvention; der Google-Push macht daraus wieder end.date exklusiv).
     const payload: Record<string, unknown> = {
       title: form.title, location: form.location, description: form.description,
-      start: new Date(form.start).toISOString(), end: new Date(form.end).toISOString(),
+      start: form.all_day ? `${form.start}T00:00:00Z` : new Date(form.start).toISOString(),
+      end: form.all_day ? `${form.end}T00:00:00Z` : new Date(form.end).toISOString(),
       all_day: form.all_day,
     };
     setBusy(true);
@@ -271,8 +321,9 @@ export function Calendar() {
   function goToday() { setCursor({ year: now.getFullYear(), month: now.getMonth() }); }
 
   const eventsByDay = useMemo(() => {
+    // Mehrtägige Termine auf JEDEN überspannten Tag legen (nicht nur den Starttag).
     const m: Record<string, CalEvent[]> = {};
-    for (const ev of shownEvents) (m[ymd(new Date(ev.start))] ??= []).push(ev);
+    for (const ev of shownEvents) for (const key of spanDays(ev)) (m[key] ??= []).push(ev);
     return m;
   }, [shownEvents]);
   const birthdaysByDay = useMemo(() => {
@@ -285,10 +336,13 @@ export function Calendar() {
   // „Diesen Monat": Termine + Geburtstage des sichtbaren Monats, nach Tag sortiert.
   const monthAgenda = useMemo(() => {
     const items: { day: number; label: string; time?: string; ev?: CalEvent; birthday?: boolean }[] = [];
+    const monthPrefix = `${cursor.year}-${String(cursor.month + 1).padStart(2, "0")}-`;
     for (const ev of shownEvents) {
-      const d = new Date(ev.start);
-      if (d.getFullYear() === cursor.year && d.getMonth() === cursor.month)
-        items.push({ day: d.getDate(), label: evLabel(ev), time: fmtTime(ev.start, lang), ev });
+      // Erster sichtbarer Tag im Monat (mehrtägige Termine ragen ggf. hinein);
+      // ganztags ohne Uhrzeit (die „02:00" wäre nur das UTC-Artefakt).
+      const firstDay = spanDays(ev).find((k) => k.startsWith(monthPrefix));
+      if (firstDay)
+        items.push({ day: Number(firstDay.slice(8, 10)), label: evLabel(ev), time: ev.all_day ? undefined : fmtTime(ev.start, lang), ev });
     }
     if (!bdayActive) for (const b of birthdaysForYear(contacts, cursor.year)) {
       const parts = b.day.split("-");
@@ -442,13 +496,17 @@ export function Calendar() {
             </div>
             <input placeholder={t("cal.title")} value={form.title} onChange={(e) => set("title", e.target.value)} autoFocus required />
             <input placeholder={t("cal.location")} value={form.location} onChange={(e) => set("location", e.target.value)} />
+            <label className="row" style={{ gap: "0.45rem", cursor: "pointer" }}>
+              <input type="checkbox" checked={form.all_day} onChange={(e) => toggleAllDay(e.target.checked)} />
+              {t("cal.allDay")}
+            </label>
             <div className="row">
               <label className="label" style={{ minWidth: 56 }}>{t("cal.start")}</label>
-              <input type="datetime-local" value={form.start} onChange={(e) => set("start", e.target.value)} required />
+              <input type={form.all_day ? "date" : "datetime-local"} value={form.start} onChange={(e) => set("start", e.target.value)} required />
             </div>
             <div className="row">
               <label className="label" style={{ minWidth: 56 }}>{t("cal.end")}</label>
-              <input type="datetime-local" value={form.end} onChange={(e) => set("end", e.target.value)} required />
+              <input type={form.all_day ? "date" : "datetime-local"} value={form.end} onChange={(e) => set("end", e.target.value)} required />
             </div>
             <textarea placeholder={t("cal.description")} value={form.description} onChange={(e) => set("description", e.target.value)} rows={8} style={{ minHeight: "11rem" }} />
 
@@ -511,7 +569,7 @@ export function Calendar() {
                   <button key={ev.id} className="card row" style={{ padding: "0.6rem 0.9rem", cursor: "pointer", textAlign: "left", borderLeft: ev.source_color ? `3px solid ${ev.source_color}` : undefined }} onClick={() => openEdit(ev)}>
                     <div className="grow">
                       <div style={{ fontWeight: 600 }}>{ev.dav_account_id ? "🔄 " : ""}{evLabel(ev)}</div>
-                      <div className="mail-from">{fmt(ev.start, lang)} – {fmt(ev.end, lang)}{ev.location ? ` · ${ev.location}` : ""}</div>
+                      <div className="mail-from">{fmtRange(ev, lang)}{ev.location ? ` · ${ev.location}` : ""}</div>
                     </div>
                   </button>
                 ))}
@@ -533,7 +591,7 @@ export function Calendar() {
               <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{detail.title}</h2>
               <button className="ghost" onClick={() => setDetail(null)}>✕</button>
             </div>
-            <div className="muted">{fmt(detail.start, lang)} – {fmt(detail.end, lang)}</div>
+            <div className="muted">{fmtRange(detail, lang)}{detail.all_day ? ` · ${t("cal.allDay")}` : ""}</div>
             {detail.location && <div>📍 {detail.location}</div>}
             {detail.description && <div style={{ whiteSpace: "pre-wrap" }}>{detail.description}</div>}
             {detail.dav_account_id && <div className="muted" style={{ fontSize: "0.82rem" }}>🔄 {t("cal.syncedHint")}</div>}
@@ -577,7 +635,7 @@ function AgendaList({ events, label, lang, t, onOpen }: { events: CalEvent[]; la
               <div className="card row" style={{ padding: "0.7rem 1rem", cursor: "pointer" }} key={ev.id} onClick={() => onOpen(ev)}>
                 <div className="grow">
                   <div style={{ fontWeight: 600 }}>{ev.dav_account_id ? "🔄 " : ""}{label(ev)}</div>
-                  <div className="mail-from">{fmt(ev.start, lang)} – {fmt(ev.end, lang)}{ev.location ? ` · ${ev.location}` : ""}</div>
+                  <div className="mail-from">{fmtRange(ev, lang)}{ev.location ? ` · ${ev.location}` : ""}</div>
                 </div>
               </div>
             ))}
