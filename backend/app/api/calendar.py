@@ -175,8 +175,12 @@ def _persist_event(data: EventCreate, user: User, session: Session) -> CalendarE
             raise _push_error(exc)
         ev.dav_account_id = acc.id
         ev.external_uid = f"{cal_id}::{event_id}"
-        # Quell-Kalender direkt setzen (Name/Farbe ergänzt der nächste Pull).
+        # Quell-Kalender sofort mit Name + Farbe setzen, damit der Termin direkt
+        # nach dem Anlegen im richtigen Kalender erscheint (nicht erst „Lokal",
+        # bis der nächste Pull den Namen nachträgt). Gleiche Logik wie beim
+        # Verschieben (_change_calendar).
         ev.source_key = cal_id
+        ev.source_name, ev.source_color = _cal_meta(tok, cal_id)
 
     session.add(ev)
     session.commit()
