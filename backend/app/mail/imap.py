@@ -369,6 +369,9 @@ def _detail_dict(msg, account: MailAccount) -> dict:
         "html": msg.html or "",
         "attachments": attachments,
         "auth": _analyze_auth(msg, account),
+        # Bittet der Absender um eine Lesebestätigung? Adresse aus dem Header,
+        # sonst leer. Das Frontend zeigt daraufhin den Bestätigungs-Hinweis.
+        "mdn_request": msg.obj.get("Disposition-Notification-To", "") or "",
     }
 
 

@@ -192,6 +192,7 @@ class MessageDetail(MessageHeader):
     html: str = ""
     attachments: list[AttachmentMeta] = []
     auth: AuthInfo | None = None
+    mdn_request: str = ""           # Adresse aus "Disposition-Notification-To" (Lesebestätigung angefordert)
 
 
 class AttachmentIn(BaseModel):

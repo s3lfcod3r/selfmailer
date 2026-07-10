@@ -119,6 +119,7 @@ export type AuthInfo = {
 export type MsgDetail = MsgHeader & {
   to: string[]; message_id: string; text: string; html: string; attachments: Attachment[];
   auth?: AuthInfo | null;
+  mdn_request?: string;   // Absender bittet um Lesebestätigung (Adresse), sonst leer
 };
 
 export type CalEvent = {

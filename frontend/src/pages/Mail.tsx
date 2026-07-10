@@ -171,6 +171,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [popup, setPopup] = useState(false);
   // Echtheits-Details (SPF/DKIM/DMARC + Volltext) zum kompakten Status-Chip aufgeklappt?
   const [authOpen, setAuthOpen] = useState(false);
+  // Lesebestätigung: pro UID gemerkt, ob schon gesendet ("sent") oder ignoriert ("hidden").
+  // Nur für diese Sitzung — verhindert doppeltes Nachfragen nach der Aktion.
+  const [mdnState, setMdnState] = useState<Record<string, "sent" | "hidden">>({});
+  const [mdnBusy, setMdnBusy] = useState(false);
   // Helle Mails automatisch in den dunklen App-Look umfaerben. Standard kommt aus
   // der globalen Einstellung (darkMail), ist aber pro Mail umschaltbar.
   const [darkBody, setDarkBody] = useState(darkMail);
@@ -1022,6 +1026,45 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     );
   }
 
+  async function sendReadReceipt(msg: MsgDetail) {
+    if (activeId == null || mdnBusy) return;
+    setMdnBusy(true);
+    try {
+      await api.post(`/mail/${activeId}/messages/${msg.uid}/read-receipt?folder=${encodeURIComponent(folder)}`);
+      setMdnState((s) => ({ ...s, [msg.uid]: "sent" }));
+    } catch (e) {
+      setErr((e as Error).message || t("mail.mdnError"));
+    } finally {
+      setMdnBusy(false);
+    }
+  }
+
+  // Hinweisleiste, wenn der Absender eine Lesebestätigung angefordert hat.
+  function mdnBanner(msg: MsgDetail): ReactNode {
+    const addr = (msg.mdn_request || "").trim();
+    if (!addr) return null;
+    const state = mdnState[msg.uid];
+    if (state === "hidden") return null;
+    // Nicht bei selbst gesendeten Mails (Gesendet/Entwürfe) nachfragen.
+    const own = accountById(activeId ?? -1)?.email?.toLowerCase() || "";
+    if (own && parseAddr(msg.from).email.toLowerCase() === own) return null;
+    if (state === "sent") {
+      return (
+        <div style={{ margin: "8px 0 0", padding: "6px 10px", borderRadius: 8, fontSize: "0.8rem", color: "var(--self-text)", background: "rgba(20,184,166,0.12)", border: "1px solid var(--self-line)" }}>
+          ✓ {t("mail.mdnSent")}
+        </div>
+      );
+    }
+    return (
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "8px 0 0", padding: "6px 10px", borderRadius: 8, fontSize: "0.8rem", lineHeight: 1.4, color: "var(--self-text)", background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.4)" }}>
+        <span style={{ flexShrink: 0 }} aria-hidden>📩</span>
+        <span style={{ flex: 1, minWidth: 140 }}>{t("mail.mdnPrompt")}</span>
+        <button className="primary" style={{ width: "auto", padding: "2px 10px" }} disabled={mdnBusy} onClick={() => sendReadReceipt(msg)}>{t("mail.mdnSend")}</button>
+        <button className="ghost" style={{ width: "auto", padding: "2px 10px" }} disabled={mdnBusy} onClick={() => setMdnState((s) => ({ ...s, [msg.uid]: "hidden" }))}>{t("mail.mdnIgnore")}</button>
+      </div>
+    );
+  }
+
   return (
     <div className="mail-page">
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
@@ -1271,6 +1314,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                 <span className="mail-head-date">{prettyDate(open.date)}</span>
               </div>
               {authDetail(open)}
+              {mdnBanner(open)}
               {detailsOpen && (
                 <div className="mail-head-details">
                   <div><span className="label">{t("mail.hdrFrom")}</span><span>{open.from}</span></div>
@@ -1459,7 +1503,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               <span style={{ flex: "0 0 auto", color: "var(--self-text-3)" }}>{prettyDate(open.date)}</span>
             </div>
             {authOpen && open.auth && (
-              <div style={{ padding: "0 16px" }}>{authDetail(open)}</div>
+              <div style={{ padding: "0 16px" }}>{authDetail(open)}{mdnBanner(open)}</div>
             )}
             <div style={{ overflow: "auto", padding: 16, flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
               {translatePanel()}

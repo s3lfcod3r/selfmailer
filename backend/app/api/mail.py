@@ -581,3 +581,36 @@ async def send(
     except Exception:  # noqa: BLE001
         logger.warning("Gesendete Mail nicht in 'Gesendet' ablegbar (account_id=%s)", account_id, exc_info=True)
     return {"sent": True}
+
+
+@router.post("/{account_id}/messages/{uid}/read-receipt", status_code=status.HTTP_202_ACCEPTED)
+async def send_read_receipt(
+    account_id: int,
+    uid: str,
+    folder: str = "INBOX",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Sendet eine Lesebestätigung (MDN) an den Absender — nur wenn dieser sie
+    per Header angefordert hat. Wird vom Bestätigungs-Hinweis im Reader ausgelöst."""
+    acc = _account(account_id, user, session)
+    pw = _account_secret(acc)
+    msg = await run_in_threadpool(imap_mod.get_message, acc, pw, uid, folder)
+    if msg is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nachricht nicht gefunden")
+    req = (msg.get("mdn_request") or "").strip()
+    if not req:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Diese Nachricht fordert keine Lesebestätigung an")
+    try:
+        await smtp_mod.send_mdn(
+            acc,
+            pw,
+            to=req,
+            original_message_id=msg.get("message_id", ""),
+            original_subject=msg.get("subject", ""),
+            original_date=msg.get("date", ""),
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("Lesebestätigung senden fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Lesebestätigung konnte nicht gesendet werden")
+    return {"sent": True}
