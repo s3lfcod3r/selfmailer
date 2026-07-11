@@ -797,6 +797,38 @@ def _folder_special(name: str, flags) -> str:
     return _special_kind(name.replace("/", ".").rsplit(".", 1)[-1]) or ""
 
 
+def _rule_hay(msg, field: str) -> str:
+    """Baut den Text, gegen den eine Regel für das gegebene Feld matcht."""
+    if field == "from":
+        # Adresse UND Anzeigename prüfen (nur die Adresse würde Regeln auf den
+        # Klarnamen verfehlen).
+        fv = getattr(msg, "from_values", None)
+        name = getattr(fv, "name", "") if fv else ""
+        return f"{msg.from_ or ''} {name}".lower()
+    if field == "from_domain":
+        # Nur die Absender-Domain (Teil nach dem letzten @).
+        return (msg.from_ or "").rsplit("@", 1)[-1].lower()
+    if field == "to":
+        return " ".join(msg.to or ()).lower()
+    if field == "subject":
+        return (msg.subject or "").lower()
+    return ""
+
+
+def _first_match(msg, rules: list):
+    """Erste passende Regel für eine Nachricht (oder None). Mehrere Begriffe
+    kommagetrennt → trifft, wenn EINER vorkommt (z. B. "slot, casino, bonus");
+    Einzelwert = Teilstring."""
+    for rule in rules:
+        if not getattr(rule, "enabled", True) or not rule.value:
+            continue
+        terms = [t.strip().lower() for t in rule.value.split(",") if t.strip()]
+        hay = _rule_hay(msg, rule.field)
+        if msg.uid and any(term in hay for term in terms):
+            return rule
+    return None
+
+
 def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
     """Wendet Filterregeln auf den Posteingang an (Modus A). Erste passende Regel je
     Mail gewinnt. rules: Objekte mit .field/.value/.target_folder/.mark_read/.star/
@@ -813,31 +845,9 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
         # ENTSCHEIDEND: ohne es holt imap-tools die ÄLTESTEN Mails — bei großen
         # Postfächern werden so die neuen (zu sortierenden) Mails nie gesehen.
         for msg in box.fetch(AND(all=True), reverse=True, mark_seen=False, limit=500, headers_only=True, bulk=True):
-            for rule in rules:
-                if not getattr(rule, "enabled", True) or not rule.value:
-                    continue
-                # Mehrere Begriffe kommagetrennt → trifft, wenn EINER vorkommt
-                # (z. B. "slot, casino, bonus"). Einzelwert = Teilstring wie bisher.
-                terms = [t.strip().lower() for t in rule.value.split(",") if t.strip()]
-                if rule.field == "from":
-                    # Adresse UND Anzeigename prüfen (vorher nur die Adresse —
-                    # darum trafen Regeln auf den Klarnamen nicht).
-                    fv = getattr(msg, "from_values", None)
-                    name = getattr(fv, "name", "") if fv else ""
-                    hay = f"{msg.from_ or ''} {name}".lower()
-                elif rule.field == "from_domain":
-                    # Nur die Absender-Domain (Teil nach dem letzten @), damit eine
-                    # Regel auf die ganze (Haupt-)Domain matcht und verschiebt.
-                    hay = (msg.from_ or "").rsplit("@", 1)[-1].lower()
-                elif rule.field == "to":
-                    hay = " ".join(msg.to or ()).lower()
-                elif rule.field == "subject":
-                    hay = (msg.subject or "").lower()
-                else:
-                    hay = ""
-                if msg.uid and any(term in hay for term in terms):
-                    matches.append((msg.uid, rule))
-                    break  # erste passende Regel gewinnt
+            rule = _first_match(msg, rules)
+            if rule is not None:
+                matches.append((msg.uid, rule))
         to_delete: list[str] = []
         for uid, rule in matches:
             # "Löschen" hat Vorrang vor allen anderen Aktionen: getroffene Mail
@@ -866,6 +876,69 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
                 if len(errors) < 3:
                     errors.append(f"delete: {type(exc).__name__}: {exc}")
     return {"affected": affected, "matched": len(matches), "errors": errors}
+
+
+def sweep_block_folders(
+    account: MailAccount, password: str, rules: list, notify_folders: list[str] | None = None
+) -> dict:
+    """Wendet NUR die Lösch-Regeln (delete_msg = geblockte Absender) auf weitere
+    Ordner an — den Spam-Ordner und die für Push ausgewählten Ordner. Treffer
+    wandern als gelesen in den Papierkorb.
+
+    Hintergrund: apply_rules räumt nur den Posteingang auf. Landet eine Mail eines
+    geblockten Absenders aber im Spam-Ordner (web.de sortiert oft serverseitig vor)
+    oder in einem anderen überwachten Ordner, blieb sie dort liegen UND löste eine
+    Push-Benachrichtigung aus. Dieser Durchlauf schließt genau diese Lücke.
+
+    Verschiebe-/Markier-Regeln bleiben bewusst dem Posteingang vorbehalten: Mails
+    aus Unterordnern automatisch weiterzuschieben würde nur Verwirrung stiften.
+    """
+    del_rules = [
+        r for r in rules
+        if getattr(r, "delete_msg", False) and getattr(r, "enabled", True) and getattr(r, "value", "")
+    ]
+    if not del_rules:
+        return {"deleted": 0}
+
+    # Ordnerliste zusammenstellen: Spam (falls vorhanden) + Push-Ordner, aber OHNE
+    # den Posteingang (macht apply_rules schon) und OHNE den Papierkorb selbst.
+    try:
+        with _mailbox(account, password) as box:
+            spam = _spam_folder(box)
+            trash = _trash_folder(box, "INBOX")
+    except Exception:  # noqa: BLE001 - ohne Ordnerliste keinen Sweep, aber nie den Sync kippen
+        logger.warning("Block-Sweep: Ordnerermittlung fehlgeschlagen (account_id=%s)", account.id, exc_info=True)
+        return {"deleted": 0}
+
+    targets: list[str] = []
+    seen: set[str] = set()
+    for name in ([spam] if spam else []) + list(notify_folders or []):
+        if not name:
+            continue
+        low = name.lower()
+        if low in seen or name.upper().endswith("INBOX") or (trash and name == trash):
+            continue
+        seen.add(low)
+        targets.append(name)
+
+    total = 0
+    for folder in targets:
+        try:
+            with _mailbox(account, password, folder=folder) as box:
+                to_del = [
+                    m.uid for m in box.fetch(
+                        AND(all=True), reverse=True, mark_seen=False, limit=500, headers_only=True, bulk=True
+                    )
+                    if m.uid and _first_match(m, del_rules) is not None
+                ]
+                if to_del:
+                    _soft_delete(box, to_del, folder)
+                    total += len(to_del)
+        except Exception:  # noqa: BLE001 - ein Ordner darf den Rest nicht kippen
+            logger.warning(
+                "Block-Sweep fehlgeschlagen (account_id=%s, folder=%s)", account.id, folder, exc_info=True
+            )
+    return {"deleted": total}
 
 
 def ensure_default_folders(account: MailAccount, password: str) -> None:

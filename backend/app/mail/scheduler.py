@@ -70,8 +70,20 @@ def _sync_account(acc: MailAccount) -> None:
                     .order_by(MailRule.position, MailRule.id)
                 ).all()
             )
+            # Für Push ausgewählte Ordner: genau diese lösen sonst eine
+            # Benachrichtigung aus, wenn dort eine geblockte Mail liegt.
+            notify_folders = [
+                r.folder for r in s.exec(
+                    select(FolderNotify).where(FolderNotify.account_id == acc.id)
+                ).all()
+            ]
         if rules and not _stop.is_set():
-            imap_mod.apply_rules(acc, pw, rules)
+            imap_mod.apply_rules(acc, pw, rules)          # Posteingang: alle Regeltypen
+            # Geblockte Absender auch aus Spam + überwachten Ordnern entfernen,
+            # BEVOR unten der Push-Check läuft — sonst pingt eine geblockte Mail,
+            # die serverseitig in einen anderen Ordner sortiert wurde.
+            if not _stop.is_set():
+                imap_mod.sweep_block_folders(acc, pw, rules, notify_folders)
     except Exception:  # noqa: BLE001 - Regeln dürfen den Sync nie kippen
         logger.warning("Auto-Regeln fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
