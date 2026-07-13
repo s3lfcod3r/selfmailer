@@ -730,7 +730,10 @@ def save_draft(
         folder = _draft_folder(box)
         if not folder:
             return False
-        box.append(msg.as_bytes(), folder, flag_set=["\\Draft"])
+        # Auch \Seen setzen: ein selbst geschriebener Entwurf ist keine "ungelesene"
+        # Mail. Ohne \Seen zählt er als ungelesen und erzeugt eine Geisterzahl im
+        # Konto, die man nirgends als ungelesene Nachricht wiederfindet.
+        box.append(msg.as_bytes(), folder, flag_set=["\\Draft", "\\Seen"])
         return True
 
 
