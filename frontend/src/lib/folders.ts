@@ -11,11 +11,14 @@ export type FolderNode = {
   label: string; // Anzeigename = letzter Pfadteil
   children: FolderNode[];
   special: SpecialKind | null;
+  total?: number; // Anzahl Nachrichten (für die Duplikat-Auswahl: voll schlägt leer)
 };
 
-// Minimal-Form eines Ordners, wie buildFolderTree ihn braucht: voller IMAP-Name
-// plus optional die vom Backend gelieferte Sonderordner-Art (`special`).
-export type FolderLike = { name: string; special?: string };
+// Minimal-Form eines Ordners, wie buildFolderTree ihn braucht: voller IMAP-Name,
+// optional die vom Backend gelieferte Sonderordner-Art (`special`) und die
+// Nachrichtenzahl (`total`, damit ein voller Sonderordner nie hinter einem leeren
+// gleicher Art verschwindet).
+export type FolderLike = { name: string; special?: string; total?: number };
 
 const SPECIAL_PATTERNS: [SpecialKind, RegExp][] = [
   ["inbox", /^inbox$/i],
@@ -88,12 +91,19 @@ const CANONICAL_NAMES: Record<SpecialKind, RegExp> = {
   all: /(?!)/,
 };
 
-// Behält je Sonderordner-Art nur EINEN (den kanonischen); weitere Duplikate werden
-// AUSGEBLENDET (nicht als normaler Ordner gezeigt). Kanonischer Ordner = exakter
-// Standardname, sonst der erste. Deckt z. B. web.de „Entwurf" (2. drafts neben
-// „Entwürfe") ab. Liefert die auszublendenden Duplikat-Knoten zurück.
-function dedupeSpecialKinds(roots: FolderNode[]): Set<FolderNode> {
+// Behält je Sonderordner-Art nur EINEN als Sonderordner. Auswahl des kanonischen:
+//   1) ein Ordner MIT Nachrichten schlägt einen leeren — sonst verschwindet ein
+//      voller Ordner hinter einem leeren gleicher Art (genau der web.de-Fall:
+//      „Entwurf" voll vs. „Entwürfe" leer),
+//   2) sonst der exakte Standardname, 3) sonst der erste.
+// Leere Duplikate werden ausgeblendet. Ein Duplikat MIT Inhalt wird NIE versteckt,
+// sondern als normaler Ordner (mit echtem Namen) weitergeführt (`demote`), damit
+// niemals Nachrichten unsichtbar werden.
+function dedupeSpecialKinds(
+  roots: FolderNode[],
+): { hidden: Set<FolderNode>; demote: Set<FolderNode> } {
   const hidden = new Set<FolderNode>();
+  const demote = new Set<FolderNode>();
   const byKind = new Map<SpecialKind, FolderNode[]>();
   for (const r of roots) {
     if (!r.special) continue;
@@ -101,12 +111,19 @@ function dedupeSpecialKinds(roots: FolderNode[]): Set<FolderNode> {
     if (arr) arr.push(r);
     else byKind.set(r.special, [r]);
   }
+  const hasMail = (n: FolderNode) => (n.total ?? 0) > 0;
   for (const [kind, nodes] of byKind) {
     if (nodes.length < 2) continue;
-    const canon = nodes.find((n) => CANONICAL_NAMES[kind].test(n.label)) ?? nodes[0];
-    for (const n of nodes) if (n !== canon) hidden.add(n);
+    // Volle Ordner bevorzugen; nur wenn alle leer sind, über alle entscheiden.
+    const pool = nodes.some(hasMail) ? nodes.filter(hasMail) : nodes;
+    const canon = pool.find((n) => CANONICAL_NAMES[kind].test(n.label)) ?? pool[0];
+    for (const n of nodes) {
+      if (n === canon) continue;
+      if (hasMail(n)) demote.add(n); // Inhalt -> sichtbar lassen (als normaler Ordner)
+      else hidden.add(n); // leer -> ausblenden
+    }
   }
-  return hidden;
+  return { hidden, demote };
 }
 
 // Erkennt das Hierarchie-Trennzeichen: "/" (Gmail/Dovecot) oder "." (INBOX.Sent bei vielen Servern).
@@ -151,7 +168,8 @@ export function buildFolderTree(folders: FolderLike[]): FolderNode[] {
     // Backend-`special` bevorzugen; nur wenn leer/unbekannt, Namens-Heuristik.
     // Container (noselect) sind selbst kein Sonderordner (special = null).
     const special = isContainer ? null : (specialFromBackend(raw) ?? specialKind(last));
-    const node: FolderNode = { path: name, label: last, children: [], special };
+    const f = folders.find((x) => x.name === name);
+    const node: FolderNode = { path: name, label: last, children: [], special, total: f?.total };
     byPath.set(name, node);
     if (isContainer) containers.push(node);
     if (parts.length === 1) {
@@ -190,9 +208,11 @@ export function buildFolderTree(folders: FolderLike[]): FolderNode[] {
   // all/flagged/important sowie Outbox-artige Ordner (web.de „Postausgang").
   roots = roots.filter((r) => !isProviderResidual(r, backendSpecial.get(r.path)));
 
-  // Mehrfache Sonderordner derselben Art (Regel 3): nur der kanonische bleibt,
-  // die übrigen Duplikate werden ausgeblendet (nicht als normaler Ordner gezeigt).
-  const dupes = dedupeSpecialKinds(roots);
+  // Mehrfache Sonderordner derselben Art (Regel 3): der beste (voll vor leer,
+  // dann Standardname) bleibt Sonderordner; leere Duplikate raus, volle Duplikate
+  // als normaler Ordner behalten — so verschwindet nie ein Ordner mit Nachrichten.
+  const { hidden: dupes, demote } = dedupeSpecialKinds(roots);
+  for (const n of demote) n.special = null;
   if (dupes.size) roots = roots.filter((r) => !dupes.has(r));
 
   roots.sort((a, b) => {
