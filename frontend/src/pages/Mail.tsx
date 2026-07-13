@@ -311,6 +311,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function unseenOf(accId: number, path: string): number {
     return (foldersByAcc[accId] || []).find((f) => f.name === path)?.unseen ?? 0;
   }
+  // Ungelesene eines Ordners INKL. aller Unterordner (ausgeblendete/virtuelle
+  // Gmail-Label-Ordner zählen wie beim Konto-Rollup nicht mit). Damit kann ein
+  // zugeklappter Eltern-Ordner die im Baum sonst unsichtbaren Treffer anzeigen.
+  function subtreeUnseen(accId: number, node: FolderNode): number {
+    if ((hiddenByAcc[accId] || []).includes(node.path)) return 0;
+    const self = VIRTUAL_SPECIAL.has(node.special || "") ? 0 : unseenOf(accId, node.path);
+    return node.children.reduce((s, c) => s + subtreeUnseen(accId, c), self);
+  }
   function rollupUnseen(accId: number): number {
     // Ausgeblendete Ordner NICHT mitzählen — sonst zeigt der zugeklappte Konto-
     // Kopf eine Zahl, die in keinem sichtbaren Ordner auftaucht.
@@ -875,7 +883,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const isOpen = expanded.has(expKey(accId, node.path));
     const label = node.special ? t(`folder.${node.special}`) : node.label;
     const icon = node.special ? SPECIAL_ICON[node.special] : "📁";
-    const unseen = unseenOf(accId, node.path);
+    // Zugeklappter Eltern-Ordner: Treffer der (unsichtbaren) Unterordner
+    // mitzählen, damit die Konto-Zahl im Baum auffindbar bleibt.
+    const unseen = hasKids && !isOpen ? subtreeUnseen(accId, node) : unseenOf(accId, node.path);
     const active = activeId === accId && node.path === folder;
     return (
       <div key={node.path}>
