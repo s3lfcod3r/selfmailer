@@ -1,5 +1,5 @@
 // SelfMailer-Wortmarke im Brand-Look (WIDE-Variante): Schild-Emblem + Schriftzug
-// "Self" eis-blau + "Mailer" teal in Rubik 800.
+// "Self" eis-blau + "Mailer" teal in Orbitron 800 (Self-Marken-Standard).
 export function Wordmark({ size = 1.4 }: { size?: number }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: `${size * 0.45}rem` }}>

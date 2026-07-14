@@ -5,12 +5,13 @@
    ============================================================ */
 
 /* Wortmarken-Schrift LOKAL mitgeliefert (kein Google-Fonts/AdGuard-Zwang):
-   Rubik ist eine Variable Font (Weight-Achse 300–900) → ein @font-face reicht.
-   Datei liegt unter public/fonts/ und wird als /fonts/Rubik.ttf ausgeliefert. */
+   Orbitron ist der Self-Marken-Standard (Variable Font, Weight-Achse) → ein
+   @font-face reicht. Datei liegt unter public/fonts/ und wird als
+   /fonts/Orbitron.ttf ausgeliefert. */
 @font-face {
-  font-family: "Rubik";
-  src: url("/fonts/Rubik.ttf") format("truetype");
-  font-weight: 300 900;
+  font-family: "Orbitron";
+  src: url("/fonts/Orbitron.ttf") format("truetype");
+  font-weight: 400 900;
   font-style: normal;
   font-display: swap;
 }
@@ -52,7 +53,7 @@
   /* --- Typografie ---------------------------------------- */
   --self-font-sans: "Exo 2", system-ui, -apple-system, sans-serif;
   --self-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
-  --self-font-wordmark: "Rubik", var(--self-font-sans); /* Logo-Schriftzug "SelfXxx" (Weight 800), lokal via @font-face oben */
+  --self-font-wordmark: "Orbitron", var(--self-font-sans); /* Logo-Schriftzug "SelfXxx" (Weight 800), lokal via @font-face oben — Self-Marken-Standard */
 
   /* --- Radius / Elevation -------------------------------- */
   --self-radius: 10px;
