@@ -25,8 +25,7 @@ from ..dav.ical import build_calendar
 from ..models import CalendarEvent, DavAccount, DavKind, User
 from ..schemas import EventCreate, EventOut, EventUpdate
 from .dav import gcal_token
-from .deps import get_current_user
-from .feeds import feed_or_bearer_user
+from .feeds import feed_or_bearer_user, feed_write_or_login
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +123,7 @@ def get_hidden(user: User = Depends(feed_or_bearer_user)) -> HiddenCals:
 @router.put("/hidden", response_model=HiddenCals)
 def put_hidden(
     data: HiddenCals,
-    user: User = Depends(get_current_user),
+    user: User = Depends(feed_write_or_login),
     session: Session = Depends(get_session),
 ) -> HiddenCals:
     """Setzt die ausgeblendeten Kalender (ersetzt die Liste vollständig)."""
@@ -196,7 +195,7 @@ def _persist_event(data: EventCreate, user: User, session: Session) -> CalendarE
 @router.post("/events", response_model=EventOut, status_code=status.HTTP_201_CREATED)
 def create_event(
     data: EventCreate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(feed_write_or_login),
     session: Session = Depends(get_session),
 ) -> CalendarEvent:
     return _persist_event(data, user, session)
@@ -312,7 +311,7 @@ _UNSET = object()
 def update_event(
     event_id: int,
     data: EventUpdate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(feed_write_or_login),
     session: Session = Depends(get_session),
 ) -> CalendarEvent:
     ev = _owned(event_id, user, session)
@@ -341,7 +340,7 @@ def update_event(
 @router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_event(
     event_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(feed_write_or_login),
     session: Session = Depends(get_session),
 ) -> None:
     ev = _owned(event_id, user, session)
@@ -365,11 +364,11 @@ def delete_event(
 # ---------------------------------------------------------------------------
 # Externe Dashboard-Schnittstelle: wählbare Ziel-Kalender (Feed-Token-Auth)
 # ---------------------------------------------------------------------------
-# Lesende Endpunkte (Liste/Export/Ziel-Kalender) akzeptieren ``?token=``
+# Lesende Endpunkte (Liste/Export/Ziel-Kalender) akzeptieren JEDEN Feed-Token
 # (feed_or_bearer_user), damit ein Dashboard ganz ohne Login POLLEN kann.
-# SCHREIBEN (Anlegen/Ändern/Löschen, inkl. Google-Push) verlangt dagegen einen
-# vollen Login (get_current_user) — ein Feed-Token ist bewusst read-only, sonst
-# könnte ein geleakter Abo-Link Termine verändern. Diese Ziel-Kalender-Liste
+# SCHREIBEN (Anlegen/Ändern/Löschen, inkl. Google-Push) verlangt dagegen den
+# separaten SCHREIB-Token oder Login (feed_write_or_login) — der leck-anfällige
+# Lese-Token (steckt in Abo-URLs) darf NICHT schreiben. Diese Ziel-Kalender-Liste
 # (Lokal + beschreibbare Google-Kalender) versorgt das "in welchen Kalender?"-
 # Dropdown eines externen Widgets.
 

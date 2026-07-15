@@ -581,3 +581,7 @@ class FeedTokenOut(BaseModel):
     calendar_url: str
     contacts_url: str
     dashboard_url: str = ""   # gebündelte Mail-Übersicht für ein externes Dashboard
+
+
+class WriteTokenOut(BaseModel):
+    write_token: str   # Schreib-Token fürs Dashboard/Kalender-Widget (nicht in Abo-URLs)

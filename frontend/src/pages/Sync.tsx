@@ -20,6 +20,7 @@ function fmt(iso: string | null, lang: Lang, t: TFunc): string {
 export function Sync() {
   const { t, lang } = useLang();
   const [feed, setFeed] = useState<FeedToken | null>(null);
+  const [writeTok, setWriteTok] = useState("");  // Schreib-Token (erst auf Klick geladen)
   const [accounts, setAccounts] = useState<DavAccount[]>([]);
   const [form, setForm] = useState({ ...EMPTY });
   // Bearbeiten-Modus: editId = welches Konto, editForm = dessen Felder.
@@ -130,6 +131,15 @@ export function Sync() {
   async function rotate() {
     if (!(await confirmDialog(t("sync.rotateConfirm")))) return;
     try { setFeed(await api.post<FeedToken>("/feeds/token/rotate")); setNote(t("sync.rotated")); }
+    catch (e) { setErr((e as Error).message); }
+  }
+  async function showWriteToken() {
+    try { setWriteTok((await api.get<{ write_token: string }>("/feeds/write-token")).write_token); }
+    catch (e) { setErr((e as Error).message); }
+  }
+  async function rotateWriteToken() {
+    if (!(await confirmDialog("Neuen Schreib-Token erzeugen? Schreibende Clients (z. B. Dashboard) müssen dann mit dem neuen Token neu konfiguriert werden."))) return;
+    try { setWriteTok((await api.post<{ write_token: string }>("/feeds/write-token/rotate")).write_token); setNote(t("sync.rotated")); }
     catch (e) { setErr((e as Error).message); }
   }
 
@@ -321,6 +331,29 @@ export function Sync() {
               <button className="ghost" onClick={rotate}>{t("sync.regenToken")}</button>
             </div>
           </div>
+        )}
+      </section>
+
+      {/* Schreib-Token fürs Dashboard / Kalender-Widget (getrennt vom Lese-Token) */}
+      <section className="stack">
+        <div className="label">Schreib-Token (Dashboard / Kalender-Widget)</div>
+        <p className="muted" style={{ margin: 0 }}>
+          Nur dieser Token darf Termine <b>anlegen, ändern und löschen</b>. Trage ihn im
+          SelfDashboard-Plugin „SelfMailer Kalender" als Token ein. Verwende ihn <b>nicht</b>
+          {" "}in .ics-Abo-URLs — dafür ist der obige Nur-Lese-Token da (ein geleakter Abo-Link
+          kann so nichts verändern).
+        </p>
+        {writeTok ? (
+          <div className="card row" style={{ padding: "0.7rem 1rem" }}>
+            <div className="grow" style={{ overflow: "hidden" }}>
+              <div style={{ fontWeight: 600 }}>Schreib-Token</div>
+              <div className="mail-from" style={{ wordBreak: "break-all" }}>{writeTok}</div>
+            </div>
+            <button className="ghost" onClick={async () => { const ok = await copyText(writeTok); setNote(ok ? t("sync.copied") : writeTok); }}>{t("sync.copy")}</button>
+            <button className="ghost" onClick={rotateWriteToken}>Neu erzeugen</button>
+          </div>
+        ) : (
+          <div className="row"><button className="ghost" onClick={showWriteToken}>Schreib-Token anzeigen</button></div>
         )}
       </section>
 

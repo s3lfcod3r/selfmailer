@@ -335,4 +335,8 @@ class FeedToken(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, unique=True, foreign_key="user.id")
     token: str = Field(index=True, unique=True)
+    # Getrennter SCHREIB-Token: nur er darf schreiben (Termine anlegen/ändern/
+    # löschen). Der obige Lese-Token steckt in leck-anfälligen Abo-URLs
+    # (.ics?token=…) und darf deshalb NICHT schreiben. None = noch nicht erzeugt.
+    write_token: str | None = Field(default=None, index=True)
     created_at: dt.datetime = Field(default_factory=_now)

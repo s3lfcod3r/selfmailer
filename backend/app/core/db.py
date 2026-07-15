@@ -64,6 +64,9 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("trash_purge_days", "INTEGER DEFAULT -1"),
     ],
     "mailrule": [("delete_msg", "INTEGER DEFAULT 0")],
+    # TEXT (nicht VARCHAR) → kein ''-Backfill: write_token bleibt NULL, bis der
+    # User ihn erzeugt (leerer Token darf niemals matchen).
+    "feedtoken": [("write_token", "TEXT")],
     "cachedmessage": [("detail_json", "VARCHAR")],
     "cachedfolder": [("special", "VARCHAR")],
     "calendarevent": [
