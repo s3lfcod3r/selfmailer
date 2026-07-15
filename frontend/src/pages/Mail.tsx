@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
@@ -8,6 +8,7 @@ import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../co
 type Sel = { acc: number; folder: string };
 
 const PAGE_SIZE = 50;  // Mails pro Seite
+const SEARCH_LIMIT = 1000;  // Obergrenze der bei aktiver Suche geladenen Mails
 
 // Sichtbare Seitenzahlen mit Auslassung: 1 … (cur-1) cur (cur+1) … last.
 function pageNumbers(cur: number, total: number): (number | "…")[] {
@@ -139,6 +140,53 @@ function authView(auth: AuthInfo | null, de: boolean): AuthView {
   return { color, bg, border, icon, short, text, tip, chips };
 }
 
+// Stabile Callback-Referenzen für eine Listenzeile — als eigenes, memoisiertes
+// Bündel übergeben, damit React.memo Zeilen überspringen kann, deren eigene
+// Daten (m/isSelected/isActive) sich nicht geändert haben.
+type RowHandlers = {
+  onOpen: (uid: string) => void;
+  onOpenPopup: (uid: string) => void;
+  onPrefetch: (uid: string) => void;
+  onToggleFlag: (m: MsgHeader) => void;
+  onToggleSeen: (m: MsgHeader) => void;
+  onToggleSelect: (uid: string) => void;
+  onDelete: (m: MsgHeader) => void;
+  onDragStart: (uid: string) => void;
+  onDragEnd: () => void;
+};
+type RowLabels = { flag: string; noSubject: string; markUnread: string; markRead: string; delete: string };
+
+// Eine Nachrichtenzeile der Liste. React.memo: rendert nur neu, wenn sich die
+// eigenen Props ändern — bei hunderten/tausenden Treffern (Suche) reconcilen so
+// nicht mehr alle Zeilen bei jeder Interaktion (Auswahl/Öffnen/Sync).
+const MailRow = memo(function MailRow({ m, isSelected, isActive, handlers, labels }: {
+  m: MsgHeader; isSelected: boolean; isActive: boolean; handlers: RowHandlers; labels: RowLabels;
+}) {
+  return (
+    <div className={`mail-row ${m.seen ? "" : "unseen"}`}
+      draggable onDragStart={() => handlers.onDragStart(m.uid)} onDragEnd={handlers.onDragEnd}
+      style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: isActive ? "var(--self-teal)" : undefined }}>
+      <input type="checkbox" checked={isSelected} onChange={() => handlers.onToggleSelect(m.uid)} style={{ flex: "0 0 auto", width: "auto", marginTop: "0.3rem" }} />
+      <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={() => handlers.onToggleFlag(m)} title={labels.flag}>
+        {m.flagged ? "★" : "☆"}
+      </button>
+      <div className="grow" role="button" tabIndex={0} style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => handlers.onOpen(m.uid)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlers.onOpen(m.uid); } }} onDoubleClick={() => handlers.onOpenPopup(m.uid)} onMouseEnter={() => handlers.onPrefetch(m.uid)}>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
+          <span style={{ flex: 1, minWidth: 0, fontWeight: m.seen ? 400 : 700, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{m.from}</span>
+          <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(m.date)}</span>
+        </div>
+        <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || labels.noSubject}</span>
+          {m.has_attachments && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
+        </div>
+        {m.snippet && <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.snippet}</div>}
+      </div>
+      <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto", color: m.seen ? undefined : "var(--self-unread)", fontSize: m.seen ? undefined : "1.1rem", lineHeight: 1 }} onClick={() => handlers.onToggleSeen(m)} title={m.seen ? labels.markUnread : labels.markRead}>{m.seen ? "○" : "●"}</button>
+      <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => handlers.onDelete(m)} title={labels.delete}>🗑</button>
+    </div>
+  );
+});
+
 export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true, onUnseenChange }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; onUnseenChange?: (total: number) => void }) {
   const { t, lang } = useLang();
   const de = lang === "de";
@@ -150,6 +198,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [messages, setMessages] = useState<MsgHeader[]>([]);
   const [open, setOpen] = useState<MsgDetail | null>(null);
   const [opening, setOpening] = useState(false); // Body wird geladen → sofort Ladeanzeige
+  // Suche hat die Obergrenze (SEARCH_LIMIT) erreicht → sichtbarer Hinweis, dass
+  // die Trefferliste abgeschnitten ist (sonst wirkt sie irreführend vollständig).
+  const [searchTruncated, setSearchTruncated] = useState(false);
+  // SSE-Live-Verbindung gerade unterbrochen? (nicht fatal — Browser reconnectet)
+  const [liveDown, setLiveDown] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -220,18 +273,28 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [fmParent, setFmParent] = useState<string>("");
 
   function makeResize(current: number, setW: (n: number) => void, key: string, min: number, max: number) {
-    return (e: React.MouseEvent) => {
+    // Pointer-Events + setPointerCapture: die Bewegungs-/Loslassen-Events kommen
+    // AUCH dann noch am Griff an, wenn der Zeiger über dem Mail-iframe landet.
+    // Früher hörte document das mouseup dort nicht mehr → hängengebliebenes
+    // Ziehen. pointercancel + Capture-Freigabe als zusätzliche Absicherung.
+    return (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
       const startX = e.clientX;
+      const el = e.currentTarget;
+      const pid = e.pointerId;
+      try { el.setPointerCapture(pid); } catch { /* ältere Browser: Fallback über Element-Listener */ }
       let last = current;
-      function move(ev: MouseEvent) { last = Math.max(min, Math.min(max, current + ev.clientX - startX)); setW(last); }
+      function move(ev: PointerEvent) { last = Math.max(min, Math.min(max, current + ev.clientX - startX)); setW(last); }
       function up() {
-        document.removeEventListener("mousemove", move);
-        document.removeEventListener("mouseup", up);
+        el.removeEventListener("pointermove", move);
+        el.removeEventListener("pointerup", up);
+        el.removeEventListener("pointercancel", up);
+        try { el.releasePointerCapture(pid); } catch { /* egal */ }
         localStorage.setItem(key, String(last));
       }
-      document.addEventListener("mousemove", move);
-      document.addEventListener("mouseup", up);
+      el.addEventListener("pointermove", move);
+      el.addEventListener("pointerup", up);
+      el.addEventListener("pointercancel", up);
     };
   }
   const startResize = makeResize(listW, setListW, "selfmailer.listW", 260, 760);
@@ -449,6 +512,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Versionszähler für loadAllForSearch: verwirft veraltete Antworten,
   // wenn während des Ladens erneut (anderer Ordner/Suche) geladen wurde.
   const searchLoadRef = useRef(0);
+  // Versionszähler für openMsg: ein langsamer erster Klick darf einen
+  // schnelleren zweiten (andere Mail) nicht überschreiben. Nur die JÜNGSTE
+  // Öffnung darf ihren Zustand setzen (siehe isLatest() in openMsg).
+  const openSeqRef = useRef(0);
   // Sequenzzähler je (Konto,Ordner) für bgSync: überlappende Sync-Aufrufe
   // (Polling + 20-s-Refresh + SSE) laufen sonst parallel und schreiben in
   // beliebiger Reihenfolge zurück. Nur die JÜNGSTE Antwort pro (acc,folder)
@@ -484,7 +551,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function reload() {
     if (!sel) return;
     const acc = sel.acc, fol = sel.folder;
-    setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false); setPage(1);
+    setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false); setPage(1); setSearchTruncated(false);
     fetchPage(acc, fol, 1)
       .then((ms) => { setMessages(ms); warmBodies(acc, fol, ms); })
       .catch((e) => setErr((e as Error).message))
@@ -533,15 +600,18 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     if (!sel) return;
     const acc = sel.acc, fol = sel.folder;
     const ver = ++searchLoadRef.current;
-    setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false);
-    api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=1000`)
-      .then((ms) => { if (ver !== searchLoadRef.current) return; setMessages(ms); warmBodies(acc, fol, ms); })
+    setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false); setSearchTruncated(false);
+    api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${SEARCH_LIMIT}`)
+      .then((ms) => { if (ver !== searchLoadRef.current) return; setMessages(ms); setSearchTruncated(ms.length >= SEARCH_LIMIT); warmBodies(acc, fol, ms); })
       .catch((e) => { if (ver !== searchLoadRef.current) return; setErr((e as Error).message); })
       .finally(() => { if (ver === searchLoadRef.current) setLoading(false); });
   }
   // Bei Ordnerwechsel ODER Wechsel Suche an/aus passend laden.
   useEffect(() => {
     if (!sel) return;
+    // Vorlade-Merker beim Ordner-/Kontowechsel leeren — sonst wächst das Set in
+    // langen Sitzungen unbegrenzt (Keys enthalten ohnehin Konto+Ordner).
+    prefetchedRef.current.clear();
     if (searchActive) loadAllForSearch(); else reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel?.acc, sel?.folder, searchActive]);
@@ -600,7 +670,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Aktuelle Mail nach Deutsch übersetzen (Toggle: nochmal = Original).
   async function doTranslate(msg: MsgDetail) {
     if (translated != null) { setTranslated(null); return; }
-    const src = (msg.text && msg.text.trim()) ? msg.text : msg.html.replace(/<[^>]+>/g, " ");
+    const src = (msg.text && msg.text.trim()) ? msg.text : (msg.html || "").replace(/<[^>]+>/g, " ");
     if (!src.trim()) return;
     setTranslating(true);
     try {
@@ -617,7 +687,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     // Auth über das httpOnly-Session-Cookie (same-origin automatisch mitgesendet) —
     // das Token steht nicht mehr in der URL (kein Leck in Server-/Proxy-Logs).
     const es = new EventSource("/api/v1/events/stream");
+    // Verbindung offen → evtl. gezeigten „pausiert"-Hinweis entfernen.
+    es.onopen = () => setLiveDown(false);
+    // Fehler ist NICHT fatal: der Browser reconnectet automatisch. Nur ein
+    // dezenter, transienter Hinweis, dass Live-Updates gerade pausieren.
+    es.onerror = () => setLiveDown(true);
     es.onmessage = (e) => {
+      setLiveDown(false);
       try {
         const ev = JSON.parse(e.data) as { type?: string; account_id?: number };
         if (ev.type !== "mail") return;
@@ -640,6 +716,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
 
   async function openMsg(uid: string, asPopup = false) {
     if (activeId == null) return;
+    // Diese Öffnung als jüngste markieren; Konto/Ordner beim Klick festhalten.
+    const ver = ++openSeqRef.current;
+    const acc = activeId, fol = folder;
+    // Darf diese (evtl. langsame) Antwort noch Zustand setzen? Nur wenn sie die
+    // JÜNGSTE Öffnung ist UND der Nutzer noch im selben Konto/Ordner steht.
+    const isLatest = () =>
+      ver === openSeqRef.current &&
+      selRef.current?.acc === acc && selRef.current?.folder === fol;
     setErr("");
     // SOFORT Feedback: Leseansicht + Ladeanzeige zeigen, BEVOR der Body geladen
     // wird. Sonst passiert bei kaltem (nicht vorgeladenem) Body sichtbar nichts,
@@ -647,10 +731,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     if (!asPopup) { setOpening(true); setMobilePane("read"); }
     setReadMenu(false);
     try {
-      const msg = await api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`);
-      const lastPart = folder.split(/[/.]/).pop() || folder;
+      const msg = await api.get<MsgDetail>(`/mail/${acc}/messages/${uid}?folder=${encodeURIComponent(fol)}`);
+      if (!isLatest()) return;  // veraltete/überholte Öffnung: nichts setzen
+      const lastPart = fol.split(/[/.]/).pop() || fol;
       if (specialKind(lastPart) === "drafts") {
-        setDraft({ to: msg.to.join(", "), cc: "", bcc: "", subject: msg.subject, body: msg.text || msg.html.replace(/<[^>]+>/g, ""), in_reply_to: "" });
+        setDraft({ to: (msg.to ?? []).join(", "), cc: "", bcc: "", subject: msg.subject, body: msg.text || (msg.html || "").replace(/<[^>]+>/g, ""), in_reply_to: "" });
         setMobilePane("list");
         return;
       }
@@ -663,25 +748,27 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       setTranslated(null);
       setDarkBody(darkMail);
       if (!msg.seen) {
-        api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=true`).catch(() => {});
+        api.post(`/mail/${acc}/messages/${uid}/flags?folder=${encodeURIComponent(fol)}&seen=true`).catch(() => {});
         patchHeader(uid, { seen: true });
-        bumpUnseen(activeId, folder, -1);
+        bumpUnseen(acc, fol, -1);
       }
     } catch (e) {
       // Mail serverseitig weg (Cache war kurz veraltet): Zeile entfernen, klare
       // Meldung statt rohem Fehler, und still neu synchronisieren (selbstheilend).
       if (isNotFound(e)) {
         setMessages((ms) => ms.filter((x) => x.uid !== uid));
-        prefetchedRef.current.delete(`${activeId}:${folder}:${uid}`);
-        if (open?.uid === uid) setOpen(null);
-        setErr(t("mail.gone"));
-        if (sel) bgSync(sel.acc, sel.folder, pageRef.current);
-      } else {
+        prefetchedRef.current.delete(`${acc}:${fol}:${uid}`);
+        setOpen((o) => (o?.uid === uid ? null : o));
+        if (isLatest()) setErr(t("mail.gone"));
+        if (selRef.current) bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
+      } else if (isLatest()) {
         setErr((e as Error).message || "");
       }
-      if (!open) setMobilePane("list"); // nichts offen → zurück zur Liste (mobil)
+      if (isLatest() && !open) setMobilePane("list"); // nichts offen → zurück zur Liste (mobil)
     } finally {
-      setOpening(false);
+      // Ladeanzeige nur dann beenden, wenn KEINE jüngere Öffnung mehr läuft
+      // (sonst würde ein veralteter Aufruf den Spinner der aktuellen abwürgen).
+      if (ver === openSeqRef.current) setOpening(false);
     }
   }
   // Body beim Drüberfahren vorladen: der erste Live-Abruf landet im DB-Cache,
@@ -709,7 +796,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         // NICHT erneut versuchen (Key bleibt gesetzt). Verhindert 404-Endlosschleife.
         if (isNotFound(e)) {
           setMessages((ms) => ms.filter((x) => x.uid !== uid));
-          if (open?.uid === uid) setOpen(null);
+          setOpen((o) => (o?.uid === uid ? null : o));
         }
       });
   }
@@ -927,6 +1014,42 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     );
   }
 
+  // Sichtbare Zeilen (Suche + Filter) memoisieren — bei aktiver Suche kann die
+  // Rohliste sehr lang sein; ohne Memo würde bei jeder Interaktion neu gefiltert.
+  // MUSS vor dem Early-Return unten stehen (Regeln der Hooks).
+  const visible = useMemo(() => messages
+    .filter((m) => !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
+    .filter((m) => !filter?.from || m.from.toLowerCase().includes(filter.from.toLowerCase()))
+    .filter((m) => !filter?.subject || m.subject.toLowerCase().includes(filter.subject.toLowerCase()))
+    .filter((m) => !filter?.unread || !m.seen)
+    .filter((m) => !filter?.starred || m.flagged)
+    .filter((m) => !filter?.attachments || m.has_attachments)
+    .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo)),
+    [messages, search, filter]);
+
+  // Stabile Handler- und Label-Bündel für die memoisierten Listenzeilen (MailRow).
+  // handlersRef zeigt immer auf die aktuellen Closures (mit frischem State), die
+  // nach außen gegebenen Callbacks behalten aber ihre Identität → React.memo
+  // kann unveränderte Zeilen überspringen.
+  const handlersRef = useRef({ openMsg, prefetchMsg, toggleFlag, toggleSeen, toggleSelect, del, startDrag, setDragUids });
+  handlersRef.current = { openMsg, prefetchMsg, toggleFlag, toggleSeen, toggleSelect, del, startDrag, setDragUids };
+  const rowHandlers = useMemo<RowHandlers>(() => ({
+    onOpen: (uid) => handlersRef.current.openMsg(uid),
+    onOpenPopup: (uid) => handlersRef.current.openMsg(uid, true),
+    onPrefetch: (uid) => handlersRef.current.prefetchMsg(uid),
+    onToggleFlag: (m) => handlersRef.current.toggleFlag(m),
+    onToggleSeen: (m) => handlersRef.current.toggleSeen(m),
+    onToggleSelect: (uid) => handlersRef.current.toggleSelect(uid),
+    onDelete: (m) => handlersRef.current.del(m),
+    onDragStart: (uid) => handlersRef.current.startDrag(uid),
+    onDragEnd: () => handlersRef.current.setDragUids([]),
+  }), []);
+  const rowLabels = useMemo<RowLabels>(() => ({
+    flag: t("mail.flag"), noSubject: t("mail.noSubject"),
+    markUnread: t("mail.markUnread"), markRead: t("mail.markRead"), delete: t("mail.delete"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [lang]);
+
   if (accounts.length === 0) {
     return <p className="muted">{t("mail.noAccount")}</p>;
   }
@@ -940,14 +1063,6 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     folderNames.find((f) => specialKind(f.split(/[/.]/).pop() || f) === "spam")
   );
 
-  const visible = messages
-    .filter((m) => !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
-    .filter((m) => !filter?.from || m.from.toLowerCase().includes(filter.from.toLowerCase()))
-    .filter((m) => !filter?.subject || m.subject.toLowerCase().includes(filter.subject.toLowerCase()))
-    .filter((m) => !filter?.unread || !m.seen)
-    .filter((m) => !filter?.starred || m.flagged)
-    .filter((m) => !filter?.attachments || m.has_attachments)
-    .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo));
   // Gesamtzahl/Seitenzahl des aktiven Ordners aus den Zählern (IMAP STATUS).
   const folderTotal = (foldersByAcc[activeId ?? -1] || []).find((f) => f.name === folder)?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(folderTotal / PAGE_SIZE));
@@ -1087,6 +1202,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   return (
     <div className="mail-page">
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
+      {liveDown && (
+        <div className="muted" style={{ marginBottom: "0.5rem", fontSize: "0.75rem" }}>
+          ⚠ {de ? "Live-Updates pausiert – Verbindung wird wiederhergestellt." : "Live updates paused – reconnecting."}
+        </div>
+      )}
 
       <div className="mail-layout" data-pane={mobilePane}>
         {/* Konten + Ordner (Thunderbird-Stil) */}
@@ -1148,7 +1268,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
           })}
         </aside>
 
-        <div className="resize-handle" onMouseDown={startResizeFolders} title={t("mail.resizeHint")} />
+        <div className="resize-handle" onPointerDown={startResizeFolders} title={t("mail.resizeHint")} />
 
         {/* Listen-Spalte */}
         <div className="mail-listcol" style={{ flex: `0 0 ${listW}px`, position: "relative" }}>
@@ -1229,29 +1349,21 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               ))}
             </div>
           )}
+          {searchActive && searchTruncated && (
+            <div className="muted" style={{ fontSize: "0.75rem", padding: "0.3rem 0.55rem", borderBottom: "1px solid var(--self-line)" }}>
+              ⚠ {de ? `Zeige die ersten ${SEARCH_LIMIT} — Suche verfeinern.` : `Showing the first ${SEARCH_LIMIT} — refine your search.`}
+            </div>
+          )}
           <div className="mail-list">
             {visible.map((m) => (
-              <div className={`mail-row ${m.seen ? "" : "unseen"}`} key={m.uid}
-                draggable onDragStart={() => startDrag(m.uid)} onDragEnd={() => setDragUids([])}
-                style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: open?.uid === m.uid ? "var(--self-teal)" : undefined }}>
-                <input type="checkbox" checked={selected.has(m.uid)} onChange={() => toggleSelect(m.uid)} style={{ flex: "0 0 auto", width: "auto", marginTop: "0.3rem" }} />
-                <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={() => toggleFlag(m)} title={t("mail.flag")}>
-                  {m.flagged ? "★" : "☆"}
-                </button>
-                <div className="grow" role="button" tabIndex={0} style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => openMsg(m.uid)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openMsg(m.uid); } }} onDoubleClick={() => openMsg(m.uid, true)} onMouseEnter={() => prefetchMsg(m.uid)}>
-                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
-                    <span style={{ flex: 1, minWidth: 0, fontWeight: m.seen ? 400 : 700, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{m.from}</span>
-                    <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(m.date)}</span>
-                  </div>
-                  <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || t("mail.noSubject")}</span>
-                    {m.has_attachments && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
-                  </div>
-                  {m.snippet && <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.snippet}</div>}
-                </div>
-                <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto", color: m.seen ? undefined : "var(--self-unread)", fontSize: m.seen ? undefined : "1.1rem", lineHeight: 1 }} onClick={() => toggleSeen(m)} title={m.seen ? t("mail.markUnread") : t("mail.markRead")}>{m.seen ? "○" : "●"}</button>
-                <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => del(m)} title={t("mail.delete")}>🗑</button>
-              </div>
+              <MailRow
+                key={m.uid}
+                m={m}
+                isSelected={selected.has(m.uid)}
+                isActive={open?.uid === m.uid}
+                handlers={rowHandlers}
+                labels={rowLabels}
+              />
             ))}
             {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
             {!searchActive && totalPages > 1 && !loading && (
@@ -1264,7 +1376,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
           </div>
         </div>
 
-        <div className="resize-handle" onMouseDown={startResize} title={t("mail.resizeHint")} />
+        <div className="resize-handle" onPointerDown={startResize} title={t("mail.resizeHint")} />
 
         {/* Lese-Spalte */}
         {opening ? (
@@ -1339,7 +1451,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               {detailsOpen && (
                 <div className="mail-head-details">
                   <div><span className="label">{t("mail.hdrFrom")}</span><span>{open.from}</span></div>
-                  <div><span className="label">{t("mail.hdrTo")}</span><span>{open.to.join(", ") || "—"}</span></div>
+                  <div><span className="label">{t("mail.hdrTo")}</span><span>{(open.to ?? []).join(", ") || "—"}</span></div>
                   <div><span className="label">{t("mail.hdrDate")}</span><span>{open.date}</span></div>
                 </div>
               )}

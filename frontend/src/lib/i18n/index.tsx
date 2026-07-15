@@ -1,7 +1,7 @@
 // Lightweight i18n without dependencies: Context + useLang() hook + localStorage.
 // 12 European languages. t(key, params) replaces {placeholders} in the string.
 // The dictionaries live in one file per language; en.ts is the canonical key source.
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Dict, Lang, TKey } from "./types";
 import { LANG_CODES, LANGS } from "./types";
 import { en } from "./en";
@@ -60,11 +60,12 @@ export function LangProvider({ children }: { children: ReactNode }) {
     document.documentElement.setAttribute("lang", lang);
   }, [lang]);
 
-  const value: LangContextValue = {
-    lang,
-    setLang: setLangState,
-    t: (key, params) => translate(lang, key, params),
-  };
+  // Kontextwert memoisieren (nur bei Sprachwechsel neu) — sonst bekommt jeder
+  // Consumer bei jedem Provider-Render eine neue Objekt-/t-Referenz.
+  const value = useMemo<LangContextValue>(
+    () => ({ lang, setLang: setLangState, t: (key, params) => translate(lang, key, params) }),
+    [lang],
+  );
   return <LangContext.Provider value={value}>{children}</LangContext.Provider>;
 }
 

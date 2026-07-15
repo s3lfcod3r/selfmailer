@@ -177,12 +177,20 @@ export function Compose({
     const body = editorRef.current?.innerText ?? "";
     const hasContent = !!(d.to || d.cc || d.bcc || d.subject || body.trim());
     if (hasContent) {
+      setBusy(true);
       try {
         await api.post(`/mail/${fromId}/draft`, {
           to: split(d.to), cc: split(d.cc), bcc: split(d.bcc),
           subject: d.subject, body: body + sigText(sig), html: html + sigHtml(sig),
         });
-      } catch { /* Entwurf-Fehler ignorieren, trotzdem schließen */ }
+      } catch (e) {
+        // Speichern fehlgeschlagen: Modal OFFEN lassen + Fehler zeigen, damit der
+        // Entwurf nicht stillschweigend verloren geht.
+        setErr((e as Error).message);
+        setBusy(false);
+        return;
+      }
+      setBusy(false);
     }
     onClose();
   }

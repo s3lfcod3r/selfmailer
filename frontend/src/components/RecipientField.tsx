@@ -26,6 +26,8 @@ function contactName(c: Contact): string {
   return [c.first_name, c.last_name].filter(Boolean).join(" ") || c.organization || c.email;
 }
 
+const SEARCH_DEBOUNCE_MS = 250;
+
 export function RecipientField({ value, onChange, placeholder, autoFocus, style }: Props) {
   const [matches, setMatches] = useState<Contact[]>([]);
   const [open, setOpen] = useState(false);
@@ -33,20 +35,24 @@ export function RecipientField({ value, onChange, placeholder, autoFocus, style 
   const boxRef = useRef<HTMLDivElement>(null);
 
   // Bei Änderung der aktuell getippten Adresse passende Kontakte (mit E-Mail) holen.
+  // Die API-Anfrage wird entprellt (wie in Contacts.tsx), damit nicht bei jedem
+  // Tastendruck eine /contacts-Anfrage rausgeht; das Cleanup verwirft laufende.
   useEffect(() => {
     const { current } = splitCurrent(value);
     if (current.length < 2) { setMatches([]); setOpen(false); return; }
     let ignore = false;
-    api.get<Contact[]>(`/contacts?q=${encodeURIComponent(current)}`)
-      .then((list) => {
-        if (ignore) return;
-        const withMail = list.filter((c) => c.email).slice(0, 6);
-        setMatches(withMail);
-        setActive(0);
-        setOpen(withMail.length > 0);
-      })
-      .catch(() => { if (!ignore) { setMatches([]); setOpen(false); } });
-    return () => { ignore = true; };
+    const timer = setTimeout(() => {
+      api.get<Contact[]>(`/contacts?q=${encodeURIComponent(current)}`)
+        .then((list) => {
+          if (ignore) return;
+          const withMail = list.filter((c) => c.email).slice(0, 6);
+          setMatches(withMail);
+          setActive(0);
+          setOpen(withMail.length > 0);
+        })
+        .catch(() => { if (!ignore) { setMatches([]); setOpen(false); } });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => { ignore = true; clearTimeout(timer); };
   }, [value]);
 
   function pick(c: Contact) {

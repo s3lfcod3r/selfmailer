@@ -6,6 +6,7 @@ import { Login } from "./pages/Login";
 import { Mail } from "./pages/Mail";
 import { Wordmark } from "./components/Wordmark";
 import { LangPicker } from "./components/LangPicker";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // Lazy-Import mit Selbstheilung: schlägt das Laden eines Chunks fehl — typisch
 // direkt NACH einem Deploy, wenn die alten Chunk-Hashes nicht mehr existieren und
@@ -347,21 +348,26 @@ export function App() {
       )}
 
       <main className="app-main">
-        {/* Mail bleibt gemountet (nur versteckt), damit beim Zurückwechseln
-            nicht neu geladen wird – kein sichtbares Nachladen. */}
-        <div style={{ display: view === "mail" ? "contents" : "none" }}>
-          <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} onUnseenChange={setMailUnseen} />
-        </div>
-        <Suspense fallback={<div className="muted">{t("common.loading")}</div>}>
-          {view === "calendar" && <Calendar />}
-          {view === "contacts" && <Contacts />}
-          {view === "notes" && <Notes />}
-          {view === "sync" && <Sync />}
-          {view === "notify" && <Notify />}
-          {view === "accounts" && <Accounts />}
-          {view === "rules" && <Rules />}
-          {view === "admin" && isAdmin && <Admin meId={user.id} />}
-        </Suspense>
+        {/* Fehlergrenze: ein Render-Fehler einer View blendet nur den Inhaltsbereich
+            auf einen Notfall-Bildschirm um — Kopfzeile/Navigation bleiben nutzbar,
+            statt dass die gesamte App weißscreent. */}
+        <ErrorBoundary>
+          {/* Mail bleibt gemountet (nur versteckt), damit beim Zurückwechseln
+              nicht neu geladen wird – kein sichtbares Nachladen. */}
+          <div style={{ display: view === "mail" ? "contents" : "none" }}>
+            <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} onUnseenChange={setMailUnseen} />
+          </div>
+          <Suspense fallback={<div className="muted">{t("common.loading")}</div>}>
+            {view === "calendar" && <Calendar />}
+            {view === "contacts" && <Contacts />}
+            {view === "notes" && <Notes />}
+            {view === "sync" && <Sync />}
+            {view === "notify" && <Notify />}
+            {view === "accounts" && <Accounts />}
+            {view === "rules" && <Rules />}
+            {view === "admin" && isAdmin && <Admin meId={user.id} />}
+          </Suspense>
+        </ErrorBoundary>
       </main>
 
       {designOpen && (
