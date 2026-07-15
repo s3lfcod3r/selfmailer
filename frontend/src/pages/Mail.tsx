@@ -149,6 +149,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<MsgHeader[]>([]);
   const [open, setOpen] = useState<MsgDetail | null>(null);
+  const [opening, setOpening] = useState(false); // Body wird geladen → sofort Ladeanzeige
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -640,11 +641,17 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   async function openMsg(uid: string, asPopup = false) {
     if (activeId == null) return;
     setErr("");
+    // SOFORT Feedback: Leseansicht + Ladeanzeige zeigen, BEVOR der Body geladen
+    // wird. Sonst passiert bei kaltem (nicht vorgeladenem) Body sichtbar nichts,
+    // bis der Live-Abruf durch ist → fühlt sich an wie „öffnet nicht".
+    if (!asPopup) { setOpening(true); setMobilePane("read"); }
+    setReadMenu(false);
     try {
       const msg = await api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`);
       const lastPart = folder.split(/[/.]/).pop() || folder;
       if (specialKind(lastPart) === "drafts") {
         setDraft({ to: msg.to.join(", "), cc: "", bcc: "", subject: msg.subject, body: msg.text || msg.html.replace(/<[^>]+>/g, ""), in_reply_to: "" });
+        setMobilePane("list");
         return;
       }
       setOpen(msg);
@@ -652,7 +659,6 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       setMobilePane("read");
       setDetailsOpen(false);
       setAuthOpen(false);
-      setReadMenu(false);
       setShowImages(false);
       setTranslated(null);
       setDarkBody(darkMail);
@@ -673,6 +679,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       } else {
         setErr((e as Error).message || "");
       }
+      if (!open) setMobilePane("list"); // nichts offen → zurück zur Liste (mobil)
+    } finally {
+      setOpening(false);
     }
   }
   // Body beim Drüberfahren vorladen: der erste Live-Abruf landet im DB-Cache,
@@ -1258,7 +1267,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         <div className="resize-handle" onMouseDown={startResize} title={t("mail.resizeHint")} />
 
         {/* Lese-Spalte */}
-        {open ? (
+        {opening ? (
+          <div className="mail-readcol mail-loading"><span className="mail-spinner" aria-hidden /></div>
+        ) : open ? (
           <div className="mail-readcol">
             <div className="mail-head">
               <div className="mail-head-top">

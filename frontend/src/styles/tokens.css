@@ -4,14 +4,33 @@
    per @import einbinden. Quelle: Selfstream + SelfCoder.
    ============================================================ */
 
-/* Wortmarken-Schrift LOKAL mitgeliefert (kein Google-Fonts/AdGuard-Zwang):
-   Orbitron ist der Self-Marken-Standard (Variable Font, Weight-Achse) → ein
-   @font-face reicht. Datei liegt unter public/fonts/ und wird als
-   /fonts/Orbitron.ttf ausgeliefert. */
-@font-face {
+/* Alle Marken-Schriften LOKAL mitgeliefert (kein Google-Fonts/AdGuard-Zwang;
+   die App-CSP blockt externe Stylesheets ohnehin). Dateien: public/fonts/. */
+@font-face { /* Wortmarke — Self-Marken-Standard (Variable Font) */
   font-family: "Orbitron";
   src: url("/fonts/Orbitron.ttf") format("truetype");
   font-weight: 400 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face { /* UI-Schrift (Variable Font, deckt 400–700 ab) */
+  font-family: "Exo 2";
+  src: url("/fonts/Exo2.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face { /* Mono — Zahlen/Labels/Code (Regular) */
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/IBMPlexMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face { /* Mono — Medium */
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/IBMPlexMono-Medium.ttf") format("truetype");
+  font-weight: 500;
   font-style: normal;
   font-display: swap;
 }

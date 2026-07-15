@@ -478,6 +478,15 @@ select.bulk-btn { max-width: 170px; }
   flex: 1.7 1 0; display: flex; align-items: center; justify-content: center;
   color: var(--self-text-3); min-height: 40vh;
 }
+/* Ladeanzeige beim Öffnen einer Mail (bis der Body da ist). */
+.mail-loading { align-items: center; justify-content: center; display: flex; }
+.mail-spinner {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 3px solid var(--self-line-strong); border-top-color: var(--self-teal);
+  animation: self-spin 0.7s linear infinite;
+}
+@keyframes self-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .mail-spinner { animation-duration: 1.6s; } }
 /* Nur Mobile/Tablet sichtbare Helfer (Standard: versteckt). */
 .mobile-only { display: none; }
 .mail-mobilebar { display: none; }
