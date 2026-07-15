@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
+from ..core import jobs
 from ..core.crypto import decrypt
 from ..core.db import get_session
 from ..mail import imap as imap_mod
@@ -16,7 +17,6 @@ from ..schemas import (
     RuleCreate,
     RuleOut,
     RuleUpdate,
-    SpamPurgeResult,
 )
 from .deps import get_current_user
 
@@ -114,19 +114,35 @@ def delete_rule(
 @router.post("/{account_id}/rules/apply")
 def apply_rules_endpoint(
     account_id: int,
+    background: bool = False,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
+    """Wendet die aktiven Regeln auf den Posteingang an.
+
+    ``background=true`` führt den (bei großen Postfächern langen) Lauf als
+    Hintergrund-Job aus und liefert sofort ``{job_id}`` (Status via
+    ``GET /mail/jobs/{job_id}``); ohne den Parameter bleibt es synchron."""
     acc = _account(account_id, user, session)
     rules = [r for r in _rules(account_id, session) if r.enabled]
     if not rules:
         return {"ok": True, "affected": 0}
+    pw = decrypt(acc.secret_enc)
+
+    def _run() -> dict:
+        return {"ok": True, **imap_mod.apply_rules(acc, pw, rules)}
+
+    if background:
+        job_id = jobs.create_job(user.id, "apply_rules")
+        jobs.start(job_id, _run)
+        return {"job_id": job_id}
     try:
-        result = imap_mod.apply_rules(acc, decrypt(acc.secret_enc), rules)
+        return _run()
+    except HTTPException:
+        raise  # z. B. 503 „Konto gerade beschäftigt" nicht als 502 verschleiern
     except Exception:  # noqa: BLE001
         logger.warning("Regeln anwenden fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Regeln anwenden fehlgeschlagen")
-    return {"ok": True, **result}
 
 
 @router.post("/{account_id}/block-sender", response_model=BlockSenderResult)
@@ -181,33 +197,63 @@ def block_sender(
     return BlockSenderResult(rule=RuleOut.model_validate(rule, from_attributes=True), deleted=deleted)
 
 
-@router.post("/{account_id}/spam/purge", response_model=SpamPurgeResult)
+@router.post("/{account_id}/spam/purge")
 def purge_spam_now(
     account_id: int,
+    background: bool = False,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
-) -> SpamPurgeResult:
-    """Spam-Ordner jetzt sofort endgültig leeren (alle Mails, unabhängig vom Alter)."""
+) -> dict:
+    """Spam-Ordner jetzt sofort endgültig leeren (alle Mails, unabhängig vom Alter).
+
+    ``background=true`` erledigt das (bei vollem Ordner langsame) Leeren als
+    Hintergrund-Job und liefert ``{job_id}``; sonst synchron ``{deleted}``."""
     acc = _account(account_id, user, session)
+    pw = decrypt(acc.secret_enc)
+
+    def _run() -> dict:
+        res = imap_mod.purge_spam(acc, pw, 0)
+        return {"deleted": int(res.get("deleted", 0) or 0)}
+
+    if background:
+        job_id = jobs.create_job(user.id, "purge_spam")
+        jobs.start(job_id, _run)
+        return {"job_id": job_id}
     try:
-        res = imap_mod.purge_spam(acc, decrypt(acc.secret_enc), 0)
+        return _run()
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         logger.warning("Spam leeren fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Spam leeren fehlgeschlagen")
-    return SpamPurgeResult(deleted=int(res.get("deleted", 0) or 0))
 
 
-@router.post("/{account_id}/trash/purge", response_model=SpamPurgeResult)
+@router.post("/{account_id}/trash/purge")
 def purge_trash_now(
     account_id: int,
+    background: bool = False,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
-) -> SpamPurgeResult:
-    """Papierkorb jetzt sofort endgültig leeren (alle Mails, unabhängig vom Alter)."""
+) -> dict:
+    """Papierkorb jetzt sofort endgültig leeren (alle Mails, unabhängig vom Alter).
+
+    ``background=true`` erledigt das Leeren als Hintergrund-Job und liefert
+    ``{job_id}``; sonst synchron ``{deleted}``."""
     acc = _account(account_id, user, session)
+    pw = decrypt(acc.secret_enc)
+
+    def _run() -> dict:
+        res = imap_mod.purge_trash(acc, pw, 0)
+        return {"deleted": int(res.get("deleted", 0) or 0)}
+
+    if background:
+        job_id = jobs.create_job(user.id, "purge_trash")
+        jobs.start(job_id, _run)
+        return {"job_id": job_id}
     try:
-        res = imap_mod.purge_trash(acc, decrypt(acc.secret_enc), 0)
+        return _run()
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         logger.warning("Papierkorb leeren fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Papierkorb leeren fehlgeschlagen")
-    return SpamPurgeResult(deleted=int(res.get("deleted", 0) or 0))

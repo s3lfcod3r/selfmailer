@@ -194,6 +194,8 @@ def change_password(
     session: Session = Depends(get_session),
 ) -> dict:
     """Eigenes Passwort ändern: aktuelles Passwort prüfen, dann neu setzen."""
+    # Wie beim Login gegen Online-Brute-Force des aktuellen Passworts begrenzen.
+    check_rate_limit(f"password:{user.id}", limit=5, window_s=300)
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Aktuelles Passwort falsch")
     user.password_hash = hash_password(data.new_password)
@@ -275,6 +277,8 @@ def totp_disable(
     session: Session = Depends(get_session),
 ) -> dict:
     """Deaktivieren: Passwort bestätigen -> Secret + Backup-Codes löschen."""
+    # Passwort-Bestätigung gegen Online-Brute-Force begrenzen (wie change_password).
+    check_rate_limit(f"totpdis:{user.id}", limit=5, window_s=300)
     if not verify_password(data.password, user.password_hash):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Passwort falsch")
     user.totp_secret = ""

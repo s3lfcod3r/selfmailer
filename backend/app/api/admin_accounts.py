@@ -13,6 +13,7 @@ from ..core.crypto import encrypt
 from ..core.db import get_session
 from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount, MailRule, User
 from ..schemas import AccountCreate, AccountOut
+from .accounts import _check_mail_host
 from .deps import require_admin
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -43,6 +44,11 @@ def add_user_account(
     session: Session = Depends(get_session),
 ) -> MailAccount:
     _require_user(user_id, session)
+    # SSRF-Schutz wie im Self-Service (accounts.add_account): der Server verbindet
+    # sich später serverseitig zu diesen Hosts — interne Ziele (Loopback, LAN,
+    # Cloud-Metadata) vorher ausschließen.
+    _check_mail_host("IMAP-Host", data.imap_host, data.imap_port)
+    _check_mail_host("SMTP-Host", data.smtp_host, data.smtp_port)
     acc = MailAccount(
         user_id=user_id,
         label=data.label or data.email,

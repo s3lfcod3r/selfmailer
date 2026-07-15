@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 
+import httpx
 from sqlmodel import Session, select
 
 from .core.crypto import decrypt
@@ -108,23 +109,26 @@ def sync_user_birthdays(session: Session, user: User) -> dict:
     cal = user.bday_cal_id
     contacts = list(session.exec(select(Contact).where(Contact.user_id == user.id)).all())
     created = updated = removed = 0
-    for c in contacts:
-        try:
-            if c.birthday:
-                ev = _bday_event(c)
-                if c.bday_event_id:
-                    google.patch_event(tok, cal, c.bday_event_id, ev)
-                    updated += 1
-                else:
-                    c.bday_event_id = google.create_event(tok, cal, ev)
+    # EIN keep-alive-Client für alle Kontakte statt pro Kontakt neu TLS aufzubauen
+    # (früher N+1 Verbindungen). Behavior identisch — nur die Verbindung wird geteilt.
+    with httpx.Client(timeout=google._TIMEOUT) as client:
+        for c in contacts:
+            try:
+                if c.birthday:
+                    ev = _bday_event(c)
+                    if c.bday_event_id:
+                        google.patch_event(tok, cal, c.bday_event_id, ev, client=client)
+                        updated += 1
+                    else:
+                        c.bday_event_id = google.create_event(tok, cal, ev, client=client)
+                        session.add(c)
+                        created += 1
+                elif c.bday_event_id:
+                    google.delete_event(tok, cal, c.bday_event_id, client=client)
+                    c.bday_event_id = ""
                     session.add(c)
-                    created += 1
-            elif c.bday_event_id:
-                google.delete_event(tok, cal, c.bday_event_id)
-                c.bday_event_id = ""
-                session.add(c)
-                removed += 1
-        except Exception:  # noqa: BLE001 - ein Kontakt darf den Lauf nicht kippen
-            logger.warning("Geburtstags-Sync: Kontakt %s fehlgeschlagen", c.id, exc_info=True)
+                    removed += 1
+            except Exception:  # noqa: BLE001 - ein Kontakt darf den Lauf nicht kippen
+                logger.warning("Geburtstags-Sync: Kontakt %s fehlgeschlagen", c.id, exc_info=True)
     session.commit()
     return {"ok": True, "created": created, "updated": updated, "removed": removed}

@@ -25,11 +25,16 @@ from ..dav.ical import build_calendar
 from ..models import CalendarEvent, DavAccount, DavKind, User
 from ..schemas import EventCreate, EventOut, EventUpdate
 from .dav import gcal_token
+from .deps import get_current_user
 from .feeds import feed_or_bearer_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/calendar", tags=["calendar"])
+
+# Obergrenze für Listen-Endpoints, damit eine Tabelle nie unbegrenzt viele Zeilen
+# liefert (besonders über den Feed-Token-Pfad ohne Login).
+_MAX_LIST = 2000
 
 
 def _to_utc_naive(d: dt.datetime) -> dt.datetime:
@@ -119,7 +124,7 @@ def get_hidden(user: User = Depends(feed_or_bearer_user)) -> HiddenCals:
 @router.put("/hidden", response_model=HiddenCals)
 def put_hidden(
     data: HiddenCals,
-    user: User = Depends(feed_or_bearer_user),
+    user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> HiddenCals:
     """Setzt die ausgeblendeten Kalender (ersetzt die Liste vollständig)."""
@@ -145,14 +150,14 @@ def list_events(
         stmt = stmt.where(CalendarEvent.start >= start_from)
     if start_to is not None:
         stmt = stmt.where(CalendarEvent.start <= start_to)
-    stmt = stmt.order_by(CalendarEvent.start)
+    stmt = stmt.order_by(CalendarEvent.start).limit(_MAX_LIST)
     return list(session.exec(stmt).all())
 
 
 def _persist_event(data: EventCreate, user: User, session: Session) -> CalendarEvent:
     """Legt einen Termin im lokalen Store an und schreibt ihn optional in einen
-    Google-Kalender zurück (Zwei-Wege-Push). Kern von ``POST /events`` — egal ob
-    der Aufruf per Login (WebUI) oder per Feed-Token (Dashboard) kommt."""
+    Google-Kalender zurück (Zwei-Wege-Push). Kern von ``POST /events`` — nur per
+    vollem Login (Cookie/Bearer) erreichbar; ein Feed-Token ist read-only."""
     if data.end < data.start:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ende liegt vor Beginn")
     ev = CalendarEvent(
@@ -191,7 +196,7 @@ def _persist_event(data: EventCreate, user: User, session: Session) -> CalendarE
 @router.post("/events", response_model=EventOut, status_code=status.HTTP_201_CREATED)
 def create_event(
     data: EventCreate,
-    user: User = Depends(feed_or_bearer_user),
+    user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> CalendarEvent:
     return _persist_event(data, user, session)
@@ -307,7 +312,7 @@ _UNSET = object()
 def update_event(
     event_id: int,
     data: EventUpdate,
-    user: User = Depends(feed_or_bearer_user),
+    user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> CalendarEvent:
     ev = _owned(event_id, user, session)
@@ -336,7 +341,7 @@ def update_event(
 @router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_event(
     event_id: int,
-    user: User = Depends(feed_or_bearer_user),
+    user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> None:
     ev = _owned(event_id, user, session)
@@ -360,12 +365,13 @@ def delete_event(
 # ---------------------------------------------------------------------------
 # Externe Dashboard-Schnittstelle: wählbare Ziel-Kalender (Feed-Token-Auth)
 # ---------------------------------------------------------------------------
-# Die Event-CRUD oben akzeptiert bereits ``?token=`` (feed_or_bearer_user),
-# also kann ein Dashboard über denselben Mechanismus wie die Mail-Übersicht
-# (``api/dashboard.py``) Termine lesen/anlegen/ändern/löschen — der Google-
-# Push hängt an der CRUD-Logik. Hier fehlt nur noch die Liste der möglichen
-# Ziel-Kalender, damit ein externes Widget ein "in welchen Kalender?"-Dropdown
-# bauen kann (Lokal + beschreibbare Google-Kalender).
+# Lesende Endpunkte (Liste/Export/Ziel-Kalender) akzeptieren ``?token=``
+# (feed_or_bearer_user), damit ein Dashboard ganz ohne Login POLLEN kann.
+# SCHREIBEN (Anlegen/Ändern/Löschen, inkl. Google-Push) verlangt dagegen einen
+# vollen Login (get_current_user) — ein Feed-Token ist bewusst read-only, sonst
+# könnte ein geleakter Abo-Link Termine verändern. Diese Ziel-Kalender-Liste
+# (Lokal + beschreibbare Google-Kalender) versorgt das "in welchen Kalender?"-
+# Dropdown eines externen Widgets.
 
 
 @router.get("/targets")

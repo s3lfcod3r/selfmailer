@@ -108,9 +108,11 @@ assert r.status_code==200, r.text
 print("admin password-reset OK")
 
 # Admin konfiguriert Mailkonto FÜR einen User vor
+# (auflösbarer Host wie beim Self-Service oben — der SSRF-Schutz in
+# admin_accounts.add_user_account prüft die DNS-Auflösung/Blockliste)
 r = c.post(f"/api/v1/admin/users/{sven_id}/accounts", json={
     "label":"Arbeit","email":"sven@firma.de","password":"firmenpw123",
-    "imap_host":"imap.firma.de","smtp_host":"smtp.firma.de"
+    "imap_host":"imap.web.de","smtp_host":"smtp.web.de"
 }, headers=H)
 assert r.status_code==201, r.text
 admin_acc_id = r.json()["id"]

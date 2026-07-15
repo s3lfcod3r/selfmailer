@@ -17,8 +17,17 @@ from ..mail import cache as cache_mod
 from ..mail import imap as imap_mod
 from ..mail import migrate as migrate_mod
 from ..mail import smtp as smtp_mod
+from ..core import jobs
 from ..models import MailAccount, User
-from ..schemas import BatchRequest, MessageDetail, MessageHeader, MigrateRequest, SendRequest, TransferRequest
+from ..schemas import (
+    BatchRequest,
+    MAX_ATTACHMENTS_B64_BYTES,
+    MessageDetail,
+    MessageHeader,
+    MigrateRequest,
+    SendRequest,
+    TransferRequest,
+)
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
@@ -33,6 +42,16 @@ def _account(account_id: int, user: User, session: Session) -> MailAccount:
     return acc
 
 
+def _reject_if_too_large(data: SendRequest) -> None:
+    """Server-seitige Obergrenze für die Anhang-Gesamtgröße (base64). Schützt vor
+    riesigen Uploads, die das Frontend-Limit umgehen — HTTP 413 statt 500/OOM."""
+    total = sum(len(a.content_b64 or "") for a in data.attachments)
+    if total > MAX_ATTACHMENTS_B64_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Anhänge zu groß (max. 25 MB)"
+        )
+
+
 def _account_secret(acc: MailAccount) -> str:
     """Entschlüsselt das gespeicherte Konto-Passwort. Schlägt die Entschlüsselung
     fehl (z. B. nach Schlüsselwechsel/Datenkorruption), wird ein sauberes 400
@@ -41,6 +60,20 @@ def _account_secret(acc: MailAccount) -> str:
         return decrypt(acc.secret_enc)
     except ValueError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zugangsdaten nicht entschlüsselbar")
+
+
+@router.get("/jobs/{job_id}")
+def job_status(
+    job_id: str,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Status eines Hintergrund-Jobs (schwere IMAP-Operation). Nur der Eigentümer
+    sieht seinen Job. Liefert ``{status, result, error}`` — status ist ``pending``/
+    ``running``/``done``/``error``; bei ``done`` steht das Ergebnis in ``result``."""
+    job = jobs.get_job(job_id, user.id)
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job nicht gefunden")
+    return job
 
 
 @router.get("/{account_id}/folders")
@@ -236,21 +269,39 @@ def sync_messages(
 def migrate_account(
     account_id: int,
     data: MigrateRequest,
+    background: bool = False,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
     """Migriert Mails aus diesem Quellkonto (z. B. Synology) in die uebrigen
     Konten des Users — pro Mail anhand des Empfängers ins passende Postfach.
-    dry_run=True (Default) zeigt nur die Vorschau, schreibt nichts."""
+    dry_run=True (Default) zeigt nur die Vorschau, schreibt nichts.
+
+    ``background=true`` führt die (u. U. minutenlange) Migration in einem
+    Hintergrund-Job aus und liefert sofort ``{job_id}`` — Status via
+    ``GET /mail/jobs/{job_id}``. Ohne den Parameter bleibt es synchron (Alt-
+    Verhalten, damit bestehende Clients unverändert weiterlaufen)."""
     source = _account(account_id, user, session)
     dest = _account(data.dest_account_id, user, session)  # prüft Eigentümer
     if dest.id == source.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Quelle und Ziel sind identisch")
-    try:
+    src_pw = _account_secret(source)
+    dst_pw = _account_secret(dest)
+
+    def _run() -> dict:
         return migrate_mod.migrate_folders(
-            source, _account_secret(source), dest, _account_secret(dest),
+            source, src_pw, dest, dst_pw,
             target_prefix=data.target_prefix, dry_run=data.dry_run, limit_per_folder=data.limit,
         )
+
+    if background:
+        job_id = jobs.create_job(user.id, "migrate")
+        jobs.start(job_id, _run)
+        return {"job_id": job_id}
+    try:
+        return _run()
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         logger.warning("Migration fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Migration fehlgeschlagen")
@@ -260,19 +311,36 @@ def migrate_account(
 def transfer(
     account_id: int,
     data: TransferRequest,
+    background: bool = False,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
     """Kopiert/verschiebt einzelne Mails oder einen ganzen Ordner aus diesem Konto
-    in den Ordner eines ANDEREN Kontos des Users."""
+    in den Ordner eines ANDEREN Kontos des Users.
+
+    ``background=true`` führt einen ganzen Ordner-Transfer als Hintergrund-Job aus
+    und liefert sofort ``{job_id}`` (Status via ``GET /mail/jobs/{job_id}``); ohne
+    den Parameter bleibt es synchron (Alt-Verhalten)."""
     source = _account(account_id, user, session)
     dest = _account(data.dest_account_id, user, session)
-    try:
+    src_pw = _account_secret(source)
+    dst_pw = _account_secret(dest)
+
+    def _run() -> dict:
         return migrate_mod.transfer_messages(
-            source, _account_secret(source), data.source_folder, data.uids,
-            dest, _account_secret(dest), data.dest_folder,
+            source, src_pw, data.source_folder, data.uids,
+            dest, dst_pw, data.dest_folder,
             move=data.move, limit=data.limit,
         )
+
+    if background:
+        job_id = jobs.create_job(user.id, "transfer")
+        jobs.start(job_id, _run)
+        return {"job_id": job_id}
+    try:
+        return _run()
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         logger.warning("Übertragen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Übertragen fehlgeschlagen")
@@ -520,6 +588,7 @@ def save_draft(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
+    _reject_if_too_large(data)
     acc = _account(account_id, user, session)
     try:
         ok = imap_mod.save_draft(
@@ -544,7 +613,10 @@ async def send(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    acc = _account(account_id, user, session)
+    _reject_if_too_large(data)
+    # Sync-DB-Zugriff (session.get) in einer async-Route -> Threadpool, damit der
+    # Event-Loop nicht blockiert.
+    acc = await run_in_threadpool(_account, account_id, user, session)
     pw = _account_secret(acc)
     try:
         raw = await smtp_mod.send_message(
@@ -593,7 +665,8 @@ async def send_read_receipt(
 ) -> dict:
     """Sendet eine Lesebestätigung (MDN) an den Absender — nur wenn dieser sie
     per Header angefordert hat. Wird vom Bestätigungs-Hinweis im Reader ausgelöst."""
-    acc = _account(account_id, user, session)
+    # Sync-DB-Zugriff in einer async-Route -> Threadpool (Event-Loop nicht blocken).
+    acc = await run_in_threadpool(_account, account_id, user, session)
     pw = _account_secret(acc)
     msg = await run_in_threadpool(imap_mod.get_message, acc, pw, uid, folder)
     if msg is None:

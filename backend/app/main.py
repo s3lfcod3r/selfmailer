@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -55,7 +55,37 @@ async def lifespan(app: FastAPI):
 # Eine einzige Versionsquelle — muss zum README-Badge und der UI passen.
 APP_VERSION = "1.12.0"
 
-app = FastAPI(title=settings.app_name, version=APP_VERSION, lifespan=lifespan)
+# Öffentliche API-Docs (Swagger/ReDoc/OpenAPI-Schema) in Produktion abschalten —
+# reduziert die Angriffsfläche/Info-Preisgabe; die WebUI/APK brauchen sie nicht.
+app = FastAPI(
+    title=settings.app_name,
+    version=APP_VERSION,
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+
+# Hard-Limit fürs rohe Request. Große Uploads (Anhänge) werden anhand von
+# Content-Length früh abgewiesen, BEVOR der Body in den Speicher gelesen wird.
+_MAX_REQUEST_BYTES = 30 * 1024 * 1024  # ~30 MB
+
+
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    """Weist zu große Requests anhand des Content-Length-Headers ab (413), bevor
+    der Body gelesen wird — schützt vor Speicher-Spitzen durch riesige Uploads."""
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > _MAX_REQUEST_BYTES:
+                return Response(
+                    "Anfrage zu groß",
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                )
+        except ValueError:
+            pass  # unlesbarer Header -> normal weiterreichen
+    return await call_next(request)
 
 
 # CSP für die App-Shell (die ausgelieferte React-SPA). Bewusst konservativ, damit

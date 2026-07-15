@@ -35,6 +35,12 @@ INBOX = "INBOX"
 RECENT_LIMIT = 10          # max. Vorschau-Mails über alle Konten zusammen
 PER_ACCOUNT_RECENT = 5     # je Konto so viele neueste Ungelesene einsammeln
 
+# Ein EINZIGER, prozessweiter Thread-Pool für die parallelen Live-IMAP-Abrufe.
+# Früher wurde pro Request ein ThreadPoolExecutor angelegt und wieder verworfen —
+# bei häufigem Dashboard-Polling teuer und potenziell thread-leckend. Jetzt: einmal
+# beim Import erzeugen, über alle Requests wiederverwenden, NIE herunterfahren.
+_LIVE_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="dash-live")
+
 # Bei folders=all NICHT mitzählende Sonderordner: dort liegt keine "neue
 # eingehende Mail" (Papierkorb/Spam/Gesendet/Entwürfe). Inbox/Archiv/eigene
 # Ordner + Unterordner zählen mit.
@@ -120,9 +126,8 @@ def summary(
     # Nur im Inbox-Modus relevant (all zählt immer aus dem Cache).
     live_by_id: dict[int, tuple[int, int | None, str | None]] = {}
     if live and accounts and not include_all:
-        with ThreadPoolExecutor(max_workers=min(8, len(accounts))) as pool:
-            for acc, res in zip(accounts, pool.map(_live_unseen, accounts)):
-                live_by_id[acc.id] = res
+        for acc, res in zip(accounts, _LIVE_POOL.map(_live_unseen, accounts)):
+            live_by_id[acc.id] = res
 
     total = 0
     items: list[dict] = []

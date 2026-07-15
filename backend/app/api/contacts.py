@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel import Session, or_, select
 
 from ..birthdays import delete_one, sync_one, sync_user_birthdays
-from ..core.db import get_session
+from ..core import jobs
+from ..core.db import engine, get_session
 from ..dav.vcard import build_vcards
 from ..models import Contact, User
 from ..schemas import BirthdayCalIn, BirthdayCalOut, ContactCreate, ContactOut, ContactUpdate
@@ -18,6 +19,9 @@ from .deps import get_current_user
 from .feeds import feed_or_bearer_user
 
 router = APIRouter(prefix="/api/v1/contacts", tags=["contacts"])
+
+# Harte Obergrenze, damit die Kontaktliste nie unbegrenzt viele Zeilen zurückgibt.
+_MAX_LIST = 2000
 
 
 @router.get("/birthday-calendar", response_model=BirthdayCalOut)
@@ -51,10 +55,32 @@ def set_birthday_calendar(
 
 @router.post("/birthdays/sync", response_model=dict)
 def sync_birthdays_now(
+    background: bool = False,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    return sync_user_birthdays(session, user)
+    """Alle Geburtstage jetzt mit dem Google-Kalender abgleichen.
+
+    ``background=true`` läuft (bei vielen Kontakten langsam, viele Google-Calls) in
+    einem Hintergrund-Job mit EIGENER DB-Session und liefert sofort ``{job_id}``
+    (Status via ``GET /mail/jobs/{job_id}``); sonst synchron."""
+    if not background:
+        return sync_user_birthdays(session, user)
+
+    # Der Job läuft nach dem Request weiter -> die Request-Session ist dann zu.
+    # Deshalb im Job eine frische Session öffnen und den User neu laden.
+    uid = user.id
+
+    def _run() -> dict:
+        with Session(engine) as s:
+            u = s.get(User, uid)
+            if u is None:
+                return {"ok": False, "reason": "User nicht gefunden"}
+            return sync_user_birthdays(s, u)
+
+    job_id = jobs.create_job(uid, "birthdays")
+    jobs.start(job_id, _run)
+    return {"job_id": job_id}
 
 
 @router.get("/export.vcf")
@@ -104,7 +130,7 @@ def list_contacts(
                 Contact.organization.ilike(like, escape="\\"),
             )
         )
-    stmt = stmt.order_by(Contact.last_name, Contact.first_name)
+    stmt = stmt.order_by(Contact.last_name, Contact.first_name).limit(_MAX_LIST)
     return list(session.exec(stmt).all())
 
 

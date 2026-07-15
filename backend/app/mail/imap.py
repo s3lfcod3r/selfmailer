@@ -13,11 +13,24 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 
+from fastapi import HTTPException, status
 from imap_tools import MailBox, AND
 
 from ..models import MailAccount
 
 logger = logging.getLogger(__name__)
+
+
+class ImapBusyError(HTTPException):
+    """Die Verbindung dieses Kontos ist gerade belegt (Lock-Timeout).
+
+    Statt einen Worker-Thread unbegrenzt an einer laufenden schweren Operation
+    (Migration/Transfer/Regeln/Purge) warten zu lassen, brechen wir nach
+    ``_LOCK_TIMEOUT`` sauber mit HTTP 503 ab. Als ``HTTPException`` liefert
+    FastAPI direkt die 503 aus, wenn der Endpunkt sie nicht selbst abfängt."""
+
+    def __init__(self) -> None:
+        super().__init__(status.HTTP_503_SERVICE_UNAVAILABLE, "Konto gerade beschäftigt")
 
 # IMAP-System-Flags (Backslash literal -> Raw-Strings).
 SEEN = r"\Seen"
@@ -38,6 +51,10 @@ _IDLE_TTL = 240.0  # Sekunden Leerlauf, danach Verbindung schließen
 # Postfach (z. B. ein Provider, der die Verbindung still fallen lässt) den
 # Worker-Thread UNENDLICH -> "alles hängt". Mit Timeout schlägt es sauber fehl.
 _IMAP_TIMEOUT = float(os.getenv("SELFMAILER_IMAP_TIMEOUT", "15") or 15)
+# Max. Wartezeit auf das Konto-Lock. Hält eine schwere Operation die Verbindung
+# lange, sollen konkurrierende Anfragen nicht ewig hängen, sondern nach dieser
+# Zeit mit 503 abbrechen (ImapBusyError).
+_LOCK_TIMEOUT = float(os.getenv("SELFMAILER_IMAP_LOCK_TIMEOUT", "20") or 20)
 _POOL: dict[str, "_PooledBox"] = {}
 _POOL_LOCK = threading.Lock()
 
@@ -144,7 +161,10 @@ def _mailbox(account: MailAccount, password: str, folder: str = "INBOX") -> Iter
         if entry is None:
             entry = _POOL[key] = _PooledBox()
 
-    entry.lock.acquire()
+    # Gebundene Wartezeit: hält eine schwere Operation das Lock, brechen wir nach
+    # _LOCK_TIMEOUT mit 503 ab, statt den Worker-Thread endlos zu blockieren.
+    if not entry.lock.acquire(timeout=_LOCK_TIMEOUT):
+        raise ImapBusyError()
     try:
         # _ensure_box MUSS im try stehen: scheitert es, nachdem entry.box gesetzt
         # wurde (z. B. folder.set wirft), liefe sonst kein Cleanup.

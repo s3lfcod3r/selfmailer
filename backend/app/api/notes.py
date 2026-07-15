@@ -13,6 +13,9 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/notes", tags=["notes"])
 
+# Harte Obergrenze, damit die Liste nie unbegrenzt viele Zeilen zurückgibt.
+_MAX_LIST = 2000
+
 
 def _owned(note_id: int, user: User, session: Session) -> Note:
     note = session.get(Note, note_id)
@@ -29,6 +32,7 @@ def list_notes(
         select(Note)
         .where(Note.user_id == user.id)
         .order_by(Note.pinned.desc(), Note.updated_at.desc())
+        .limit(_MAX_LIST)
     )
     return list(session.exec(stmt).all())
 

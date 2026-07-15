@@ -17,6 +17,9 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 
+# Harte Obergrenze, damit die Liste nie unbegrenzt viele Zeilen zurückgibt.
+_MAX_LIST = 2000
+
 
 def _owned(task_id: int, user: User, session: Session) -> Task:
     tk = session.get(Task, task_id)
@@ -35,6 +38,7 @@ def list_tasks(
         select(Task)
         .where(Task.user_id == user.id)
         .order_by(Task.done, Task.position, Task.due, Task.created_at)
+        .limit(_MAX_LIST)
     )
     return list(session.exec(stmt).all())
 

@@ -195,6 +195,13 @@ class MessageDetail(MessageHeader):
     mdn_request: str = ""           # Adresse aus "Disposition-Notification-To" (Lesebestätigung angefordert)
 
 
+# Server-seitige Obergrenze für die Anhang-Gesamtgröße (Summe der base64-Längen).
+# Spiegelt die 20-MB-Rohdaten-Regel des Frontends mit Puffer für den ~33 %-base64-
+# Overhead. Durchgesetzt in api/mail.py (send/draft) mit HTTP 413; ein größeres
+# rohes Request wird schon von der Middleware in main.py abgewiesen.
+MAX_ATTACHMENTS_B64_BYTES = 25 * 1024 * 1024  # ~25 MB
+
+
 class AttachmentIn(BaseModel):
     """Anhang im Sende-Request: Inhalt als base64 (ggf. mit data:-Präfix)."""
     filename: str

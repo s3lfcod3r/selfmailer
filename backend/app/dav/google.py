@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import datetime as dt
 import urllib.parse
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import httpx
@@ -24,9 +26,26 @@ _CALLIST_URL = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
 _TIMEOUT = httpx.Timeout(20.0)
 
 
-def access_token(client_id: str, client_secret: str, refresh_token: str) -> str:
+@contextmanager
+def _http(client: httpx.Client | None) -> Iterator[httpx.Client]:
+    """Nutzt einen übergebenen (wiederverwendeten) Client oder öffnet einen eigenen.
+
+    So teilen sich Batch-Aufrufe (z. B. Geburtstags-Sync über viele Kontakte, oder
+    ``all_events`` über viele Kalender) EINE keep-alive-Verbindung statt pro Aufruf
+    neu TLS aufzubauen (N+1). Einzelaufrufe ohne ``client`` verhalten sich wie
+    bisher: eigener, kurzlebiger Client."""
+    if client is not None:
+        yield client
+    else:
+        with httpx.Client(timeout=_TIMEOUT) as own:
+            yield own
+
+
+def access_token(
+    client_id: str, client_secret: str, refresh_token: str, *, client: httpx.Client | None = None
+) -> str:
     """Tauscht das refresh_token gegen ein frisches access_token (Bearer)."""
-    with httpx.Client(timeout=_TIMEOUT) as http:
+    with _http(client) as http:
         r = http.post(
             _TOKEN_URL,
             data={
@@ -79,7 +98,7 @@ def _map_event(item: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def calendars(access_tok: str) -> list[dict[str, Any]]:
+def calendars(access_tok: str, *, client: httpx.Client | None = None) -> list[dict[str, Any]]:
     """Listet ALLE Kalender des Kontos (eigene, geteilte, abonnierte: Geburtstage,
     Familienkalender …). Gibt ``[{id, name, primary, access_role}, …]`` zurück.
 
@@ -88,7 +107,7 @@ def calendars(access_tok: str) -> list[dict[str, Any]]:
     headers = {"Authorization": f"Bearer {access_tok}"}
     out: list[dict[str, Any]] = []
     page: str | None = None
-    with httpx.Client(timeout=_TIMEOUT) as http:
+    with _http(client) as http:
         while True:
             params: dict[str, str] = {"maxResults": "250"}
             if page:
@@ -112,15 +131,15 @@ def calendars(access_tok: str) -> list[dict[str, Any]]:
     return out
 
 
-def writable_calendars(access_tok: str) -> list[dict[str, Any]]:
+def writable_calendars(access_tok: str, *, client: httpx.Client | None = None) -> list[dict[str, Any]]:
     """Nur die Kalender, in die der Nutzer schreiben darf (owner/writer)."""
-    return [c for c in calendars(access_tok) if c.get("access_role") in ("owner", "writer")]
+    return [c for c in calendars(access_tok, client=client) if c.get("access_role") in ("owner", "writer")]
 
 
-def primary_calendar_id(access_tok: str) -> str:
+def primary_calendar_id(access_tok: str, *, client: httpx.Client | None = None) -> str:
     """Echte ID des Hauptkalenders (= i. d. R. die Konto-E-Mail). Fallback
     ``primary``, falls keiner als primary markiert ist."""
-    for c in calendars(access_tok):
+    for c in calendars(access_tok, client=client):
         if c.get("primary"):
             return str(c["id"])
     return "primary"
@@ -159,44 +178,52 @@ def _iso_z(d: dt.datetime) -> str:
     return base.isoformat(timespec="seconds") + "Z"
 
 
-def create_event(access_tok: str, calendar_id: str, ev: dict[str, Any]) -> str:
+def create_event(
+    access_tok: str, calendar_id: str, ev: dict[str, Any], *, client: httpx.Client | None = None
+) -> str:
     """Legt einen Termin in Google an und gibt dessen Event-ID zurück."""
     headers = {"Authorization": f"Bearer {access_tok}"}
     url = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
-    with httpx.Client(timeout=_TIMEOUT) as http:
+    with _http(client) as http:
         r = http.post(url, headers=headers, json=_to_google_body(ev))
         r.raise_for_status()
         return str(r.json().get("id") or "")
 
 
-def patch_event(access_tok: str, calendar_id: str, event_id: str, ev: dict[str, Any]) -> None:
+def patch_event(
+    access_tok: str, calendar_id: str, event_id: str, ev: dict[str, Any], *, client: httpx.Client | None = None
+) -> None:
     """Aktualisiert einen vorhandenen Google-Termin (partielles Update)."""
     headers = {"Authorization": f"Bearer {access_tok}"}
     base = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
     url = f"{base}/{urllib.parse.quote(event_id, safe='')}"
-    with httpx.Client(timeout=_TIMEOUT) as http:
+    with _http(client) as http:
         r = http.patch(url, headers=headers, json=_to_google_body(ev))
         r.raise_for_status()
 
 
-def delete_event(access_tok: str, calendar_id: str, event_id: str) -> None:
+def delete_event(
+    access_tok: str, calendar_id: str, event_id: str, *, client: httpx.Client | None = None
+) -> None:
     """Löscht einen Google-Termin. Bereits-gelöscht (404/410) gilt als Erfolg."""
     headers = {"Authorization": f"Bearer {access_tok}"}
     base = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
     url = f"{base}/{urllib.parse.quote(event_id, safe='')}"
-    with httpx.Client(timeout=_TIMEOUT) as http:
+    with _http(client) as http:
         r = http.delete(url, headers=headers)
         if r.status_code not in (404, 410):
             r.raise_for_status()
 
 
-def move_event(access_tok: str, calendar_id: str, event_id: str, destination_id: str) -> None:
+def move_event(
+    access_tok: str, calendar_id: str, event_id: str, destination_id: str, *, client: httpx.Client | None = None
+) -> None:
     """Verschiebt einen Termin in einen anderen Kalender DESSELBEN Kontos (events.move).
     Die Event-ID bleibt erhalten; nur die Zugehörigkeit ändert sich."""
     headers = {"Authorization": f"Bearer {access_tok}"}
     base = _EVENTS_URL.format(cal=urllib.parse.quote(calendar_id, safe=""))
     url = f"{base}/{urllib.parse.quote(event_id, safe='')}/move"
-    with httpx.Client(timeout=_TIMEOUT) as http:
+    with _http(client) as http:
         r = http.post(url, headers=headers, params={"destination": destination_id})
         r.raise_for_status()
 
@@ -209,7 +236,9 @@ def split_uid(external_uid: str) -> tuple[str, str]:
     return "", external_uid
 
 
-def events(access_tok: str, calendar_id: str = "primary") -> list[dict[str, Any]]:
+def events(
+    access_tok: str, calendar_id: str = "primary", *, client: httpx.Client | None = None
+) -> list[dict[str, Any]]:
     """Holt Termine EINES Google-Kalenders in einem sinnvollen Zeitfenster
     (1 Jahr zurück bis 2 Jahre voraus). WICHTIG bei wiederkehrenden Terminen
     (Geburtstage!): ohne Fenster expandiert Google z. B. ab Geburtsjahr 1945 in
@@ -221,7 +250,7 @@ def events(access_tok: str, calendar_id: str = "primary") -> list[dict[str, Any]
     time_max = (now + dt.timedelta(days=730)).strftime("%Y-%m-%dT%H:%M:%SZ")
     out: list[dict[str, Any]] = []
     page: str | None = None
-    with httpx.Client(timeout=_TIMEOUT) as http:
+    with _http(client) as http:
         while True:
             params: dict[str, str] = {
                 "singleEvents": "true", "maxResults": "2500", "showDeleted": "false",
@@ -242,16 +271,20 @@ def events(access_tok: str, calendar_id: str = "primary") -> list[dict[str, Any]
     return out
 
 
-def all_events(access_tok: str) -> list[dict[str, Any]]:
+def all_events(access_tok: str, *, client: httpx.Client | None = None) -> list[dict[str, Any]]:
     """Termine ALLER Kalender des Kontos. UID wird mit der Kalender-ID präfixt
-    (eindeutig über Kalender hinweg); Kalendername als Quelle mitgegeben."""
+    (eindeutig über Kalender hinweg); Kalendername als Quelle mitgegeben.
+
+    Teilt EINEN keep-alive-Client über alle Kalender-Abrufe (spart je Kalender
+    einen TLS-Handshake)."""
     out: list[dict[str, Any]] = []
-    for cal in calendars(access_tok):
-        for ev in events(access_tok, cal["id"]):
-            ev = dict(ev)
-            ev["uid"] = f'{cal["id"]}::{ev["uid"]}'
-            ev["cal_id"] = cal["id"]
-            ev["calendar"] = cal["name"]
-            ev["color"] = cal.get("color", "")
-            out.append(ev)
+    with _http(client) as http:
+        for cal in calendars(access_tok, client=http):
+            for ev in events(access_tok, cal["id"], client=http):
+                ev = dict(ev)
+                ev["uid"] = f'{cal["id"]}::{ev["uid"]}'
+                ev["cal_id"] = cal["id"]
+                ev["calendar"] = cal["name"]
+                ev["color"] = cal.get("color", "")
+                out.append(ev)
     return out
