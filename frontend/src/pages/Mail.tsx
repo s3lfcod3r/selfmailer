@@ -509,9 +509,15 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // sichtbare Seite auffrischt (ohne den Effekt bei jedem Seitenwechsel neu zu setzen).
   const pageRef = useRef(1);
   useEffect(() => { pageRef.current = page; }, [page]);
+  useEffect(() => { searchActiveRef.current = searchActive; }, [searchActive]);
   // Versionszähler für loadAllForSearch: verwirft veraltete Antworten,
   // wenn während des Ladens erneut (anderer Ordner/Suche) geladen wurde.
   const searchLoadRef = useRef(0);
+  // Suchmodus als Ref, damit bgSync ihn kennt: bgSync läuft aus Intervallen/SSE
+  // heraus und sähe den State sonst veraltet. Ohne diesen Guard holte bgSync nur
+  // EINE Seite (PAGE_SIZE) und überschrieb damit die vollständige Trefferliste —
+  // die Suche "verlor" nach ~20 s alle Treffer außerhalb der neuesten Seite.
+  const searchActiveRef = useRef(false);
   // Versionszähler für openMsg: ein langsamer erster Klick darf einen
   // schnelleren zweiten (andere Mail) nicht überschreiben. Nur die JÜNGSTE
   // Öffnung darf ihren Zustand setzen (siehe isLatest() in openMsg).
@@ -547,6 +553,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function fetchPage(acc: number, fol: string, p: number) {
     return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${PAGE_SIZE}&offset=${(p - 1) * PAGE_SIZE}`);
   }
+  // Holt den ganzen Ordner (bis Cache-Tiefe) für die Suche — von loadAllForSearch
+  // und von bgSync im Suchmodus genutzt, damit beide dieselbe Menge liefern.
+  function fetchAllForSearch(acc: number, fol: string) {
+    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${SEARCH_LIMIT}`);
+  }
   // Ordnerwechsel/Neuladen: immer auf Seite 1, Auswahl zurücksetzen.
   function reload() {
     if (!sel) return;
@@ -568,11 +579,19 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const isLatest = () => bgSyncSeqRef.current.get(key) === ver;
     setSyncing(true);
     api.post(`/mail/${acc}/sync?folder=${encodeURIComponent(fol)}`)
-      .then(() => fetchPage(acc, fol, p))
+      // Bei aktiver Suche den GANZEN Ordner nachladen (wie loadAllForSearch),
+      // sonst nur die sichtbare Seite. Andernfalls ersetzt eine 50er-Seite die
+      // vollständige Trefferliste und die Suche wirkt "leergelaufen".
+      .then(() => searchActiveRef.current ? fetchAllForSearch(acc, fol) : fetchPage(acc, fol, p))
       .then((ms) => {
         bgSyncFailRef.current.delete(key);  // Erfolg -> Backoff zurücksetzen
         if (!isLatest()) return;  // veraltete Antwort: verwerfen
-        if (selRef.current?.acc === acc && selRef.current?.folder === fol) setMessages(ms);
+        if (selRef.current?.acc === acc && selRef.current?.folder === fol) {
+          setMessages(ms);
+          // Hinweis "nur die ersten N" mitziehen, sonst bleibt er nach einem
+          // Sync auf dem alten Stand stehen.
+          if (searchActiveRef.current) setSearchTruncated(ms.length >= SEARCH_LIMIT);
+        }
         warmBodies(acc, fol, ms);
         refreshCounts(acc);
       })
@@ -601,7 +620,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const acc = sel.acc, fol = sel.folder;
     const ver = ++searchLoadRef.current;
     setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false); setSearchTruncated(false);
-    api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${SEARCH_LIMIT}`)
+    fetchAllForSearch(acc, fol)
       .then((ms) => { if (ver !== searchLoadRef.current) return; setMessages(ms); setSearchTruncated(ms.length >= SEARCH_LIMIT); warmBodies(acc, fol, ms); })
       .catch((e) => { if (ver !== searchLoadRef.current) return; setErr((e as Error).message); })
       .finally(() => { if (ver === searchLoadRef.current) setLoading(false); });
