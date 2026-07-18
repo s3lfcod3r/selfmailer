@@ -107,6 +107,15 @@ export type Account = {
   spam_purge_days: number;
   trash_purge_days: number;
 };
+/** Server-Version und Build-Kennung.
+ *  Eigener Aufruf statt über `api.get`, weil /api/health bewusst OHNE /v1-Präfix
+ *  und ohne Anmeldung erreichbar ist (Container-Healthcheck). */
+export async function fetchHealth(): Promise<{ app: string; version: string; build: string }> {
+  const r = await fetch("/api/health");
+  if (!r.ok) throw new Error(`health ${r.status}`);
+  return r.json();
+}
+
 export type MsgHeader = {
   uid: string; subject: string; from: string; date: string; seen: boolean; flagged: boolean;
   snippet: string; has_attachments: boolean;

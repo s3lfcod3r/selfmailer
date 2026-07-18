@@ -866,6 +866,14 @@ select.bulk-btn { max-width: 170px; }
 }
 .user-menu-section:first-of-type { border-top: none; margin-top: 0; }
 .user-menu-logout { color: var(--self-red); }
+.user-menu-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.3rem 0.6rem 0.1rem; margin-top: 0.15rem;
+  border-top: 1px solid var(--self-line);
+  font-size: 0.68rem; color: var(--self-text-3);
+}
+.user-menu-foot a { color: var(--self-text-3); text-decoration: none; }
+.user-menu-foot a:hover { color: var(--self-teal-bright); text-decoration: underline; }
 
 /* ── Konten per Drag&Drop sortieren ─────────────────────────────── */
 .mail-acc-head[draggable="true"] { cursor: grab; }

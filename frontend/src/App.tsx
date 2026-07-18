@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from "react";
-import { api, type User } from "./lib/api";
+import { api, fetchHealth, type User } from "./lib/api";
 import { useLang } from "./lib/i18n";
 import { DialogHost } from "./lib/dialog";
 import { Login } from "./pages/Login";
@@ -135,6 +135,9 @@ export function App() {
   // Verhindert (a) ein Zurückschreiben direkt nach dem Laden und (b) unnötige
   // Schreibvorgänge, wenn sich nichts geändert hat.
   const serverPinRef = useRef<boolean | null>(null);
+  // Laufende Server-Version fürs Benutzermenü — zeigt, welcher Stand tatsächlich
+  // im Container läuft (nach einem Update sofort sichtbar, statt raten zu müssen).
+  const [appVersion, setAppVersion] = useState("");
   // App-eigene Textgröße (skaliert alle rem-Einheiten über die Wurzel-Schrift),
   // damit Lesbarkeit OHNE Browser-Zoom (der die Layout-Breite schrumpft) möglich ist.
   const [uiScale, setUiScale] = useState<number>(() => {
@@ -149,6 +152,11 @@ export function App() {
   useEffect(() => { localStorage.setItem("selfmailer.pollMin", String(pollMin)); }, [pollMin]);
   useEffect(() => { localStorage.setItem("selfmailer.blockImages", blockImages ? "1" : "0"); }, [blockImages]);
   useEffect(() => { localStorage.setItem("selfmailer.darkMail", darkMail ? "1" : "0"); }, [darkMail]);
+  // Version einmalig holen. Scheitert das, bleibt die Anzeige leer statt eine
+  // Fehlermeldung zu zeigen — die Versionsnummer ist Information, kein Feature.
+  useEffect(() => {
+    fetchHealth().then((h) => setAppVersion(h.version || "")).catch(() => {});
+  }, []);
   // Beim Start den geteilten Stand vom Server holen. Schlägt das fehl (alter
   // Server, offline), bleibt es beim lokalen Wert — die Einstellung ist Komfort,
   // kein Grund die App zu blockieren.
@@ -403,6 +411,13 @@ export function App() {
             <span className="user-menu-ico">⎋</span>
             <span className="user-menu-label">{t("shell.logout")}</span>
           </button>
+          {/* Laufende Version + Projektlink. rel="noopener noreferrer" ist Pflicht
+              bei target="_blank": ohne noopener kann die geöffnete Seite über
+              window.opener auf diesen Tab zugreifen. */}
+          <div className="user-menu-foot">
+            <span>SelfMailer{appVersion && ` ${appVersion}`}</span>
+            <a href="https://github.com/s3lfcod3r/selfmailer" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+          </div>
         </div>
       )}
 
