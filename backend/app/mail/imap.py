@@ -326,6 +326,87 @@ def list_messages(
 _AUTH_RE = r"{m}\s*=\s*(pass|fail|softfail|hardfail|neutral|none|temperror|permerror|bestguesspass)"
 
 
+def search_messages(
+    account: MailAccount, password: str, query: str, folders: list[str],
+    per_folder: int = 50, total_limit: int = 200, deadline_s: float = 25.0,
+) -> dict:
+    """VOLLTEXT-Suche direkt auf dem Mailserver (IMAP SEARCH TEXT).
+
+    Warum serverseitig und nicht über den Cache: der Cache hält nur die neuesten
+    ~1000 Kopfzeilen je Ordner und davon nur 160 Zeichen Vorschau. IMAP durchsucht
+    dagegen Kopfzeilen UND vollständigen Text ALLER Mails im Ordner — auch solcher,
+    die die App noch nie gesehen hat.
+
+    Ablauf je Ordner: erst ``uids()`` (billig, nur Nummern, die Suche macht der
+    Server), dann EIN Sammel-Fetch der neuesten Treffer. So bleibt die Datenmenge
+    klein, auch wenn ein Suchwort tausende Treffer hat.
+
+    ``deadline_s`` begrenzt die Gesamtdauer: über viele Ordner hinweg ist IMAP-Suche
+    spürbar langsam, und ein Nutzer, der auf eine Liste wartet, soll lieber ein
+    ehrliches Teilergebnis sehen als minutenlang nichts. Das Ergebnis meldet über
+    ``timed_out``/``folders_searched``, ob abgeschnitten wurde — stilles Abschneiden
+    würde wie ein vollständiges Ergebnis aussehen.
+    """
+    out: list[dict] = []
+    started = time.monotonic()
+    searched = 0
+    timed_out = False
+    for folder in folders:
+        if time.monotonic() - started > deadline_s:
+            timed_out = True
+            break
+        try:
+            with _mailbox(account, password, folder=folder) as box:
+                uids = box.uids(AND(text=query))
+                searched += 1
+                if not uids:
+                    continue
+                # Höchste UIDs = neueste Mails. Nur die letzten per_folder holen.
+                selected = uids[-per_folder:]
+                for msg in box.fetch(
+                    AND(uid=",".join(selected)), mark_seen=False, bulk=True, reverse=True
+                ):
+                    out.append(
+                        {
+                            "uid": msg.uid or "",
+                            "folder": folder,
+                            "subject": msg.subject,
+                            "from": msg.from_,
+                            "date": msg.date_str,
+                            "seen": SEEN in msg.flags,
+                            "flagged": FLAGGED in msg.flags,
+                            "snippet": _snippet(msg.text or "", msg.html or ""),
+                            "has_attachments": bool(msg.attachments),
+                            "_sort": msg.date,
+                        }
+                    )
+        except Exception:  # noqa: BLE001
+            # Ein kaputter/gesperrter Ordner darf die ganze Suche nicht kippen —
+            # die übrigen Ordner liefern weiter Treffer.
+            logger.warning("Suche im Ordner %r fehlgeschlagen (account_id=%s)", folder, account.id, exc_info=True)
+            continue
+    # Über alle Ordner hinweg nach Datum sortieren. Über den Zeitstempel statt über
+    # das datetime-Objekt: so kollidieren naive und zeitzonenbehaftete Datumsangaben
+    # nicht, und Mails ganz ohne Datum (0.0) landen hinten statt einen Absturz
+    # beim Vergleich None<None auszulösen.
+    def _sort_key(m: dict) -> float:
+        d = m.get("_sort")
+        try:
+            return d.timestamp()  # type: ignore[union-attr]
+        except Exception:  # noqa: BLE001 - fehlendes/kaputtes Datum
+            return 0.0
+    out.sort(key=_sort_key, reverse=True)
+    for m in out:
+        m.pop("_sort", None)
+    return {
+        "items": out[:total_limit],
+        "folders_searched": searched,
+        "folders_total": len(folders),
+        "timed_out": timed_out,
+        "truncated": len(out) > total_limit,
+    }
+
+
 def _analyze_auth(msg, account: MailAccount) -> dict:
     """Echtheits-Check aus den Authentifizierungs-Headern, die der EMPFANGS-Server
     setzt (Authentication-Results / Received-SPF). Erkennt Spoofing — speziell den

@@ -239,6 +239,45 @@ def messages(
         )
 
 
+@router.get("/{account_id}/search")
+def search(
+    account_id: int,
+    q: str = Query(min_length=2, max_length=200),
+    folder: str = "INBOX",
+    all_folders: bool = Query(default=False),
+    limit: int = Query(default=200, ge=1, le=500),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Volltextsuche über IMAP — Kopfzeilen UND Mailtext, optional alle Ordner.
+
+    Bewusst LIVE statt über den Cache: der Cache kennt nur die neuesten ~1000
+    Kopfzeilen je Ordner und 160 Zeichen Vorschau. Wer eine zwei Jahre alte Mail
+    sucht, findet sie nur so. Der Preis ist Wartezeit — deshalb hat die Suche im
+    Backend eine Zeitgrenze und meldet dem Client, wenn sie abbrechen musste.
+    """
+    acc = _account(account_id, user, session)
+    query = q.strip()
+    if not query:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Suchbegriff fehlt")
+    pw = _account_secret(acc)
+    if all_folders:
+        try:
+            folders = imap_mod.list_folders(acc, pw)
+        except Exception:  # noqa: BLE001 - dann wenigstens im gewählten Ordner suchen
+            logger.warning("Ordnerliste für Suche nicht abrufbar (account_id=%s)", account_id, exc_info=True)
+            folders = [folder]
+    else:
+        folders = [folder]
+    try:
+        return imap_mod.search_messages(acc, pw, query, folders, total_limit=limit)
+    except imap_mod.ImapBusyError:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.warning("Suche fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Suche fehlgeschlagen")
+
+
 @router.get("/{account_id}/folder-uids", response_model=list[str])
 def folder_uids(
     account_id: int,
