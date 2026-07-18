@@ -225,6 +225,7 @@ export const el: Dict = {
   "mail.showImages": "Εμφάνιση εικόνων",
   "shell.blockImages": "Αποκλεισμός εξωτερικών εικόνων",
   "shell.darkMail": "Σκούρα απόχρωση στα φωτεινά μηνύματα",
+  "shell.pinFlagged": "Καρφίτσωμα επισημασμένων μηνυμάτων επάνω",
   "shell.textSize": "Μέγεθος κειμένου",
   "shell.design": "Προσαρμογή σχεδίασης",
   "design.title": "Προσαρμογή σχεδίασης",

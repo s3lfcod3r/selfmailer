@@ -125,6 +125,9 @@ export function App() {
   // Default AN: der früher unlesbare Fall (hell-auf-hell) lag an einem Bug im Dunkel-Stil
   // (Hintergrund wurde mitinvertiert) — behoben. Pro Mail per 🌙/☀️ umschaltbar.
   const [darkMail, setDarkMail] = useState<boolean>(() => localStorage.getItem("selfmailer.darkMail") !== "0");
+  // Markierte (Stern-)Mails oben anheften. Default AUS — die gewohnte rein
+  // chronologische Liste bleibt damit die Voreinstellung.
+  const [pinFlagged, setPinFlagged] = useState<boolean>(() => localStorage.getItem("selfmailer.pinFlagged") === "1");
   // App-eigene Textgröße (skaliert alle rem-Einheiten über die Wurzel-Schrift),
   // damit Lesbarkeit OHNE Browser-Zoom (der die Layout-Breite schrumpft) möglich ist.
   const [uiScale, setUiScale] = useState<number>(() => {
@@ -139,6 +142,7 @@ export function App() {
   useEffect(() => { localStorage.setItem("selfmailer.pollMin", String(pollMin)); }, [pollMin]);
   useEffect(() => { localStorage.setItem("selfmailer.blockImages", blockImages ? "1" : "0"); }, [blockImages]);
   useEffect(() => { localStorage.setItem("selfmailer.darkMail", darkMail ? "1" : "0"); }, [darkMail]);
+  useEffect(() => { localStorage.setItem("selfmailer.pinFlagged", pinFlagged ? "1" : "0"); }, [pinFlagged]);
   useEffect(() => {
     document.documentElement.style.fontSize = uiScale === 100 ? "" : `${uiScale}%`;
     localStorage.setItem("selfmailer.uiScale", String(uiScale));
@@ -308,6 +312,10 @@ export function App() {
             <span>🖼</span> {t("shell.blockImages")}
             <span style={{ marginLeft: "auto", color: blockImages ? "var(--self-teal-bright)" : "var(--self-text-3)" }}>{blockImages ? "✓" : "—"}</span>
           </button>
+          <button onClick={() => setPinFlagged((b) => !b)}>
+            <span>⭐</span> {t("shell.pinFlagged")}
+            <span style={{ marginLeft: "auto", color: pinFlagged ? "var(--self-teal-bright)" : "var(--self-text-3)" }}>{pinFlagged ? "✓" : "—"}</span>
+          </button>
 
           <div className="user-menu-section">{t("menu.appearance")}</div>
           <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
@@ -355,7 +363,7 @@ export function App() {
           {/* Mail bleibt gemountet (nur versteckt), damit beim Zurückwechseln
               nicht neu geladen wird – kein sichtbares Nachladen. */}
           <div style={{ display: view === "mail" ? "contents" : "none" }}>
-            <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} onUnseenChange={setMailUnseen} />
+            <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} pinFlagged={pinFlagged} onUnseenChange={setMailUnseen} />
           </div>
           <Suspense fallback={<div className="muted">{t("common.loading")}</div>}>
             {view === "calendar" && <Calendar />}

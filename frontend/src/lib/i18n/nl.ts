@@ -225,6 +225,7 @@ export const nl: Dict = {
   "mail.showImages": "Afbeeldingen tonen",
   "shell.blockImages": "Externe afbeeldingen blokkeren",
   "shell.darkMail": "Lichte e-mails donker inkleuren",
+  "shell.pinFlagged": "Gemarkeerde e-mails bovenaan vastzetten",
   "shell.textSize": "Tekstgrootte",
   "shell.design": "Ontwerp aanpassen",
   "design.title": "Ontwerp aanpassen",

@@ -225,6 +225,7 @@ export const fr: Dict = {
   "mail.showImages": "Afficher les images",
   "shell.blockImages": "Bloquer les images externes",
   "shell.darkMail": "Assombrir les messages clairs",
+  "shell.pinFlagged": "Épingler les messages suivis en haut",
   "shell.textSize": "Taille du texte",
   "shell.design": "Personnaliser le design",
   "design.title": "Personnaliser le design",

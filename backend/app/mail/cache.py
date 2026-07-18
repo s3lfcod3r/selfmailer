@@ -85,11 +85,23 @@ def has_cache(session: Session, account_id: int, folder: str) -> bool:
     ).first() is not None
 
 
-def read_messages(session: Session, account_id: int, folder: str, limit: int = 50, offset: int = 0) -> list[dict]:
+def read_messages(
+    session: Session, account_id: int, folder: str, limit: int = 50, offset: int = 0,
+    *, pin_flagged: bool = False,
+) -> list[dict]:
+    """Kopfzeilen eines Ordners, neueste zuerst.
+
+    ``pin_flagged``: markierte Mails (Stern) zuerst. Bewusst SERVERSEITIG sortiert
+    und nicht im Frontend — nur so stehen auch markierte Mails von Seite 12 oben
+    auf Seite 1. Eine Frontend-Sortierung könnte immer nur die geladene Seite
+    umsortieren."""
+    order = [CachedMessage.sort_date.desc(), CachedMessage.id.desc()]
+    if pin_flagged:
+        order.insert(0, CachedMessage.flagged.desc())
     rows = session.exec(
         select(CachedMessage)
         .where(CachedMessage.account_id == account_id, CachedMessage.folder == folder)
-        .order_by(CachedMessage.sort_date.desc(), CachedMessage.id.desc())
+        .order_by(*order)
         .offset(offset).limit(limit)
     ).all()
     return [_to_dict(r) for r in rows]

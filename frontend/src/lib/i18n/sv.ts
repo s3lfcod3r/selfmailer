@@ -225,6 +225,7 @@ export const sv: Dict = {
   "mail.showImages": "Visa bilder",
   "shell.blockImages": "Blockera externa bilder",
   "shell.darkMail": "Färga ljus e-post mörk",
+  "shell.pinFlagged": "Fäst flaggad e-post överst",
   "shell.textSize": "Textstorlek",
   "shell.design": "Anpassa design",
   "design.title": "Anpassa design",

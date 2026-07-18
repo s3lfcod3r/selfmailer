@@ -187,7 +187,7 @@ const MailRow = memo(function MailRow({ m, isSelected, isActive, handlers, label
   );
 });
 
-export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true, onUnseenChange }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; onUnseenChange?: (total: number) => void }) {
+export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true, pinFlagged = false, onUnseenChange }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; pinFlagged?: boolean; onUnseenChange?: (total: number) => void }) {
   const { t, lang } = useLang();
   const de = lang === "de";
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -550,13 +550,16 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   }
 
   // Holt genau eine Seite (offset = (p-1)*PAGE_SIZE). Cache-first im Backend.
+  // Sortier-Zusatz für alle Listenabrufe: markierte Mails oben anheften.
+  // Serverseitig, damit es auch über Seitengrenzen hinweg gilt.
+  const pinParam = pinFlagged ? "&pin_flagged=1" : "";
   function fetchPage(acc: number, fol: string, p: number) {
-    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${PAGE_SIZE}&offset=${(p - 1) * PAGE_SIZE}`);
+    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${PAGE_SIZE}&offset=${(p - 1) * PAGE_SIZE}${pinParam}`);
   }
   // Holt den ganzen Ordner (bis Cache-Tiefe) für die Suche — von loadAllForSearch
   // und von bgSync im Suchmodus genutzt, damit beide dieselbe Menge liefern.
   function fetchAllForSearch(acc: number, fol: string) {
-    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${SEARCH_LIMIT}`);
+    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${SEARCH_LIMIT}${pinParam}`);
   }
   // Ordnerwechsel/Neuladen: immer auf Seite 1, Auswahl zurücksetzen.
   function reload() {
@@ -632,8 +635,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     // langen Sitzungen unbegrenzt (Keys enthalten ohnehin Konto+Ordner).
     prefetchedRef.current.clear();
     if (searchActive) loadAllForSearch(); else reload();
+    // pinFlagged mit in den Deps: der Schalter ändert die SERVER-Sortierung,
+    // die Liste muss also neu geholt werden (Umsortieren im Client reicht nicht,
+    // weil dabei Mails von anderen Seiten nach vorn rutschen können).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sel?.acc, sel?.folder, searchActive]);
+  }, [sel?.acc, sel?.folder, searchActive, pinFlagged]);
 
   // Beim Wechsel auf ein Konto dessen Ordnerzähler EINMAL live auffrischen.
   // Inaktive Konten bleiben bis dahin auf dem Cache -> kein 8-fach-IMAP-Sturm.

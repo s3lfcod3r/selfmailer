@@ -197,12 +197,22 @@ def delete_folder(
     return {"ok": True}
 
 
+def _pin_flagged_first(msgs: list[dict], pin_flagged: bool) -> list[dict]:
+    """Markierte Mails nach vorn — für die LIVE-Pfade, die der Cache-Sortierung
+    (siehe cache.read_messages) sonst widersprechen würden. ``sorted`` ist stabil,
+    die Datums-Reihenfolge innerhalb beider Gruppen bleibt also erhalten."""
+    if not pin_flagged:
+        return msgs
+    return sorted(msgs, key=lambda m: not m.get("flagged"))
+
+
 @router.get("/{account_id}/messages", response_model=list[MessageHeader])
 def messages(
     account_id: int,
     folder: str = "INBOX",
     limit: int = Query(default=50, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
+    pin_flagged: bool = Query(default=False),
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[dict]:
@@ -214,17 +224,19 @@ def messages(
         pw = _account_secret(acc)
         if not cache_mod.has_cache(session, account_id, folder):
             cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
-        msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset)
+        msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged)
         # Self-heal: 1. Seite leer, obwohl der Ordner Mails hat (z. B. nach dem
         # Löschen der einzigen gecachten Seite) -> live nachsyncen und erneut lesen.
         if not msgs and offset == 0:
             cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
-            msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset)
+            msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged)
             if not msgs:
-                msgs = imap_mod.list_messages(acc, pw, folder=folder, limit=limit, offset=offset)
+                msgs = _pin_flagged_first(imap_mod.list_messages(acc, pw, folder=folder, limit=limit, offset=offset), pin_flagged)
         return msgs
     except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
-        return imap_mod.list_messages(acc, _account_secret(acc), folder=folder, limit=limit, offset=offset)
+        return _pin_flagged_first(
+            imap_mod.list_messages(acc, _account_secret(acc), folder=folder, limit=limit, offset=offset), pin_flagged
+        )
 
 
 @router.get("/{account_id}/folder-uids", response_model=list[str])
