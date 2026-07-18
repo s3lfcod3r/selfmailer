@@ -302,36 +302,54 @@ export function App() {
 
           <div className="user-menu-section">{t("menu.manage")}</div>
           {settings.map((s) => (
-            <button key={s.key} onClick={() => go(s.key)}><span>{s.icon}</span> {t(s.labelKey)}</button>
+            <button key={s.key} onClick={() => go(s.key)}>
+              <span className="user-menu-ico">{s.icon}</span>
+              <span className="user-menu-label">{t(s.labelKey)}</span>
+            </button>
           ))}
 
           <div className="user-menu-section">{t("menu.security")}</div>
-          <button onClick={openPw}><span>🔑</span> {t("user.changePassword")}</button>
-          <button onClick={() => { setMenu(null); setTotpOpen(true); }}><span>🛡</span> {t("totp.menu")}</button>
+          <button onClick={openPw}>
+            <span className="user-menu-ico">🔑</span>
+            <span className="user-menu-label">{t("user.changePassword")}</span>
+          </button>
+          <button onClick={() => { setMenu(null); setTotpOpen(true); }}>
+            <span className="user-menu-ico">🛡</span>
+            <span className="user-menu-label">{t("totp.menu")}</span>
+          </button>
           <button onClick={() => setBlockImages((b) => !b)}>
-            <span>🖼</span> {t("shell.blockImages")}
-            <span style={{ marginLeft: "auto", color: blockImages ? "var(--self-teal-bright)" : "var(--self-text-3)" }}>{blockImages ? "✓" : "—"}</span>
+            <span className="user-menu-ico">🖼</span>
+            <span className="user-menu-label">{t("shell.blockImages")}</span>
+            <span className={blockImages ? "um-switch on" : "um-switch"} />
           </button>
           <button onClick={() => setPinFlagged((b) => !b)}>
-            <span>⭐</span> {t("shell.pinFlagged")}
-            <span style={{ marginLeft: "auto", color: pinFlagged ? "var(--self-teal-bright)" : "var(--self-text-3)" }}>{pinFlagged ? "✓" : "—"}</span>
+            <span className="user-menu-ico">⭐</span>
+            <span className="user-menu-label">{t("shell.pinFlagged")}</span>
+            <span className={pinFlagged ? "um-switch on" : "um-switch"} />
           </button>
 
           <div className="user-menu-section">{t("menu.appearance")}</div>
           <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
-            <span>🌐 {t("shell.langSwitch")}</span>
+            <span className="user-menu-ico">🌐</span>
+            <span className="user-menu-label">{t("shell.langSwitch")}</span>
             <LangPicker />
           </div>
           <button onClick={() => setTheme((tm) => (tm === "dark" ? "light" : "dark"))}>
-            <span>{theme === "dark" ? "☀" : "🌙"}</span> {theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}
+            <span className="user-menu-ico">{theme === "dark" ? "☀" : "🌙"}</span>
+            <span className="user-menu-label">{theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}</span>
           </button>
           <button onClick={() => setDarkMail((b) => !b)}>
-            <span>🌗</span> {t("shell.darkMail")}
-            <span style={{ marginLeft: "auto", color: darkMail ? "var(--self-teal-bright)" : "var(--self-text-3)" }}>{darkMail ? "✓" : "—"}</span>
+            <span className="user-menu-ico">🌗</span>
+            <span className="user-menu-label">{t("shell.darkMail")}</span>
+            <span className={darkMail ? "um-switch on" : "um-switch"} />
           </button>
-          <button onClick={() => { setMenu(null); setDesignOpen(true); }}><span>🎨</span> {t("shell.design")}</button>
+          <button onClick={() => { setMenu(null); setDesignOpen(true); }}>
+            <span className="user-menu-ico">🎨</span>
+            <span className="user-menu-label">{t("shell.design")}</span>
+          </button>
           <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
-            <span>🔠 {t("shell.textSize")}</span>
+            <span className="user-menu-ico">🔠</span>
+            <span className="user-menu-label">{t("shell.textSize")}</span>
             <select value={uiScale} onChange={(e) => setUiScale(Number(e.target.value))}>
               <option value={100}>100%</option>
               <option value={110}>110%</option>
@@ -340,7 +358,8 @@ export function App() {
             </select>
           </div>
           <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
-            <span>🔄 {t("shell.autoRefresh")}</span>
+            <span className="user-menu-ico">🔄</span>
+            <span className="user-menu-label">{t("shell.autoRefresh")}</span>
             <select value={pollMin} onChange={(e) => setPollMin(Number(e.target.value))}>
               <option value={0}>{t("shell.autoOff")}</option>
               <option value={1}>1 min</option>
@@ -351,7 +370,10 @@ export function App() {
           </div>
 
           <hr />
-          <button className="user-menu-logout" onClick={logout}><span>⎋</span> {t("shell.logout")}</button>
+          <button className="user-menu-logout" onClick={logout}>
+            <span className="user-menu-ico">⎋</span>
+            <span className="user-menu-label">{t("shell.logout")}</span>
+          </button>
         </div>
       )}
 
