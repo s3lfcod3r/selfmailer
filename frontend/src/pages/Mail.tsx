@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount } from "../lib/api";
+import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount, type SearchResult } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
@@ -144,8 +144,10 @@ function authView(auth: AuthInfo | null, de: boolean): AuthView {
 // Bündel übergeben, damit React.memo Zeilen überspringen kann, deren eigene
 // Daten (m/isSelected/isActive) sich nicht geändert haben.
 type RowHandlers = {
-  onOpen: (uid: string) => void;
-  onOpenPopup: (uid: string) => void;
+  // folder: nur bei Volltext-Treffern gesetzt (Mail liegt woanders als im
+  // gerade geöffneten Ordner) — siehe openMsg(uid, asPopup, fromFolder).
+  onOpen: (uid: string, folder?: string) => void;
+  onOpenPopup: (uid: string, folder?: string) => void;
   onPrefetch: (uid: string) => void;
   onToggleFlag: (m: MsgHeader) => void;
   onToggleSeen: (m: MsgHeader) => void;
@@ -170,7 +172,7 @@ const MailRow = memo(function MailRow({ m, isSelected, isActive, handlers, label
       <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={() => handlers.onToggleFlag(m)} title={labels.flag}>
         {m.flagged ? "★" : "☆"}
       </button>
-      <div className="grow" role="button" tabIndex={0} style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => handlers.onOpen(m.uid)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlers.onOpen(m.uid); } }} onDoubleClick={() => handlers.onOpenPopup(m.uid)} onMouseEnter={() => handlers.onPrefetch(m.uid)}>
+      <div className="grow" role="button" tabIndex={0} style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => handlers.onOpen(m.uid, m.folder)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlers.onOpen(m.uid, m.folder); } }} onDoubleClick={() => handlers.onOpenPopup(m.uid, m.folder)} onMouseEnter={() => handlers.onPrefetch(m.uid)}>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
           <span style={{ flex: 1, minWidth: 0, fontWeight: m.seen ? 400 : 700, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{m.from}</span>
           <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(m.date)}</span>
@@ -178,6 +180,9 @@ const MailRow = memo(function MailRow({ m, isSelected, isActive, handlers, label
         <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || labels.noSubject}</span>
           {m.has_attachments && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
+          {/* Bei Volltext-Treffern: aus welchem Ordner stammt die Mail? Ohne das
+              wirkt eine Trefferliste über mehrere Ordner zusammenhanglos. */}
+          {m.folder && <span className="mail-folder-tag" title={m.folder}>{m.folder.split(/[/.]/).pop()}</span>}
         </div>
         {m.snippet && <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.snippet}</div>}
       </div>
@@ -201,6 +206,17 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Suche hat die Obergrenze (SEARCH_LIMIT) erreicht → sichtbarer Hinweis, dass
   // die Trefferliste abgeschnitten ist (sonst wirkt sie irreführend vollständig).
   const [searchTruncated, setSearchTruncated] = useState(false);
+  // Volltextsuche (IMAP, serverseitig). null = aus; dann gilt die gewohnte
+  // Sofort-Filterung über die geladene Liste. Bewusst getrennt gehalten, statt
+  // `messages` zu überschreiben: so bleibt die Ordnerliste im Hintergrund intakt
+  // und „Volltext verlassen" braucht kein Neuladen.
+  const [ftResults, setFtResults] = useState<MsgHeader[] | null>(null);
+  const [ftInfo, setFtInfo] = useState<SearchResult | null>(null);
+  const [ftLoading, setFtLoading] = useState(false);
+  // Begriff, zu dem die Treffer gehören — tippt der Nutzer weiter, passt die
+  // Trefferliste nicht mehr zur Eingabe und wird verworfen.
+  const [ftQuery, setFtQuery] = useState("");
+  const ftSeqRef = useRef(0);
   // SSE-Live-Verbindung gerade unterbrochen? (nicht fatal — Browser reconnectet)
   const [liveDown, setLiveDown] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -628,6 +644,40 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       .catch((e) => { if (ver !== searchLoadRef.current) return; setErr((e as Error).message); })
       .finally(() => { if (ver === searchLoadRef.current) setLoading(false); });
   }
+  // Volltextsuche über IMAP: durchsucht Kopfzeilen UND Mailtext, standardmäßig
+  // in ALLEN Ordnern des Kontos — auch in Mails, die nie im Cache waren.
+  // Bewusst nur auf Knopfdruck: ein IMAP-SEARCH über ~35 Ordner dauert Sekunden
+  // und würde bei jedem Tastendruck den Mailserver fluten.
+  function runFullText() {
+    if (!sel) return;
+    const q = (search ?? "").trim();
+    if (q.length < 2) return;
+    const acc = sel.acc;
+    const ver = ++ftSeqRef.current;
+    setFtLoading(true); setErr(""); setOpen(null);
+    setSelected(new Set()); setSelectAllFolder(false);
+    api.get<SearchResult>(`/mail/${acc}/search?q=${encodeURIComponent(q)}&folder=${encodeURIComponent(sel.folder)}&all_folders=1`)
+      .then((r) => {
+        if (ver !== ftSeqRef.current) return;  // überholte Suche: verwerfen
+        setFtResults(r.items); setFtInfo(r); setFtQuery(q);
+      })
+      .catch((e) => { if (ver === ftSeqRef.current) setErr((e as Error).message); })
+      .finally(() => { if (ver === ftSeqRef.current) setFtLoading(false); });
+  }
+  // Volltextmodus verlassen — zurück zur normalen Ordnerliste.
+  function clearFullText() {
+    ftSeqRef.current++;  // laufende Suche entwerten
+    setFtResults(null); setFtInfo(null); setFtQuery(""); setFtLoading(false);
+  }
+  // Volltext-Treffer verwerfen, sobald sie nicht mehr zur Lage passen:
+  // anderer Suchbegriff, geleerte Suche oder Konto-/Ordnerwechsel. Sonst
+  // stünden Treffer zu einem alten Begriff über einer neuen Eingabe.
+  useEffect(() => {
+    if (ftResults === null) return;
+    if (!searchActive || (search ?? "").trim() !== ftQuery) clearFullText();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, searchActive, sel?.acc, sel?.folder]);
+
   // Bei Ordnerwechsel ODER Wechsel Suche an/aus passend laden.
   useEffect(() => {
     if (!sel) return;
@@ -739,16 +789,22 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
   }
 
-  async function openMsg(uid: string, asPopup = false) {
+  async function openMsg(uid: string, asPopup = false, fromFolder?: string) {
     if (activeId == null) return;
     // Diese Öffnung als jüngste markieren; Konto/Ordner beim Klick festhalten.
     const ver = ++openSeqRef.current;
-    const acc = activeId, fol = folder;
+    // fromFolder: Volltext-Treffer können in einem ANDEREN Ordner liegen als dem
+    // gerade geöffneten — dann muss die Mail von dort geladen werden.
+    const acc = activeId, fol = fromFolder || folder;
+    const crossFolder = !!fromFolder && fromFolder !== folder;
     // Darf diese (evtl. langsame) Antwort noch Zustand setzen? Nur wenn sie die
     // JÜNGSTE Öffnung ist UND der Nutzer noch im selben Konto/Ordner steht.
+    // Bei ordnerfremden Treffern entfällt die Ordner-Prüfung — sonst würde die
+    // Antwort immer verworfen, weil der ausgewählte Ordner ein anderer ist.
     const isLatest = () =>
       ver === openSeqRef.current &&
-      selRef.current?.acc === acc && selRef.current?.folder === fol;
+      selRef.current?.acc === acc &&
+      (crossFolder || selRef.current?.folder === fol);
     setErr("");
     // SOFORT Feedback: Leseansicht + Ladeanzeige zeigen, BEVOR der Body geladen
     // wird. Sonst passiert bei kaltem (nicht vorgeladenem) Body sichtbar nichts,
@@ -1042,15 +1098,20 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Sichtbare Zeilen (Suche + Filter) memoisieren — bei aktiver Suche kann die
   // Rohliste sehr lang sein; ohne Memo würde bei jeder Interaktion neu gefiltert.
   // MUSS vor dem Early-Return unten stehen (Regeln der Hooks).
-  const visible = useMemo(() => messages
-    .filter((m) => !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
+  // Im Volltextmodus kommt die Liste vom Server. Der Textfilter wird dann
+  // ÜBERSPRUNGEN: der Server hat im ganzen Mailtext gesucht, der Client kennt
+  // aber nur 160 Zeichen Vorschau — er würde genau die Treffer wegwerfen, deren
+  // Fundstelle weiter unten im Text liegt. Die übrigen Filter (ungelesen,
+  // markiert, Anhang, Zeitraum) bleiben aktiv, die kann der Client beurteilen.
+  const visible = useMemo(() => (ftResults ?? messages)
+    .filter((m) => ftResults !== null || !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
     .filter((m) => !filter?.from || m.from.toLowerCase().includes(filter.from.toLowerCase()))
     .filter((m) => !filter?.subject || m.subject.toLowerCase().includes(filter.subject.toLowerCase()))
     .filter((m) => !filter?.unread || !m.seen)
     .filter((m) => !filter?.starred || m.flagged)
     .filter((m) => !filter?.attachments || m.has_attachments)
     .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo)),
-    [messages, search, filter]);
+    [messages, ftResults, search, filter]);
 
   // Stabile Handler- und Label-Bündel für die memoisierten Listenzeilen (MailRow).
   // handlersRef zeigt immer auf die aktuellen Closures (mit frischem State), die
@@ -1059,8 +1120,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const handlersRef = useRef({ openMsg, prefetchMsg, toggleFlag, toggleSeen, toggleSelect, del, startDrag, setDragUids });
   handlersRef.current = { openMsg, prefetchMsg, toggleFlag, toggleSeen, toggleSelect, del, startDrag, setDragUids };
   const rowHandlers = useMemo<RowHandlers>(() => ({
-    onOpen: (uid) => handlersRef.current.openMsg(uid),
-    onOpenPopup: (uid) => handlersRef.current.openMsg(uid, true),
+    onOpen: (uid, fol) => handlersRef.current.openMsg(uid, false, fol),
+    onOpenPopup: (uid, fol) => handlersRef.current.openMsg(uid, true, fol),
     onPrefetch: (uid) => handlersRef.current.prefetchMsg(uid),
     onToggleFlag: (m) => handlersRef.current.toggleFlag(m),
     onToggleSeen: (m) => handlersRef.current.toggleSeen(m),
@@ -1374,15 +1435,53 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               ))}
             </div>
           )}
-          {searchActive && searchTruncated && (
+          {searchActive && searchTruncated && ftResults === null && (
             <div className="muted" style={{ fontSize: "0.75rem", padding: "0.3rem 0.55rem", borderBottom: "1px solid var(--self-line)" }}>
               ⚠ {de ? `Zeige die ersten ${SEARCH_LIMIT} — Suche verfeinern.` : `Showing the first ${SEARCH_LIMIT} — refine your search.`}
             </div>
           )}
+          {/* Volltextsuche: die Sofort-Filterung oben sieht nur Betreff, Absender und
+              160 Zeichen Vorschau des GELADENEN Ordners. Der Knopf startet die echte
+              Suche über IMAP — in allen Ordnern und im vollen Mailtext. */}
+          {searchActive && ftResults === null && (
+            <div className="mail-ft-bar">
+              <span className="muted" style={{ fontSize: "0.75rem", flex: 1, minWidth: 0 }}>
+                {de ? "Nur dieser Ordner, ohne Mailtext." : "This folder only, no message body."}
+              </span>
+              <button className="link-btn" onClick={runFullText} disabled={ftLoading}>
+                {ftLoading
+                  ? (de ? "🔎 Sucht im ganzen Konto…" : "🔎 Searching whole account…")
+                  : (de ? "🔎 Volltext im ganzen Konto" : "🔎 Full text, whole account")}
+              </button>
+            </div>
+          )}
+          {ftResults !== null && (
+            <div className="mail-ft-bar">
+              <span style={{ fontSize: "0.75rem", flex: 1, minWidth: 0 }}>
+                🔎 {de
+                  ? `${ftResults.length} Volltext-Treffer aus ${ftInfo?.folders_searched ?? 0} Ordnern`
+                  : `${ftResults.length} full-text hits from ${ftInfo?.folders_searched ?? 0} folders`}
+                {ftInfo?.timed_out && (
+                  <span className="muted"> — {de
+                    ? `abgebrochen nach ${ftInfo.folders_searched}/${ftInfo.folders_total} Ordnern`
+                    : `stopped after ${ftInfo.folders_searched}/${ftInfo.folders_total} folders`}</span>
+                )}
+                {ftInfo?.truncated && (
+                  <span className="muted"> — {de ? "gekürzt, Suche verfeinern" : "truncated, refine search"}</span>
+                )}
+              </span>
+              <button className="link-btn" onClick={clearFullText}>
+                {de ? "✕ zurück zum Ordner" : "✕ back to folder"}
+              </button>
+            </div>
+          )}
           <div className="mail-list">
+            {/* Ordner MIT in den Schlüssel: UIDs sind nur INNERHALB eines Ordners
+                eindeutig — bei ordnerübergreifenden Volltext-Treffern kollidieren
+                sie sonst und React zeigt Zeilen doppelt oder gar nicht. */}
             {visible.map((m) => (
               <MailRow
-                key={m.uid}
+                key={`${m.folder ?? ""}:${m.uid}`}
                 m={m}
                 isSelected={selected.has(m.uid)}
                 isActive={open?.uid === m.uid}

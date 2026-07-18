@@ -110,6 +110,15 @@ export type Account = {
 export type MsgHeader = {
   uid: string; subject: string; from: string; date: string; seen: boolean; flagged: boolean;
   snippet: string; has_attachments: boolean;
+  /** Nur bei Volltext-Treffern gesetzt: Ordner, in dem die Mail liegt. Treffer
+   *  können aus einem anderen Ordner stammen als dem gerade geöffneten. */
+  folder?: string;
+};
+/** Antwort der Volltextsuche (GET /mail/{id}/search). */
+export type SearchResult = {
+  items: MsgHeader[];
+  folders_searched: number; folders_total: number;
+  timed_out: boolean; truncated: boolean;
 };
 export type Attachment = { index: number; filename: string; content_type: string; size: number };
 export type AuthInfo = {

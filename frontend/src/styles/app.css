@@ -820,6 +820,23 @@ select.bulk-btn { max-width: 170px; }
 .rich-editor .compose-toolbar { margin: 0; border-bottom: 1px solid var(--self-line); }
 .rich-editor .compose-editor { border: none; border-radius: 0; }
 
+/* ── Volltextsuche ─────────────────────────────────────────────── */
+.mail-ft-bar {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.35rem 0.55rem;
+  border-bottom: 1px solid var(--self-line);
+  background: color-mix(in srgb, var(--self-teal) 7%, transparent);
+}
+/* Ordner-Kennzeichen an Treffern aus anderen Ordnern — bewusst dezent, es soll
+   den Betreff einordnen, nicht mit ihm konkurrieren. */
+.mail-folder-tag {
+  flex: 0 0 auto; font-size: 0.66rem; line-height: 1.5;
+  padding: 0 0.35rem; border-radius: 999px;
+  background: var(--self-bg-3); color: var(--self-text-3);
+  border: 1px solid var(--self-line);
+  max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ── Benutzer-Menü (gruppiert) ─────────────────────────────────── */
 .user-menu-header {
   padding: 0.15rem 0.6rem 0.45rem;
