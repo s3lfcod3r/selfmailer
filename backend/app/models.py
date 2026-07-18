@@ -51,6 +51,11 @@ class User(SQLModel, table=True):
     # In WebUI/App ausgeblendete Kalender (JSON-Array von Quell-Keys, z. B. Google-
     # Kalender-IDs). Server-seitig, damit WebUI und App denselben Stand teilen.
     hidden_cals: str = ""
+    # Geräteübergreifende Oberflächen-Einstellungen (JSON-Objekt), damit WebUI und
+    # App denselben Stand teilen — siehe api/settings.py für die erlaubten Schlüssel.
+    # Bewusst NUR für Einstellungen, die überall gleich sein sollen; gerätespezifische
+    # (Textgröße, Auto-Abruf, Design) bleiben lokal beim Client.
+    ui_settings: str = ""
     created_at: dt.datetime = Field(default_factory=_now)
 
 

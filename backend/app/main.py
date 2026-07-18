@@ -32,6 +32,9 @@ from .api import (
     tasks,
     translate,
 )
+# Alias: das Modul heißt settings, die Konfigurationsvariable unten aber auch —
+# ohne Umbenennung würde die Variable das Modul überschreiben.
+from .api import settings as settings_api
 
 settings = get_settings()
 
@@ -150,6 +153,7 @@ app.include_router(dashboard.router)
 app.include_router(push.router)
 app.include_router(events.router)
 app.include_router(translate.router)
+app.include_router(settings_api.router)
 
 
 # Build-Marker: erlaubt von außen zu prüfen, welche Version wirklich LÄUFT

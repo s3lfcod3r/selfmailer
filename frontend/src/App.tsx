@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from "react";
 import { api, type User } from "./lib/api";
 import { useLang } from "./lib/i18n";
 import { DialogHost } from "./lib/dialog";
@@ -127,7 +127,14 @@ export function App() {
   const [darkMail, setDarkMail] = useState<boolean>(() => localStorage.getItem("selfmailer.darkMail") !== "0");
   // Markierte (Stern-)Mails oben anheften. Default AUS — die gewohnte rein
   // chronologische Liste bleibt damit die Voreinstellung.
+  // GETEILTE Einstellung: der Server ist die Wahrheit (damit die Android-App
+  // denselben Stand hat), der lokale Speicher dient nur als Sofort-Anzeige beim
+  // Start, damit die Liste nicht kurz falsch sortiert aufblitzt.
   const [pinFlagged, setPinFlagged] = useState<boolean>(() => localStorage.getItem("selfmailer.pinFlagged") === "1");
+  // Zuletzt mit dem Server abgeglichener Wert; null = noch nicht geladen.
+  // Verhindert (a) ein Zurückschreiben direkt nach dem Laden und (b) unnötige
+  // Schreibvorgänge, wenn sich nichts geändert hat.
+  const serverPinRef = useRef<boolean | null>(null);
   // App-eigene Textgröße (skaliert alle rem-Einheiten über die Wurzel-Schrift),
   // damit Lesbarkeit OHNE Browser-Zoom (der die Layout-Breite schrumpft) möglich ist.
   const [uiScale, setUiScale] = useState<number>(() => {
@@ -142,7 +149,29 @@ export function App() {
   useEffect(() => { localStorage.setItem("selfmailer.pollMin", String(pollMin)); }, [pollMin]);
   useEffect(() => { localStorage.setItem("selfmailer.blockImages", blockImages ? "1" : "0"); }, [blockImages]);
   useEffect(() => { localStorage.setItem("selfmailer.darkMail", darkMail ? "1" : "0"); }, [darkMail]);
-  useEffect(() => { localStorage.setItem("selfmailer.pinFlagged", pinFlagged ? "1" : "0"); }, [pinFlagged]);
+  // Beim Start den geteilten Stand vom Server holen. Schlägt das fehl (alter
+  // Server, offline), bleibt es beim lokalen Wert — die Einstellung ist Komfort,
+  // kein Grund die App zu blockieren.
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    api.get<{ pin_flagged?: boolean }>("/settings/ui")
+      .then((s) => {
+        if (!alive) return;
+        const v = !!s.pin_flagged;
+        serverPinRef.current = v;
+        setPinFlagged(v);
+      })
+      .catch(() => { /* Server kennt den Endpunkt (noch) nicht -> lokal weiterarbeiten */ });
+    return () => { alive = false; };
+  }, [user]);
+  useEffect(() => {
+    localStorage.setItem("selfmailer.pinFlagged", pinFlagged ? "1" : "0");
+    if (serverPinRef.current === null) return;      // noch nicht geladen
+    if (serverPinRef.current === pinFlagged) return; // unverändert -> nichts senden
+    serverPinRef.current = pinFlagged;
+    api.put("/settings/ui", { pin_flagged: pinFlagged }).catch(() => {});
+  }, [pinFlagged]);
   useEffect(() => {
     document.documentElement.style.fontSize = uiScale === 100 ? "" : `${uiScale}%`;
     localStorage.setItem("selfmailer.uiScale", String(uiScale));

@@ -56,6 +56,7 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("bday_cal_account_id", "INTEGER"),
         ("bday_cal_id", "VARCHAR"),
         ("hidden_cals", "VARCHAR"),
+        ("ui_settings", "VARCHAR"),
     ],
     "mailaccount": [
         ("signature", "VARCHAR"),
