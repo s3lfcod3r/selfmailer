@@ -69,12 +69,15 @@ export function ThreadReader({
     try {
       const doc = el.contentDocument;
       if (!doc || !doc.body) return;
-      // Body-Höhe (inhaltsgetrieben) statt documentElement.scrollHeight — Letzteres
-      // liefert bei kurzem Inhalt die iframe-Viewporthöhe, die Mail würde nicht
-      // schrumpfen. getBoundingClientRect fängt auch Body-Ränder mit.
-      const rectH = Math.ceil(doc.body.getBoundingClientRect().height);
-      const h = Math.max(doc.body.scrollHeight, rectH);
-      const clamped = Math.min(8000, Math.max(48, h + 8));
+      // "Kollabieren-dann-messen": iframe kurz auf 0 setzen, damit
+      // documentElement.scrollHeight die ECHTE Inhaltshöhe liefert (inkl.
+      // Body-Ränder) statt der aktuellen Viewporthöhe. Sofort im selben Frame
+      // wieder setzen → kein sichtbares Flackern. Ohne den Trick blieb sonst ein
+      // ~20px-Überhang (Body-Rand) und damit ein dünner innerer Scrollbalken.
+      el.style.height = "0px";
+      const h = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);
+      const clamped = Math.min(8000, Math.max(48, h + 4));
+      el.style.height = `${clamped}px`;
       setHeights((prev) => (prev[uid] === clamped ? prev : { ...prev, [uid]: clamped }));
     } catch { /* cross-origin o. Ä. → feste Fallback-Höhe bleibt */ }
   }
