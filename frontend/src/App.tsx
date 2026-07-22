@@ -131,10 +131,14 @@ export function App() {
   // denselben Stand hat), der lokale Speicher dient nur als Sofort-Anzeige beim
   // Start, damit die Liste nicht kurz falsch sortiert aufblitzt.
   const [pinFlagged, setPinFlagged] = useState<boolean>(() => localStorage.getItem("selfmailer.pinFlagged") === "1");
+  // Konversations-Ansicht: Antwortketten zu EINER Zeile zusammenfassen. Ebenfalls
+  // GETEILT (Server = Wahrheit, lokal nur als Sofort-Anzeige beim Start).
+  const [conversationView, setConversationView] = useState<boolean>(() => localStorage.getItem("selfmailer.conversationView") === "1");
   // Zuletzt mit dem Server abgeglichener Wert; null = noch nicht geladen.
   // Verhindert (a) ein Zurückschreiben direkt nach dem Laden und (b) unnötige
   // Schreibvorgänge, wenn sich nichts geändert hat.
   const serverPinRef = useRef<boolean | null>(null);
+  const serverConvRef = useRef<boolean | null>(null);
   // Laufende Server-Version fürs Benutzermenü — zeigt, welcher Stand tatsächlich
   // im Container läuft (nach einem Update sofort sichtbar, statt raten zu müssen).
   const [appVersion, setAppVersion] = useState("");
@@ -163,12 +167,15 @@ export function App() {
   useEffect(() => {
     if (!user) return;
     let alive = true;
-    api.get<{ pin_flagged?: boolean }>("/settings/ui")
+    api.get<{ pin_flagged?: boolean; conversation_view?: boolean }>("/settings/ui")
       .then((s) => {
         if (!alive) return;
         const v = !!s.pin_flagged;
         serverPinRef.current = v;
         setPinFlagged(v);
+        const c = !!s.conversation_view;
+        serverConvRef.current = c;
+        setConversationView(c);
       })
       .catch(() => { /* Server kennt den Endpunkt (noch) nicht -> lokal weiterarbeiten */ });
     return () => { alive = false; };
@@ -180,6 +187,13 @@ export function App() {
     serverPinRef.current = pinFlagged;
     api.put("/settings/ui", { pin_flagged: pinFlagged }).catch(() => {});
   }, [pinFlagged]);
+  useEffect(() => {
+    localStorage.setItem("selfmailer.conversationView", conversationView ? "1" : "0");
+    if (serverConvRef.current === null) return;
+    if (serverConvRef.current === conversationView) return;
+    serverConvRef.current = conversationView;
+    api.put("/settings/ui", { conversation_view: conversationView }).catch(() => {});
+  }, [conversationView]);
   useEffect(() => {
     document.documentElement.style.fontSize = uiScale === 100 ? "" : `${uiScale}%`;
     localStorage.setItem("selfmailer.uiScale", String(uiScale));
@@ -364,6 +378,11 @@ export function App() {
             <span className="user-menu-label">{t("shell.pinFlagged")}</span>
             <span className={pinFlagged ? "um-switch on" : "um-switch"} />
           </button>
+          <button onClick={() => setConversationView((b) => !b)}>
+            <span className="user-menu-ico">💬</span>
+            <span className="user-menu-label">{t("shell.conversationView")}</span>
+            <span className={conversationView ? "um-switch on" : "um-switch"} />
+          </button>
 
           <div className="user-menu-section">{t("menu.appearance")}</div>
           <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
@@ -429,7 +448,7 @@ export function App() {
           {/* Mail bleibt gemountet (nur versteckt), damit beim Zurückwechseln
               nicht neu geladen wird – kein sichtbares Nachladen. */}
           <div style={{ display: view === "mail" ? "contents" : "none" }}>
-            <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} pinFlagged={pinFlagged} onUnseenChange={setMailUnseen} />
+            <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} pinFlagged={pinFlagged} conversationView={conversationView} onUnseenChange={setMailUnseen} />
           </div>
           <Suspense fallback={<div className="muted">{t("common.loading")}</div>}>
             {view === "calendar" && <Calendar />}

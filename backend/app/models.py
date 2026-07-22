@@ -251,6 +251,13 @@ class CachedMessage(SQLModel, table=True):
     flagged: bool = False
     snippet: str = ""
     has_attachments: bool = False
+    # Thread-/Konversations-Header (RFC 5322) für die Gruppierung zusammengehöriger
+    # Mails. Werden schon beim Sync des Kopfes mitgeholt, damit die Liste ohne
+    # Öffnen threaden kann. Leer bei Altbeständen, bis der Flag-Refresh sie nachträgt
+    # (dann greift ersatzweise die Betreff-Heuristik im Frontend).
+    message_id: str = ""                  # eigene Message-ID dieser Mail
+    in_reply_to: str = ""                 # Message-ID der direkt beantworteten Mail
+    refs: str = ""                        # References-Kette (Message-IDs, per Space)
     # Gecachter Volltext der Mail (JSON: text/html/to/message_id/attachments-Meta).
     # Leer, solange die Mail noch nie geöffnet wurde; dann beim ersten Öffnen
     # einmal live geholt und hier abgelegt → jedes weitere Öffnen ohne IMAP.

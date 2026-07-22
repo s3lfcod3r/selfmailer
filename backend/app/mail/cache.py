@@ -16,7 +16,7 @@ from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
-from .imap import FLAGGED, SEEN, _mailbox, _snippet
+from .imap import FLAGGED, SEEN, _mailbox, _snippet, thread_headers
 
 # Obergrenze, wie viele (neueste) Mail-Köpfe pro Sync nachgeladen werden.
 # Bewusst nicht zu hoch: ein Lauf bleibt zeitlich beschaenkt; sehr große Ordner
@@ -76,6 +76,8 @@ def _to_dict(r: CachedMessage) -> dict:
         "uid": r.uid, "subject": r.subject, "from": r.from_addr, "date": r.date_str,
         "seen": r.seen, "flagged": r.flagged, "snippet": r.snippet,
         "has_attachments": r.has_attachments,
+        # Thread-Header für die Konversations-Gruppierung im Frontend.
+        "message_id": r.message_id, "in_reply_to": r.in_reply_to, "references": r.refs,
     }
 
 
@@ -389,11 +391,13 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
             for msg in box.fetch(AND(uid=",".join(fetch_uids)), mark_seen=False, bulk=50):
                 if not msg.uid:
                     continue
+                th = thread_headers(msg)
                 session.add(CachedMessage(
                     account_id=account.id, folder=folder, uid=msg.uid,
                     subject=msg.subject or "", from_addr=msg.from_ or "", date_str=msg.date_str or "",
                     sort_date=_to_utc_naive(msg.date), seen=SEEN in msg.flags, flagged=FLAGGED in msg.flags,
                     snippet=_snippet(msg.text or "", msg.html or ""), has_attachments=bool(msg.attachments),
+                    message_id=th["message_id"], in_reply_to=th["in_reply_to"], refs=th["references"],
                 ))
                 added += 1
                 if added % _COMMIT_EVERY == 0:  # Teilfortschritt sichern
@@ -413,6 +417,13 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                     if row:
                         row.seen = SEEN in msg.flags
                         row.flagged = FLAGGED in msg.flags
+                        # Altbestand ohne Thread-Header (vor dem Update gecacht) einmalig
+                        # nachtragen — headers_only liefert Message-ID/References mit.
+                        if not row.message_id:
+                            th = thread_headers(msg)
+                            row.message_id = th["message_id"]
+                            row.in_reply_to = th["in_reply_to"]
+                            row.refs = th["references"]
                         session.add(row)
 
         if not fs:

@@ -295,6 +295,27 @@ def _snippet(text: str, html: str) -> str:
     return " ".join(src.split())[:160]
 
 
+def thread_headers(msg) -> dict:
+    """Thread-relevante Header einer Mail als flaches dict.
+
+    ``msg.headers`` liefert je Header ein Tupel von Rohwerten (Groß-/Kleinschreibung
+    egal, Schlüssel sind kleingeschrieben). Für die Konversations-Gruppierung
+    brauchen wir Message-ID (Identität), In-Reply-To (direkte Antwort) und
+    References (ganze Kette). Fehlt etwas, bleibt es leer — das Frontend fällt dann
+    auf die Betreff-Heuristik zurück."""
+    h = getattr(msg, "headers", None) or {}
+
+    def first(name: str) -> str:
+        vals = h.get(name) or ()
+        return (vals[0] if vals else "").strip()
+
+    return {
+        "message_id": first("message-id"),
+        "in_reply_to": first("in-reply-to"),
+        "references": first("references"),
+    }
+
+
 def list_messages(
     account: MailAccount, password: str, folder: str = "INBOX", limit: int = 50, offset: int = 0
 ) -> list[dict]:
@@ -318,6 +339,7 @@ def list_messages(
                     "flagged": FLAGGED in msg.flags,
                     "snippet": _snippet(msg.text or "", msg.html or ""),
                     "has_attachments": bool(msg.attachments),
+                    **thread_headers(msg),
                 }
             )
     return out

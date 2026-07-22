@@ -1040,3 +1040,48 @@ select.bulk-btn { max-width: 170px; }
   .acc-card-head > .grow { flex-basis: 100%; }
   .acc-card-head .mail-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
+
+/* ===== Konversations-Ansicht ===== */
+/* Zusammengefasste Listenzeile: wie eine normale Mailzeile, aber mit Zähler-Plakette. */
+.conv-row .conv-badge {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.25rem; height: 1.25rem; padding: 0 0.35rem; border-radius: 999px;
+  background: var(--self-teal-deep); color: var(--self-teal-bright);
+  border: 1px solid var(--self-teal); font-size: 0.68rem; font-weight: 700; line-height: 1;
+}
+
+/* ===== Thread-Lesebereich (gestapelte, aufklappbare Nachrichten) ===== */
+.thread-readcol { gap: 0; }
+.thread-head { display: flex; align-items: center; gap: 0.6rem; }
+.thread-head .mail-head-subject { flex: 1; min-width: 0; }
+.thread-head-actions { display: flex; align-items: center; gap: 0.5rem; flex: 0 0 auto; }
+.thread-count {
+  display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.78rem; font-weight: 700;
+  color: var(--self-teal-bright); background: var(--self-teal-deep);
+  border: 1px solid var(--self-teal); border-radius: 999px; padding: 0.1rem 0.5rem;
+}
+.thread-list { display: flex; flex-direction: column; gap: 0.5rem; padding-bottom: 0.5rem; }
+.thread-msg {
+  border: 1px solid var(--self-line); border-radius: var(--self-radius-sm);
+  background: var(--self-bg-2); overflow: hidden;
+}
+.thread-msg.unseen { box-shadow: inset 3px 0 0 var(--self-unread); }
+.thread-msg.open { border-color: var(--self-line-strong); }
+.thread-msg-head {
+  display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.7rem;
+  cursor: pointer; user-select: none;
+}
+.thread-msg-head:hover { background: var(--self-bg-3); }
+.thread-star { background: none; border: none; padding: 0 0.1rem; cursor: pointer; flex: 0 0 auto; font-size: 0.95rem; color: var(--self-text-2); }
+.thread-msg.unseen .thread-msg-name { font-weight: 700; }
+.thread-msg-who { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; flex: 1; overflow: hidden; }
+.thread-msg-name { font-weight: 600; color: var(--self-text); white-space: nowrap; flex: 0 0 auto; }
+.thread-msg-addr { color: var(--self-text-2); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thread-msg-snip { color: var(--self-text-2); font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.thread-clip { flex: 0 0 auto; font-size: 0.8rem; }
+.thread-msg-date { flex: 0 0 auto; color: var(--self-text-2); font-size: 0.74rem; white-space: nowrap; }
+.thread-chevron { flex: 0 0 auto; color: var(--self-text-2); font-size: 0.8rem; }
+.thread-msg-body { padding: 0.2rem 0.7rem 0.7rem; border-top: 1px solid var(--self-line); display: flex; flex-direction: column; }
+.thread-msg-toolbar { display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0; flex-wrap: wrap; }
+.thread-body-frame { min-height: 220px; }
+.thread-atts { margin-top: 0.8rem; border-top: 1px solid var(--self-line); padding-top: 0.7rem; }

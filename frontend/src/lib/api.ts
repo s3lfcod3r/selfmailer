@@ -122,6 +122,9 @@ export type MsgHeader = {
   /** Nur bei Volltext-Treffern gesetzt: Ordner, in dem die Mail liegt. Treffer
    *  können aus einem anderen Ordner stammen als dem gerade geöffneten. */
   folder?: string;
+  /** Thread-Header für die Konversations-Gruppierung. Leer, wenn der Server sie
+   *  (noch) nicht liefert — dann greift die Betreff-Heuristik. */
+  message_id?: string; in_reply_to?: string; references?: string;
 };
 /** Antwort der Volltextsuche (GET /mail/{id}/search). */
 export type SearchResult = {

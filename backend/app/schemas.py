@@ -162,6 +162,11 @@ class MessageHeader(BaseModel):
     flagged: bool
     snippet: str = ""
     has_attachments: bool = False
+    # Thread-Header für die Konversations-Ansicht (leer, wenn der Server sie nicht
+    # liefert oder ein Altbestand sie noch nicht nachgetragen hat).
+    message_id: str = ""
+    in_reply_to: str = ""
+    references: str = ""
 
     model_config = {"populate_by_name": True}
 

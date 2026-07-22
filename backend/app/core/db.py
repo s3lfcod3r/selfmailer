@@ -68,7 +68,12 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
     # TEXT (nicht VARCHAR) → kein ''-Backfill: write_token bleibt NULL, bis der
     # User ihn erzeugt (leerer Token darf niemals matchen).
     "feedtoken": [("write_token", "TEXT")],
-    "cachedmessage": [("detail_json", "VARCHAR")],
+    "cachedmessage": [
+        ("detail_json", "VARCHAR"),
+        ("message_id", "VARCHAR"),
+        ("in_reply_to", "VARCHAR"),
+        ("refs", "VARCHAR"),
+    ],
     "cachedfolder": [("special", "VARCHAR")],
     "calendarevent": [
         ("dav_account_id", "INTEGER"), ("external_uid", "VARCHAR"),

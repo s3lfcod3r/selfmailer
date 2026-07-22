@@ -33,6 +33,8 @@ router = APIRouter(prefix="/api/v1", tags=["settings"])
 _ALLOWED: dict[str, tuple[type, Any]] = {
     # Markierte (Stern-)Mails in jeder Liste oben anheften.
     "pin_flagged": (bool, False),
+    # Zusammengehörende Mails (Antwortketten) als EINE Konversation zusammenfassen.
+    "conversation_view": (bool, False),
 }
 
 

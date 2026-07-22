@@ -4,6 +4,9 @@ import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
+import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize } from "../lib/mailview";
+import { ThreadReader } from "../components/ThreadReader";
+import { groupThreads, type Conversation } from "../lib/threads";
 
 type Sel = { acc: number; folder: string };
 
@@ -21,58 +24,6 @@ function pageNumbers(cur: number, total: number): (number | "…")[] {
   if (to < total - 1) out.push("…");
   out.push(total);
   return out;
-}
-
-// Absender "Name <mail@x.de>" in Anzeigename + Adresse zerlegen.
-function parseAddr(s: string): { name: string; email: string } {
-  const m = /^\s*"?(.*?)"?\s*<([^>]+)>\s*$/.exec(s || "");
-  if (m && m[2]) return { name: (m[1] || m[2]).trim(), email: m[2].trim() };
-  return { name: s || "", email: s || "" };
-}
-// Server-Datumsstring hübsch lokalisiert; fällt bei Parse-Fehler auf Rohtext zurück.
-function prettyDate(s: string): string {
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? s : d.toLocaleString();
-}
-// Kompaktes Datum MIT Uhrzeit für die Listenzeile (z. B. "20. Jun 26, 17:24").
-function listDate(s: string): string {
-  const d = new Date(s);
-  if (isNaN(d.getTime())) return (s || "").slice(0, 16);
-  return d.toLocaleString(undefined, {
-    day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit",
-  });
-}
-
-// CSP, die im Mail-iframe ALLE externen Ladevorgänge (Bilder/Schriften/Medien)
-// blockiert — nur eingebettete data:/cid:-Bilder und Inline-Styles sind erlaubt.
-// So laden keine Tracking-Pixel; Skripte sind ohnehin per sandbox="" geblockt.
-const _CSP_BLOCK =
-  `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; font-src data:; media-src data:;">`;
-function hasRemoteContent(html: string): boolean {
-  return /(?:src|background)\s*=\s*["']?\s*https?:/i.test(html) || /url\(\s*['"]?\s*https?:/i.test(html);
-}
-// Dunkelmodus für Mails: KEIN Invertieren mehr (scheitert bei Design-Mails wie
-// Bosch — Hintergrund dunkel, aber Schrift blieb dunkel/unlesbar). Stattdessen
-// "Lese-Dunkelmodus": dunkler Hintergrund + Schrift IMMER hell erzwingen
-// (!important schlägt die Mail-eigenen Farben), eigene Hintergründe neutralisieren,
-// Links hell, Bilder unverändert. So ist JEDE Mail dunkel mit lesbarer heller Schrift.
-const _DARK_STYLE =
-  `<style>:root{color-scheme:dark}` +
-  `html,body{background:#0d1117 !important;color:#e6edf3 !important;}` +
-  `*{background-color:transparent !important;border-color:#30363d !important;}` +
-  `*:not(a){color:#e6edf3 !important;}` +
-  `a{color:#6cb6ff !important;}` +
-  `img,picture,video,svg,canvas{filter:none !important;}` +
-  `</style>`;
-function buildSrcDoc(html: string, block: boolean, dark: boolean): string {
-  return `<!DOCTYPE html><meta charset="utf-8">${block ? _CSP_BLOCK : ""}${dark ? _DARK_STYLE : ""}<base target="_blank">${html}`;
-}
-
-function fmtSize(bytes: number): string {
-  if (!bytes) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function inDateRange(dateStr: string, from?: string, to?: string): boolean {
@@ -192,7 +143,42 @@ const MailRow = memo(function MailRow({ m, isSelected, isActive, handlers, label
   );
 });
 
-export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true, pinFlagged = false, onUnseenChange }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; pinFlagged?: boolean; onUnseenChange?: (total: number) => void }) {
+// Eine ZUSAMMENGEFASSTE Konversationszeile (mehrere Mails). Zeigt die Teilnehmer,
+// den Betreff, die Vorschau der neuesten Mail und eine Zähler-Plakette. Ein Klick
+// öffnet den gestapelten Verlauf (ThreadReader).
+const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, onOpen, onToggleFlag, onToggleSelect, labels }: {
+  conv: Conversation; isSelected: boolean; isActive: boolean;
+  onOpen: () => void; onToggleFlag: () => void; onToggleSelect: () => void; labels: RowLabels;
+}) {
+  const latest = conv.latest;
+  // Teilnehmer kompakt: bis zu 3 Namen, sonst "A, B +N".
+  const names = conv.fromNames;
+  const who = names.length <= 3 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+  return (
+    <div className={`mail-row conv-row ${conv.anyUnseen ? "unseen" : ""}`}
+      style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: isActive ? "var(--self-teal)" : undefined }}>
+      <input type="checkbox" checked={isSelected} onChange={onToggleSelect} style={{ flex: "0 0 auto", width: "auto", marginTop: "0.3rem" }} />
+      <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: conv.anyFlagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={onToggleFlag} title={labels.flag}>
+        {conv.anyFlagged ? "★" : "☆"}
+      </button>
+      <div className="grow" role="button" tabIndex={0} style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={onOpen} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
+          <span style={{ flex: 1, minWidth: 0, fontWeight: conv.anyUnseen ? 700 : 400, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{who}</span>
+          <span className="conv-badge" title={`${conv.count}`}>{conv.count}</span>
+          <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(latest.date)}</span>
+        </div>
+        <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{latest.subject || labels.noSubject}</span>
+          {conv.anyAttachment && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
+          {latest.folder && <span className="mail-folder-tag" title={latest.folder}>{latest.folder.split(/[/.]/).pop()}</span>}
+        </div>
+        {latest.snippet && <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{latest.snippet}</div>}
+      </div>
+    </div>
+  );
+});
+
+export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true, pinFlagged = false, conversationView = false, onUnseenChange }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; pinFlagged?: boolean; conversationView?: boolean; onUnseenChange?: (total: number) => void }) {
   const { t, lang } = useLang();
   const de = lang === "de";
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -203,6 +189,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [messages, setMessages] = useState<MsgHeader[]>([]);
   const [open, setOpen] = useState<MsgDetail | null>(null);
   const [opening, setOpening] = useState(false); // Body wird geladen → sofort Ladeanzeige
+  // Geöffnete Konversation (Thread-Lesebereich). Hat Vorrang vor `open`: ist ein
+  // Thread offen, zeigt die Lesespalte den gestapelten Verlauf statt einer Einzelmail.
+  const [openThread, setOpenThread] = useState<Conversation | null>(null);
   // Suche hat die Obergrenze (SEARCH_LIMIT) erreicht → sichtbarer Hinweis, dass
   // die Trefferliste abgeschnitten ist (sonst wirkt sie irreführend vollständig).
   const [searchTruncated, setSearchTruncated] = useState(false);
@@ -581,7 +570,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function reload() {
     if (!sel) return;
     const acc = sel.acc, fol = sel.folder;
-    setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false); setPage(1); setSearchTruncated(false);
+    setLoading(true); setErr(""); setOpen(null); setOpenThread(null); setSelected(new Set()); setSelectAllFolder(false); setPage(1); setSearchTruncated(false);
     fetchPage(acc, fol, 1)
       .then((ms) => { setMessages(ms); warmBodies(acc, fol, ms); })
       .catch((e) => setErr((e as Error).message))
@@ -625,7 +614,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     if (!sel) return;
     const clamped = Math.max(1, Math.min(totalPages, p));
     if (clamped === page) return;
-    setPage(clamped); setOpen(null); setLoadingMore(true);
+    setPage(clamped); setOpen(null); setOpenThread(null); setLoadingMore(true);
     fetchPage(sel.acc, sel.folder, clamped)
       .then((ms) => { setMessages(ms); warmBodies(sel.acc, sel.folder, ms); })
       .catch((e) => setErr((e as Error).message))
@@ -638,7 +627,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     if (!sel) return;
     const acc = sel.acc, fol = sel.folder;
     const ver = ++searchLoadRef.current;
-    setLoading(true); setErr(""); setOpen(null); setSelected(new Set()); setSelectAllFolder(false); setSearchTruncated(false);
+    setLoading(true); setErr(""); setOpen(null); setOpenThread(null); setSelected(new Set()); setSelectAllFolder(false); setSearchTruncated(false);
     fetchAllForSearch(acc, fol)
       .then((ms) => { if (ver !== searchLoadRef.current) return; setMessages(ms); setSearchTruncated(ms.length >= SEARCH_LIMIT); warmBodies(acc, fol, ms); })
       .catch((e) => { if (ver !== searchLoadRef.current) return; setErr((e as Error).message); })
@@ -784,9 +773,35 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
 
   // Globale Einstellung umgeschaltet -> aktuell offene Mail sofort mitziehen.
   useEffect(() => { setDarkBody(darkMail); }, [darkMail]);
+  // Konversations-Ansicht ausgeschaltet -> offenen Thread schließen (sonst bliebe
+  // die Lesespalte an einem Thread hängen, den es in der flachen Liste nicht gibt).
+  useEffect(() => { if (!conversationView) setOpenThread(null); }, [conversationView]);
 
   function patchHeader(uid: string, patch: Partial<MsgHeader>) {
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
+  }
+
+  // Konversation öffnen: Einzelmail wie gewohnt (öffnet die Leseansicht), ein
+  // echter Thread (mehrere Mails) den gestapelten Verlauf im ThreadReader.
+  function openConversation(conv: Conversation) {
+    if (conv.count <= 1) {
+      setOpenThread(null);
+      openMsg(conv.latest.uid, false, conv.latest.folder);
+      return;
+    }
+    setOpen(null);
+    setOpenThread(conv);
+    setMobilePane("read");
+  }
+
+  // Eine (vorher ungelesene) Thread-Nachricht wurde geöffnet: Flag serverseitig
+  // setzen, Kopf im Cache patchen und den Ungelesen-Zähler des Ordners anpassen.
+  function markThreadSeen(m: MsgHeader) {
+    if (activeId == null || m.seen) return;
+    const fol = m.folder || folder;
+    api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&seen=true`).catch(() => {});
+    patchHeader(m.uid, { seen: true });
+    bumpUnseen(activeId, fol, -1);
   }
 
   async function openMsg(uid: string, asPopup = false, fromFolder?: string) {
@@ -809,7 +824,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     // SOFORT Feedback: Leseansicht + Ladeanzeige zeigen, BEVOR der Body geladen
     // wird. Sonst passiert bei kaltem (nicht vorgeladenem) Body sichtbar nichts,
     // bis der Live-Abruf durch ist → fühlt sich an wie „öffnet nicht".
-    if (!asPopup) { setOpening(true); setMobilePane("read"); }
+    if (!asPopup) { setOpening(true); setMobilePane("read"); setOpenThread(null); }
     setReadMenu(false);
     try {
       const msg = await api.get<MsgDetail>(`/mail/${acc}/messages/${uid}?folder=${encodeURIComponent(fol)}`);
@@ -944,6 +959,17 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
 
   function toggleSelect(uid: string) {
     setSelected((s) => { const n = new Set(s); if (n.has(uid)) n.delete(uid); else n.add(uid); return n; });
+  }
+  // Konversation als Ganzes an-/abwählen (alle enthaltenen UIDs).
+  function toggleConvSelect(conv: Conversation) {
+    const uids = conv.messages.map((m) => m.uid);
+    const allSel = uids.every((u) => selected.has(u));
+    setSelectAllFolder(false);
+    setSelected((s) => {
+      const n = new Set(s);
+      for (const u of uids) { if (allSel) n.delete(u); else n.add(u); }
+      return n;
+    });
   }
   async function delSelected() {
     if (activeId == null || selected.size === 0) return;
@@ -1112,6 +1138,19 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     .filter((m) => !filter?.attachments || m.has_attachments)
     .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo)),
     [messages, ftResults, search, filter]);
+
+  // Konversations-Ansicht: sichtbare Mails in Threads gruppieren. Bei ausgeschaltetem
+  // Schalter leer — dann rendert die Liste wie gewohnt Einzelmails.
+  const conversations = useMemo(
+    () => (conversationView ? groupThreads(visible) : []),
+    [conversationView, visible],
+  );
+  // Offener Thread stets aus der frischen Gruppierung nachziehen (Flags/gelesen/
+  // gelöschte Mails aktualisieren sich so live). Verschwindet er (alles gelöscht),
+  // bleibt der letzte Stand stehen, bis der Nutzer schließt.
+  const liveThread = openThread
+    ? conversations.find((c) => c.key === openThread.key) ?? openThread
+    : null;
 
   // Stabile Handler- und Label-Bündel für die memoisierten Listenzeilen (MailRow).
   // handlersRef zeigt immer auf die aktuellen Closures (mit frischem State), die
@@ -1479,16 +1518,40 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             {/* Ordner MIT in den Schlüssel: UIDs sind nur INNERHALB eines Ordners
                 eindeutig — bei ordnerübergreifenden Volltext-Treffern kollidieren
                 sie sonst und React zeigt Zeilen doppelt oder gar nicht. */}
-            {visible.map((m) => (
-              <MailRow
-                key={`${m.folder ?? ""}:${m.uid}`}
-                m={m}
-                isSelected={selected.has(m.uid)}
-                isActive={open?.uid === m.uid}
-                handlers={rowHandlers}
-                labels={rowLabels}
-              />
-            ))}
+            {conversationView
+              ? conversations.map((conv) => (
+                  conv.count <= 1 ? (
+                    <MailRow
+                      key={conv.key}
+                      m={conv.latest}
+                      isSelected={selected.has(conv.latest.uid)}
+                      isActive={open?.uid === conv.latest.uid}
+                      handlers={rowHandlers}
+                      labels={rowLabels}
+                    />
+                  ) : (
+                    <ConvRow
+                      key={conv.key}
+                      conv={conv}
+                      isSelected={conv.messages.every((m) => selected.has(m.uid))}
+                      isActive={openThread?.key === conv.key}
+                      onOpen={() => openConversation(conv)}
+                      onToggleFlag={() => toggleFlag(conv.latest)}
+                      onToggleSelect={() => toggleConvSelect(conv)}
+                      labels={rowLabels}
+                    />
+                  )
+                ))
+              : visible.map((m) => (
+                  <MailRow
+                    key={`${m.folder ?? ""}:${m.uid}`}
+                    m={m}
+                    isSelected={selected.has(m.uid)}
+                    isActive={open?.uid === m.uid}
+                    handlers={rowHandlers}
+                    labels={rowLabels}
+                  />
+                ))}
             {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
             {!searchActive && totalPages > 1 && !loading && (
               <div className="mail-pager mail-pager-bottom">
@@ -1503,7 +1566,22 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         <div className="resize-handle" onPointerDown={startResize} title={t("mail.resizeHint")} />
 
         {/* Lese-Spalte */}
-        {opening ? (
+        {liveThread ? (
+          <ThreadReader
+            key={liveThread.key}
+            accountId={activeId ?? 0}
+            folder={folder}
+            conversation={liveThread}
+            blockImages={blockImages}
+            darkMail={darkMail}
+            onClose={() => { setOpenThread(null); setMobilePane("list"); }}
+            onReply={(d) => setDraft(replyDraft(d, t))}
+            onForward={(d) => setDraft(forwardDraft(d, t))}
+            onDelete={(m) => del(m)}
+            onFlag={(m) => toggleFlag(m)}
+            onSeen={(m) => markThreadSeen(m)}
+          />
+        ) : opening ? (
           <div className="mail-readcol mail-loading"><span className="mail-spinner" aria-hidden /></div>
         ) : open ? (
           <div className="mail-readcol">

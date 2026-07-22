@@ -226,6 +226,7 @@ export const de: Dict = {
   "shell.blockImages": "Externe Bilder blockieren",
   "shell.darkMail": "Helle Mails dunkel einfärben",
   "shell.pinFlagged": "Markierte Mails oben anheften",
+  "shell.conversationView": "Als Konversation gruppieren",
   "shell.textSize": "Textgröße",
   "shell.design": "Design anpassen",
   "design.title": "Design anpassen",

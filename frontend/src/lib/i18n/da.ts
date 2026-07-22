@@ -226,6 +226,7 @@ export const da: Dict = {
   "shell.blockImages": "Blokér eksterne billeder",
   "shell.darkMail": "Tonér lyse mails mørke",
   "shell.pinFlagged": "Fastgør markerede mails øverst",
+  "shell.conversationView": "Grupér i samtaler",
   "shell.textSize": "Tekststørrelse",
   "shell.design": "Tilpas design",
   "design.title": "Tilpas design",

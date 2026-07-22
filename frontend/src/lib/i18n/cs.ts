@@ -226,6 +226,7 @@ export const cs: Dict = {
   "shell.blockImages": "Blokovat externí obrázky",
   "shell.darkMail": "Ztmavit světlé maily",
   "shell.pinFlagged": "Připnout označené maily nahoru",
+  "shell.conversationView": "Seskupit do konverzací",
   "shell.textSize": "Velikost textu",
   "shell.design": "Přizpůsobit vzhled",
   "design.title": "Přizpůsobit vzhled",
