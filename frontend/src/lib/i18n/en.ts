@@ -225,6 +225,8 @@ export const en = {
   "mail.clearSelection": "Clear selection",
   "mail.imagesBlocked": "External images blocked (anti-tracking)",
   "mail.showImages": "Show images",
+  "mail.quoteShow": "Show history",
+  "mail.quoteHide": "Hide history",
   "shell.blockImages": "Block external images",
   "shell.darkMail": "Tint light mails dark",
   "shell.pinFlagged": "Pin flagged mails to top",

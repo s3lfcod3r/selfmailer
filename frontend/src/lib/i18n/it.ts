@@ -223,6 +223,8 @@ export const it: Dict = {
   "mail.clearSelection": "Annulla selezione",
   "mail.imagesBlocked": "Immagini esterne bloccate (anti-tracciamento)",
   "mail.showImages": "Mostra immagini",
+  "mail.quoteShow": "Mostra cronologia",
+  "mail.quoteHide": "Nascondi cronologia",
   "shell.blockImages": "Blocca immagini esterne",
   "shell.darkMail": "Scurisci le mail chiare",
   "shell.pinFlagged": "Fissa in alto le mail contrassegnate",

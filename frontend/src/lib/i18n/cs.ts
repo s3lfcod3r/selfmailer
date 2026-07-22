@@ -223,6 +223,8 @@ export const cs: Dict = {
   "mail.clearSelection": "Zrušit výběr",
   "mail.imagesBlocked": "Externí obrázky blokovány (ochrana před sledováním)",
   "mail.showImages": "Zobrazit obrázky",
+  "mail.quoteShow": "Zobrazit historii",
+  "mail.quoteHide": "Skrýt historii",
   "shell.blockImages": "Blokovat externí obrázky",
   "shell.darkMail": "Ztmavit světlé maily",
   "shell.pinFlagged": "Připnout označené maily nahoru",

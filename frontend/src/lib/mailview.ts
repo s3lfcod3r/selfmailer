@@ -56,3 +56,72 @@ export function fmtSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+// Erkennt die typische Zitat-Einleitung ("Am … schrieb …:", "On … wrote:",
+// "-----Original…", Outlook-Kopf "Von:/From:"). Kurz gehalten, damit ein normaler
+// Satz, der zufällig so anfängt, nicht fälschlich als Zitat gilt.
+const _ATTR_LINE = /^\s*(Am\s.+\sschrieb.*:|On\s.+\swrote:|Le\s.+\sécrit\s*:|El\s.+\sescribió:|-{3,}\s*(Original|Ursprüngliche|Weitergeleitete).*|_{5,}|Von:\s.+|From:\s.+|Gesendet:\s.+|Sent:\s.+)\s*$/i;
+const _ATTR_SHORT = /^(Am\s.+\sschrieb.*:|On\s.+\swrote:|Le\s.+\sécrit\s*:|El\s.+\sescribió:)$/i;
+
+/**
+ * Trennt bei einer Text-Mail den NEUEN Teil vom zitierten Verlauf ab.
+ * Schneidet an der ersten Zitat-Einleitung ODER dem ersten ">"-Zitatblock.
+ * Bleibt vorne nichts übrig, wird NICHT gekürzt (dann ist die ganze Mail Zitat).
+ */
+export function trimQuotedText(text: string): { text: string; trimmed: boolean } {
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    if (_ATTR_LINE.test(lines[i]) || /^\s*>/.test(lines[i])) {
+      const head = lines.slice(0, i).join("\n").replace(/\s+$/, "");
+      if (head.trim()) return { text: head, trimmed: true };
+      return { text, trimmed: false };
+    }
+  }
+  return { text, trimmed: false };
+}
+
+/**
+ * Trennt bei einer HTML-Mail den NEUEN Teil vom zitierten Verlauf ab. Erkennt die
+ * gängigen Zitat-Container (blockquote, Gmail/Thunderbird/Outlook) sowie eine
+ * vorangestellte "Am … schrieb:"-Zeile und entfernt sie samt allem, was danach
+ * folgt. Läuft rein im Browser (DOMParser). Bei Fehlern/leerem Rest: nicht kürzen.
+ */
+export function trimQuotedHtml(html: string): { html: string; trimmed: boolean } {
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const body = doc.body;
+    if (!body) return { html, trimmed: false };
+    const sel = "blockquote, .gmail_quote, [class*='gmail_quote'], .gmail_extra, div.moz-cite-prefix, #divRplyFwdMsg, [id*='divRplyFwdMsg']";
+    let cut: Element | null = body.querySelector(sel);
+    if (!cut) {
+      // Fallback: kurzer Element-Knoten, dessen Text wie eine Zitat-Einleitung aussieht.
+      const walker = doc.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
+      let node = walker.nextNode() as Element | null;
+      while (node) {
+        const txt = (node.textContent || "").trim();
+        if (txt.length < 200 && _ATTR_SHORT.test(txt)) { cut = node; break; }
+        node = walker.nextNode() as Element | null;
+      }
+    }
+    if (!cut) return { html, trimmed: false };
+    // Auf das direkte body-Kind hochklettern.
+    let top: Element = cut;
+    while (top.parentElement && top.parentElement !== body) top = top.parentElement;
+    // Eine unmittelbar davor stehende "Am … schrieb:"-Zeile mit entfernen.
+    const prev = top.previousElementSibling;
+    if (prev) {
+      const ptxt = (prev.textContent || "").trim();
+      if (ptxt.length < 200 && _ATTR_SHORT.test(ptxt)) top = prev;
+    }
+    // top + alle folgenden Geschwister löschen.
+    let n: Element | null = top;
+    const rm: Element[] = [];
+    while (n) { rm.push(n); n = n.nextElementSibling; }
+    rm.forEach((el) => el.remove());
+    const trimmed = body.innerHTML.trim();
+    if (!trimmed) return { html, trimmed: false };
+    return { html: trimmed, trimmed: true };
+  } catch {
+    return { html, trimmed: false };
+  }
+}

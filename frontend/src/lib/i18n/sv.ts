@@ -223,6 +223,8 @@ export const sv: Dict = {
   "mail.clearSelection": "Avmarkera",
   "mail.imagesBlocked": "Externa bilder blockerade (skydd mot spårning)",
   "mail.showImages": "Visa bilder",
+  "mail.quoteShow": "Visa historik",
+  "mail.quoteHide": "Dölj historik",
   "shell.blockImages": "Blockera externa bilder",
   "shell.darkMail": "Färga ljus e-post mörk",
   "shell.pinFlagged": "Fäst flaggad e-post överst",

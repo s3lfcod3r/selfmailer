@@ -1083,5 +1083,7 @@ select.bulk-btn { max-width: 170px; }
 .thread-chevron { flex: 0 0 auto; color: var(--self-text-2); font-size: 0.8rem; }
 .thread-msg-body { padding: 0.2rem 0.7rem 0.7rem; border-top: 1px solid var(--self-line); display: flex; flex-direction: column; }
 .thread-msg-toolbar { display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0; flex-wrap: wrap; }
-.thread-body-frame { min-height: 220px; }
+/* Thread-Mail füllt NICHT die Resthöhe, sondern bekommt die gemessene Inhaltshöhe
+   (per JS gesetzt) → keine inneren Scrollbalken, man scrollt die Konversation. */
+.thread-body-frame { flex: 0 0 auto; min-height: 48px; height: 260px; width: 100%; }
 .thread-atts { margin-top: 0.8rem; border-top: 1px solid var(--self-line); padding-top: 0.7rem; }

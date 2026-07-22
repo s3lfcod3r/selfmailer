@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, download, type MsgHeader, type MsgDetail } from "../lib/api";
 import { useLang } from "../lib/i18n";
-import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize } from "../lib/mailview";
+import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, trimQuotedHtml, trimQuotedText } from "../lib/mailview";
 import type { Conversation } from "../lib/threads";
 
 /**
@@ -49,10 +49,47 @@ export function ThreadReader({
   });
   // Pro Nachricht: externe Bilder freigegeben?
   const [imgOk, setImgOk] = useState<Set<string>>(new Set());
+  // Pro Nachricht: zitierten Verlauf ("Am … schrieb:") eingeblendet?
+  const [quoteOk, setQuoteOk] = useState<Set<string>>(new Set());
+  // Gemessene Höhe des Mail-iframes je UID → volle Anzeige OHNE inneren Scrollbalken.
+  const [heights, setHeights] = useState<Record<string, number>>({});
   // Verhindert doppeltes „als gelesen melden" pro UID in dieser Ansicht.
   const seenSent = useRef<Set<string>>(new Set());
+  // iframe-Elemente je UID (zum Nachmessen bei Größenänderung des Fensters).
+  const frameRefs = useRef<Map<string, HTMLIFrameElement>>(new Map());
 
   const msgFolder = (m: MsgHeader) => m.folder || folder;
+
+  // Höhe eines Mail-iframes an seinen Inhalt anpassen. Der iframe ist per
+  // sandbox="… allow-same-origin" (aber OHNE allow-scripts) lesbar, ohne dass die
+  // Mail Code ausführen darf → wir dürfen scrollHeight messen. Gedeckelt gegen
+  // Ausreißer.
+  function measure(uid: string, el: HTMLIFrameElement | null) {
+    if (!el) return;
+    try {
+      const doc = el.contentDocument;
+      if (!doc || !doc.body) return;
+      // Body-Höhe (inhaltsgetrieben) statt documentElement.scrollHeight — Letzteres
+      // liefert bei kurzem Inhalt die iframe-Viewporthöhe, die Mail würde nicht
+      // schrumpfen. getBoundingClientRect fängt auch Body-Ränder mit.
+      const rectH = Math.ceil(doc.body.getBoundingClientRect().height);
+      const h = Math.max(doc.body.scrollHeight, rectH);
+      const clamped = Math.min(8000, Math.max(48, h + 8));
+      setHeights((prev) => (prev[uid] === clamped ? prev : { ...prev, [uid]: clamped }));
+    } catch { /* cross-origin o. Ä. → feste Fallback-Höhe bleibt */ }
+  }
+
+  // Bei Fensterbreiten-Änderung reflowen die Mails → Höhen neu messen.
+  useEffect(() => {
+    let raf = 0;
+    const onResize = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => frameRefs.current.forEach((el, uid) => measure(uid, el)));
+    };
+    window.addEventListener("resize", onResize);
+    return () => { window.removeEventListener("resize", onResize); cancelAnimationFrame(raf); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function loadDetail(m: MsgHeader) {
     const uid = m.uid;
@@ -136,23 +173,47 @@ export function ThreadReader({
                     <div className="mail-loading" style={{ minHeight: 80 }}><span className="mail-spinner" aria-hidden /></div>
                   )}
                   {errUid[m.uid] && <div className="err">{errUid[m.uid]}</div>}
-                  {d && (
+                  {d && (() => {
+                    // Zitierten Verlauf standardmäßig abtrennen → je Karte nur der
+                    // NEUE Text. Über den „Verlauf anzeigen"-Schalter wieder einblendbar.
+                    const showQuote = quoteOk.has(m.uid);
+                    let bodyHtml = d.html, bodyText = d.text, hasQuote = false;
+                    if (d.html) {
+                      const r = trimQuotedHtml(d.html);
+                      hasQuote = r.trimmed;
+                      if (!showQuote && r.trimmed) bodyHtml = r.html;
+                    } else if (d.text) {
+                      const r = trimQuotedText(d.text);
+                      hasQuote = r.trimmed;
+                      if (!showQuote && r.trimmed) bodyText = r.text;
+                    }
+                    return (
                     <>
                       <div className="thread-msg-toolbar">
                         <button className="ghost" onClick={() => onReply(d)} title={t("mail.reply")}>↩ {t("mail.reply")}</button>
                         <button className="ghost" onClick={() => onForward(d)} title={t("mail.forward")}>↪ {t("mail.forward")}</button>
+                        {hasQuote && (
+                          <button className="ghost" onClick={() => setQuoteOk((s) => { const n = new Set(s); if (n.has(m.uid)) n.delete(m.uid); else n.add(m.uid); return n; })}
+                            title={showQuote ? t("mail.quoteHide") : t("mail.quoteShow")}>
+                            {showQuote ? `▴ ${t("mail.quoteHide")}` : `··· ${t("mail.quoteShow")}`}
+                          </button>
+                        )}
                         {blockImages && !showImgs && remote && (
                           <button className="ghost" onClick={() => setImgOk((s) => new Set(s).add(m.uid))} title={t("mail.showImages")}>🖼 {t("mail.showImages")}</button>
                         )}
                         <span className="grow" />
                         <button className="ghost read-del" onClick={() => onDelete(m)} title={t("mail.delete")}>🗑</button>
                       </div>
-                      {d.html ? (
-                        <iframe title={`mail-${m.uid}`} sandbox="allow-popups allow-popups-to-escape-sandbox"
+                      {bodyHtml ? (
+                        <iframe title={`mail-${m.uid}`}
+                          sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
                           className="mail-body-frame thread-body-frame"
-                          srcDoc={buildSrcDoc(d.html, blockImages && !showImgs, dark)} />
-                      ) : d.text ? (
-                        <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{d.text}</div>
+                          style={{ height: heights[m.uid] ? `${heights[m.uid]}px` : undefined }}
+                          ref={(el) => { if (el) frameRefs.current.set(m.uid, el); else frameRefs.current.delete(m.uid); }}
+                          onLoad={(e) => { const el = e.currentTarget; measure(m.uid, el); setTimeout(() => measure(m.uid, el), 180); }}
+                          srcDoc={buildSrcDoc(bodyHtml, blockImages && !showImgs, dark)} />
+                      ) : bodyText ? (
+                        <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{bodyText}</div>
                       ) : (
                         <div className="muted" style={{ whiteSpace: "pre-wrap" }}>{t("mail.emptyBody")}</div>
                       )}
@@ -171,7 +232,8 @@ export function ThreadReader({
                         </div>
                       )}
                     </>
-                  )}
+                    );
+                  })()}
                 </div>
               )}
             </div>

@@ -223,6 +223,8 @@ export const el: Dict = {
   "mail.clearSelection": "Εκκαθάριση επιλογής",
   "mail.imagesBlocked": "Οι εξωτερικές εικόνες αποκλείστηκαν (προστασία από παρακολούθηση)",
   "mail.showImages": "Εμφάνιση εικόνων",
+  "mail.quoteShow": "Εμφάνιση ιστορικού",
+  "mail.quoteHide": "Απόκρυψη ιστορικού",
   "shell.blockImages": "Αποκλεισμός εξωτερικών εικόνων",
   "shell.darkMail": "Σκούρα απόχρωση στα φωτεινά μηνύματα",
   "shell.pinFlagged": "Καρφίτσωμα επισημασμένων μηνυμάτων επάνω",

@@ -223,6 +223,8 @@ export const nl: Dict = {
   "mail.clearSelection": "Selectie wissen",
   "mail.imagesBlocked": "Externe afbeeldingen geblokkeerd (bescherming tegen tracking)",
   "mail.showImages": "Afbeeldingen tonen",
+  "mail.quoteShow": "Geschiedenis tonen",
+  "mail.quoteHide": "Geschiedenis verbergen",
   "shell.blockImages": "Externe afbeeldingen blokkeren",
   "shell.darkMail": "Lichte e-mails donker inkleuren",
   "shell.pinFlagged": "Gemarkeerde e-mails bovenaan vastzetten",
