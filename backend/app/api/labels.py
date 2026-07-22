@@ -26,7 +26,7 @@ def _slug(name: str) -> str:
 def _unique_keyword(base: str, user_id: int, session: Session) -> str:
     """Eindeutiges Keyword je User erzeugen (bei Kollision _2, _3 …)."""
     existing = {
-        l.keyword for l in session.exec(select(MailLabel).where(MailLabel.user_id == user_id)).all()
+        lbl.keyword for lbl in session.exec(select(MailLabel).where(MailLabel.user_id == user_id)).all()
     }
     if base not in existing:
         return base

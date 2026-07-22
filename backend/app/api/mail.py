@@ -770,7 +770,8 @@ async def schedule_send(
     ``send_at`` (Granularität ~1-2 Min). Body/Anhänge liegen bis dahin verschlüsselt-
     frei als JSON in der DB und werden nach dem Versand gelöscht."""
     _reject_if_too_large(data)
-    acc = await run_in_threadpool(_account, account_id, user, session)
+    # Konto-Zugriff prüfen (wirft bei fremdem/fehlendem Konto); Rückgabe nicht nötig.
+    await run_in_threadpool(_account, account_id, user, session)
     # Zeitpunkt auf naive UTC bringen (aware -> umrechnen; naiv -> als UTC deuten).
     sa = data.send_at
     send_at = sa.astimezone(_dt.timezone.utc).replace(tzinfo=None) if sa.tzinfo else sa

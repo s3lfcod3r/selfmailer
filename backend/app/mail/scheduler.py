@@ -254,8 +254,10 @@ def _send_due_scheduled() -> None:
             for row in due:
                 acc = s.get(MailAccount, row.account_id)
                 if acc is None:
-                    row.status = "failed"; row.error = "Konto nicht mehr vorhanden"
-                    s.add(row); continue
+                    row.status = "failed"
+                    row.error = "Konto nicht mehr vorhanden"
+                    s.add(row)
+                    continue
                 try:
                     pw = decrypt(acc.secret_enc)
                     p = json.loads(row.payload_json or "{}")
@@ -276,11 +278,14 @@ def _send_due_scheduled() -> None:
                         imap_mod.save_to_sent(acc, pw, raw)
                     except Exception:  # noqa: BLE001
                         pass
-                    row.status = "sent"; row.sent_at = now; row.payload_json = ""
+                    row.status = "sent"
+                    row.sent_at = now
+                    row.payload_json = ""
                     bus.publish(row.user_id, {"type": "mail", "account_id": row.account_id, "folder": "INBOX"})
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Geplanter Versand fehlgeschlagen (id=%s)", row.id, exc_info=True)
-                    row.status = "failed"; row.error = str(exc)[:300]
+                    row.status = "failed"
+                    row.error = str(exc)[:300]
                 s.add(row)
             s.commit()
     except Exception:  # noqa: BLE001 - der Scheduler darf nie sterben
