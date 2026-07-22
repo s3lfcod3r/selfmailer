@@ -1008,6 +1008,64 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     } catch (e) { setErr((e as Error).message); }
   }
 
+  // Weitere ordner-bewusste Thread-Aktionen (für das ⋯-Menü je Karte).
+  function removeFromThread(pred: (m: MsgHeader) => boolean) {
+    setOpenThread((prev) => {
+      if (!prev) return prev;
+      const rest = prev.messages.filter((x) => !pred(x));
+      if (rest.length === 0) { setMobilePane("list"); return null; }
+      return { ...prev, messages: rest, count: rest.length };
+    });
+  }
+  async function moveThreadMsg(m: MsgHeader, dest: string) {
+    if (activeId == null || !dest) return;
+    const fol = m.folder || folder;
+    setErr("");
+    try {
+      await api.post(`/mail/${activeId}/messages/${m.uid}/move?folder=${encodeURIComponent(fol)}&dest=${encodeURIComponent(dest)}`);
+      if (fol === folder) setMessages((ms) => ms.filter((x) => x.uid !== m.uid));
+      removeFromThread((x) => sameMsg(x, m));
+      refreshCounts(activeId);
+    } catch (e) { setErr((e as Error).message); }
+  }
+  async function spamThreadMsg(m: MsgHeader) {
+    if (spamFolder) await moveThreadMsg(m, spamFolder);
+  }
+  async function markThreadUnread(m: MsgHeader) {
+    if (activeId == null) return;
+    const fol = m.folder || folder;
+    patchThreadMsg(m, { seen: false });
+    bumpUnseen(activeId, fol, 1);
+    try { await api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&seen=false`); }
+    catch (e) { setErr((e as Error).message); }
+  }
+  async function blockThreadSender(m: MsgHeader) {
+    if (activeId == null) return;
+    const addr = parseAddr(m.from).email.trim();
+    if (!addr) return;
+    if (!(await askConfirm(t("mail.blockConfirm", { sender: addr })))) return;
+    const acc = activeId, lower = addr.toLowerCase();
+    setErr("");
+    try {
+      await api.post(`/mail/${acc}/block-sender`, { sender: addr, delete_existing: true });
+      setMessages((ms) => ms.filter((x) => !parseAddr(x.from).email.toLowerCase().includes(lower)));
+      removeFromThread((x) => parseAddr(x.from).email.toLowerCase().includes(lower));
+      refreshCounts(acc);
+    } catch (e) { setErr((e as Error).message); }
+  }
+  async function addThreadContact(m: MsgHeader) {
+    const { name, email } = parseAddr(m.from);
+    if (!email) return;
+    try { await api.post("/contacts", { name: name || email, email }); }
+    catch (e) { setErr((e as Error).message); }
+  }
+  async function showRawThread(m: MsgHeader) {
+    if (activeId == null) return;
+    const fol = m.folder || folder;
+    try { setRawText(await api.get<string>(`/mail/${activeId}/messages/${m.uid}/raw?folder=${encodeURIComponent(fol)}`)); }
+    catch (e) { setErr((e as Error).message); }
+  }
+
   async function openMsg(uid: string, asPopup = false, fromFolder?: string) {
     if (activeId == null) return;
     // Diese Öffnung als jüngste markieren; Konto/Ordner beim Klick festhalten.
@@ -1819,6 +1877,18 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             ownEmails={ownEmails}
             meLabel={meLabel}
             avatarMap={avatarMap}
+            actions={{
+              labels, labelMap,
+              onLabel: (m, kw, on) => setLabel(m.uid, m.folder, kw, on),
+              onNewLabel: createLabel,
+              onSpam: (spamFolder && folder !== spamFolder) ? (m) => spamThreadMsg(m) : undefined,
+              onMarkUnread: (m) => markThreadUnread(m),
+              onBlock: (m) => blockThreadSender(m),
+              onAddContact: (m) => addThreadContact(m),
+              onMove: (m, dest) => moveThreadMsg(m, dest),
+              folders: folderNames,
+              onViewSource: (m) => showRawThread(m),
+            }}
             onClose={() => { setOpenThread(null); setMobilePane("list"); }}
             onReply={(d) => setDraft(replyDraft(d, t))}
             onForward={(d) => setDraft(forwardDraft(d, t))}

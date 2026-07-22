@@ -46,8 +46,40 @@ const _DARK_STYLE =
   `img,picture,video,svg,canvas{filter:none !important;}` +
   `</style>`;
 
+// Entfernt bei blockierten Bildern die externen Verweise KOMPLETT aus dem DOM.
+// Ohne das bleibt zwar durch die CSP der Ladevorgang blockiert, der Browser
+// zeigt aber trotzdem das hässliche „kaputtes Bild"-Symbol für jedes <img>.
+// Nach dem Strippen ist ein src-loses <img> unsichtbar; „Bilder anzeigen"
+// rendert den Original-HTML ohne block=true einfach neu.
+function _stripRemote(html: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const isRemote = (v: string | null) => !!v && /^\s*https?:/i.test(v);
+    doc.querySelectorAll("img, source").forEach((el) => {
+      if (isRemote(el.getAttribute("src"))) el.removeAttribute("src");
+      if (isRemote(el.getAttribute("srcset"))) el.removeAttribute("srcset");
+      // Verwaistes <img> ohne src ganz ausblenden (kein Rahmen/Alt-Text-Rest).
+      if (el.tagName === "IMG" && !el.getAttribute("src")) {
+        (el as HTMLElement).style.display = "none";
+      }
+    });
+    // background="http…" und inline background-image:url(http…)
+    doc.querySelectorAll<HTMLElement>("[background], [style*='url(']").forEach((el) => {
+      if (isRemote(el.getAttribute("background"))) el.removeAttribute("background");
+      const st = el.getAttribute("style");
+      if (st && /url\(\s*['"]?\s*https?:/i.test(st)) {
+        el.setAttribute("style", st.replace(/url\(\s*['"]?\s*https?:[^)]*\)/gi, "none"));
+      }
+    });
+    return doc.body ? doc.body.innerHTML : html;
+  } catch {
+    return html;
+  }
+}
+
 export function buildSrcDoc(html: string, block: boolean, dark: boolean): string {
-  return `<!DOCTYPE html><meta charset="utf-8">${block ? _CSP_BLOCK : ""}${dark ? _DARK_STYLE : ""}<base target="_blank">${html}`;
+  const body = block ? _stripRemote(html) : html;
+  return `<!DOCTYPE html><meta charset="utf-8">${block ? _CSP_BLOCK : ""}${dark ? _DARK_STYLE : ""}<base target="_blank">${body}`;
 }
 
 export function fmtSize(bytes: number): string {

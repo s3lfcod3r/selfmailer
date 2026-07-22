@@ -1,8 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { api, download, type MsgHeader, type MsgDetail } from "../lib/api";
+import { api, download, type MsgHeader, type MsgDetail, type MailLabel } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, trimQuotedHtml, trimQuotedText, avatarFor } from "../lib/mailview";
 import type { Conversation } from "../lib/threads";
+
+// Volle Aktionen je Thread-Nachricht (wie in der Einzelansicht).
+export type ThreadActions = {
+  labels: MailLabel[];
+  labelMap: Record<string, MailLabel>;
+  onLabel: (m: MsgHeader, keyword: string, on: boolean) => void;
+  onNewLabel: () => void;
+  onSpam?: (m: MsgHeader) => void;
+  onMarkUnread: (m: MsgHeader) => void;
+  onBlock: (m: MsgHeader) => void;
+  onAddContact: (m: MsgHeader) => void;
+  onMove: (m: MsgHeader, dest: string) => void;
+  folders: string[];
+  onViewSource: (m: MsgHeader) => void;
+};
 
 // Kleiner Absender-Avatar: Kontakt-Foto, sonst Initialen + Farbe.
 function Avatar({ label, photo, size = 30 }: { label: string; photo?: string; size?: number }) {
@@ -30,7 +45,7 @@ function Avatar({ label, photo, size = 30 }: { label: string; photo?: string; si
  * zwischengespeichert — ein bereits geöffneter Verlauf kostet kein erneutes IMAP.
  */
 export function ThreadReader({
-  accountId, folder, conversation, blockImages, darkMail, ownEmails = [], meLabel = "", avatarMap = {},
+  accountId, folder, conversation, blockImages, darkMail, ownEmails = [], meLabel = "", avatarMap = {}, actions,
   onClose, onReply, onForward, onDelete, onFlag, onSeen,
 }: {
   accountId: number;
@@ -43,6 +58,8 @@ export function ThreadReader({
   meLabel?: string;
   /** E-Mail→Foto für Kontakt-Avatare. */
   avatarMap?: Record<string, string>;
+  /** Volle Aktionen je Nachricht (Label/Spam/⋯-Menü). */
+  actions?: ThreadActions;
   onClose: () => void;
   onReply: (d: MsgDetail) => void;
   onForward: (d: MsgDetail) => void;
@@ -51,7 +68,7 @@ export function ThreadReader({
   /** Meldet dem Elternteil: diese (vorher ungelesene) Mail wurde geöffnet. */
   onSeen: (m: MsgHeader) => void;
 }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const msgs = conversation.messages; // chronologisch aufsteigend
   const latestUid = conversation.latest.uid;
   const ownSet = new Set(ownEmails.map((e) => e.trim().toLowerCase()).filter(Boolean));
@@ -66,6 +83,10 @@ export function ThreadReader({
   const [details, setDetails] = useState<Record<string, MsgDetail>>({});
   const [loadingUid, setLoadingUid] = useState<Set<string>>(new Set());
   const [errUid, setErrUid] = useState<Record<string, string>>({});
+  // Offene Menüs je Karte (Schlüssel = folder:uid): Label-Menü bzw. ⋯-Menü.
+  const [lblMenuKey, setLblMenuKey] = useState<string | null>(null);
+  const [moreMenuKey, setMoreMenuKey] = useState<string | null>(null);
+  const keyFor = (m: MsgHeader) => `${m.folder ?? ""}:${m.uid}`;
   // Aufgeklappte Nachrichten. Start: neueste + alle ungelesenen.
   const [openUids, setOpenUids] = useState<Set<string>>(() => {
     const s = new Set<string>();
@@ -237,7 +258,59 @@ export function ThreadReader({
                           </button>
                         )}
                         {blockImages && !showImgs && remote && (
-                          <button className="ghost" onClick={() => setImgOk((s) => new Set(s).add(m.uid))} title={t("mail.showImages")}>🖼 {t("mail.showImages")}</button>
+                          <button className="ghost" onClick={() => setImgOk((s) => new Set(s).add(m.uid))} title={t("mail.showImages")}>🖼</button>
+                        )}
+                        {actions && (
+                          <span style={{ position: "relative" }}>
+                            <button className={`ghost ${lblMenuKey === keyFor(m) ? "on" : ""}`} onClick={() => { setLblMenuKey((k) => k === keyFor(m) ? null : keyFor(m)); setMoreMenuKey(null); }} title={t("label.title")}>🏷</button>
+                            {lblMenuKey === keyFor(m) && (
+                              <>
+                                <div className="menu-backdrop" onClick={() => setLblMenuKey(null)} />
+                                <div className="read-menu label-menu">
+                                  {actions.labels.length === 0 && <div className="muted" style={{ fontSize: "0.8rem", padding: "0.2rem 0.4rem" }}>{t("label.none")}</div>}
+                                  {actions.labels.map((l) => {
+                                    const applied = (m.labels ?? []).includes(l.keyword);
+                                    return (
+                                      <div key={l.keyword} className="label-menu-row">
+                                        <button className="label-menu-toggle" onClick={() => actions.onLabel(m, l.keyword, !applied)}>
+                                          <span className="label-dot" style={{ background: l.color }} />
+                                          <span className="grow">{l.name}</span>
+                                          {applied && <span>✓</span>}
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                  <button className="link-btn" style={{ marginTop: "0.3rem" }} onClick={() => { setLblMenuKey(null); actions.onNewLabel(); }}>＋ {t("label.new")}</button>
+                                </div>
+                              </>
+                            )}
+                          </span>
+                        )}
+                        {actions?.onSpam && <button className="ghost" onClick={() => actions.onSpam!(m)} title={t("mail.spam")}>🚫</button>}
+                        {actions && (
+                          <span style={{ position: "relative" }}>
+                            <button className={`ghost ${moreMenuKey === keyFor(m) ? "on" : ""}`} onClick={() => { setMoreMenuKey((k) => k === keyFor(m) ? null : keyFor(m)); setLblMenuKey(null); }} title={t("mail.more")}>⋯</button>
+                            {moreMenuKey === keyFor(m) && (
+                              <>
+                                <div className="menu-backdrop" onClick={() => setMoreMenuKey(null)} />
+                                <div className="read-menu">
+                                  <button onClick={() => { setMoreMenuKey(null); actions.onAddContact(m); }}>👤 {t("mail.addContact")}</button>
+                                  <button onClick={() => { setMoreMenuKey(null); actions.onMarkUnread(m); }}>● {t("mail.markUnread")}</button>
+                                  <button className="read-menu-danger" onClick={() => { setMoreMenuKey(null); actions.onBlock(m); }}>🚫 {t("mail.blockSender")}</button>
+                                  {actions.folders.length > 1 && (
+                                    <label className="read-menu-move">
+                                      <span>📁 {t("mail.moveTo")}</span>
+                                      <select value="" onChange={(e) => { if (e.target.value) { actions.onMove(m, e.target.value); setMoreMenuKey(null); } }}>
+                                        <option value="">…</option>
+                                        {actions.folders.filter((f) => f !== (m.folder || folder)).map((f) => <option key={f} value={f}>{f}</option>)}
+                                      </select>
+                                    </label>
+                                  )}
+                                  <button onClick={() => { setMoreMenuKey(null); actions.onViewSource(m); }}>📄 {lang === "de" ? "Original anzeigen" : "View source"}</button>
+                                </div>
+                              </>
+                            )}
+                          </span>
                         )}
                         <span className="grow" />
                         <button className="ghost read-del" onClick={() => onDelete(m)} title={t("mail.delete")}>🗑</button>
