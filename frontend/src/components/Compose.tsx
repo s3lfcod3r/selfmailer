@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import DOMPurify from "dompurify";
-import { api, type Account } from "../lib/api";
+import { api, type Account, type MailTemplate } from "../lib/api";
 import { useLang, type TFunc } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { safeLinkUrl } from "../lib/url";
@@ -119,8 +119,18 @@ export function Compose({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const editorRef = useRef<HTMLDivElement>(null);
+  // Vorlagen/Textbausteine.
+  const [templates, setTemplates] = useState<MailTemplate[]>([]);
+  const [tplOpen, setTplOpen] = useState(false);
+  // „Senden rückgängig": nach Klick auf Senden läuft ein kurzer Countdown, in dem
+  // sich der Versand noch abbrechen lässt (wie Gmail). null = kein Versand geplant.
+  const UNDO_SECONDS = 5;
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const sendTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => { api.get<Account[]>("/accounts").then(setAccounts).catch(() => {}); }, []);
+  useEffect(() => { api.get<MailTemplate[]>("/templates").then(setTemplates).catch(() => {}); }, []);
+  useEffect(() => () => { if (sendTimer.current) clearInterval(sendTimer.current); }, []);
   // Editor einmalig mit dem Entwurfstext füllen (Zeilenumbrüche bleiben erhalten).
   useEffect(() => { if (editorRef.current) editorRef.current.innerText = draft.body; }, [draft.body]);
 
@@ -142,10 +152,58 @@ export function Compose({
     setFiles((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  async function send() {
+  // Vorlage in den Entwurf einfügen: Betreff nur setzen, wenn noch leer (sonst
+  // nicht überschreiben); Text ans Ende des Editors anhängen.
+  function insertTemplate(tpl: MailTemplate) {
+    setTplOpen(false);
+    if (tpl.subject && !d.subject.trim()) set("subject", tpl.subject);
+    if (editorRef.current) {
+      const cur = editorRef.current.innerText;
+      editorRef.current.innerText = cur ? cur + "\n" + tpl.body : tpl.body;
+      editorRef.current.focus();
+    }
+  }
+  async function saveAsTemplate() {
+    setTplOpen(false);
+    const name = (await promptDialog(t("tpl.namePrompt")))?.trim();
+    if (!name) return;
+    const body = editorRef.current?.innerText ?? "";
+    try {
+      const created = await api.post<MailTemplate>("/templates", { name, subject: d.subject, body });
+      setTemplates((ts) => [...ts, created].sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (e) { setErr((e as Error).message); }
+  }
+  async function deleteTemplate(id: number) {
+    try { await api.del(`/templates/${id}`); setTemplates((ts) => ts.filter((x) => x.id !== id)); }
+    catch (e) { setErr((e as Error).message); }
+  }
+
+  // Senden mit „Rückgängig"-Countdown: erst nach Ablauf wird wirklich gesendet.
+  function send() {
     setErr("");
     if (split(d.to).length === 0) { setErr(t("compose.needRecipient")); return; }
     if (files.reduce((s, f) => s + f.size, 0) > MAX_ATTACH_BYTES) { setErr(t("compose.tooLarge")); return; }
+    setCountdown(UNDO_SECONDS);
+    if (sendTimer.current) clearInterval(sendTimer.current);
+    sendTimer.current = setInterval(() => {
+      setCountdown((c) => {
+        if (c === null) return null;
+        if (c <= 1) {
+          if (sendTimer.current) { clearInterval(sendTimer.current); sendTimer.current = null; }
+          doSend();
+          return null;
+        }
+        return c - 1;
+      });
+    }, 1000);
+  }
+  function undoSend() {
+    if (sendTimer.current) { clearInterval(sendTimer.current); sendTimer.current = null; }
+    setCountdown(null);
+    editorRef.current?.focus();
+  }
+
+  async function doSend() {
     setBusy(true);
     try {
       const attachments = await Promise.all(
@@ -259,11 +317,30 @@ export function Compose({
           )}
 
           {err && <div className="err">{err}</div>}
+          {countdown !== null && (
+            <div className="compose-undo">
+              <span>✉ {t("tpl.sendingIn", { n: countdown })}</span>
+              <button className="link-btn" onClick={undoSend}>↩ {t("tpl.undo")}</button>
+            </div>
+          )}
           <div className="row" style={{ position: "relative" }}>
             <label className="ghost" style={{ cursor: "pointer" }}>
               📎 {t("compose.attach")}
               <input type="file" multiple style={{ display: "none" }} onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
             </label>
+            <button className="ghost" title={t("tpl.templates")} onClick={() => setTplOpen((o) => !o)}>📄</button>
+            {tplOpen && (
+              <div className="compose-more compose-tpl">
+                {templates.length === 0 && <div className="muted" style={{ fontSize: "0.8rem", padding: "0.2rem 0.3rem" }}>{t("tpl.none")}</div>}
+                {templates.map((tpl) => (
+                  <div key={tpl.id} className="compose-tpl-row">
+                    <button className="compose-tpl-ins" onClick={() => insertTemplate(tpl)} title={tpl.subject}>{tpl.name}</button>
+                    <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => deleteTemplate(tpl.id)} title={t("common.delete")}>🗑</button>
+                  </div>
+                ))}
+                <button className="link-btn" style={{ marginTop: "0.3rem" }} onClick={saveAsTemplate}>＋ {t("tpl.saveCurrent")}</button>
+              </div>
+            )}
             <button className="ghost" title={t("compose.options")} onClick={() => setMoreOpen((o) => !o)}>⋯</button>
             {moreOpen && (
               <div className="compose-more">
@@ -273,7 +350,7 @@ export function Compose({
             )}
             <span className="grow" />
             <button className="ghost" onClick={onClose}>{t("common.cancel")}</button>
-            <button className="primary" onClick={send} disabled={busy}>{busy ? t("compose.sending") : t("compose.send")}</button>
+            <button className="primary" onClick={send} disabled={busy || countdown !== null}>{busy ? t("compose.sending") : t("compose.send")}</button>
           </div>
         </div>
       </div>

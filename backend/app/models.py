@@ -116,6 +116,20 @@ class Note(SQLModel, table=True):
     updated_at: dt.datetime = Field(default_factory=_now)
 
 
+class MailTemplate(SQLModel, table=True):
+    """Wiederverwendbarer Textbaustein/Vorlage fürs Schreiben (pro User).
+
+    name = Anzeigename in der Auswahl; subject/body werden beim Einfügen in den
+    Compose übernommen. Tabelle via create_all (keine Migration nötig)."""
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    name: str = ""
+    subject: str = ""
+    body: str = ""
+    created_at: dt.datetime = Field(default_factory=_now)
+    updated_at: dt.datetime = Field(default_factory=_now)
+
+
 class CalendarEvent(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")

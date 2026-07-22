@@ -30,6 +30,7 @@ from .api import (
     push,
     rules,
     tasks,
+    templates,
     translate,
 )
 # Alias: das Modul heißt settings, die Konfigurationsvariable unten aber auch —
@@ -148,6 +149,7 @@ app.include_router(accounts.router)
 app.include_router(mail.router)
 app.include_router(rules.router)
 app.include_router(notes.router)
+app.include_router(templates.router)
 app.include_router(tasks.router)
 app.include_router(calendar.router)
 app.include_router(contacts.router)

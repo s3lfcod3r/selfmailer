@@ -497,6 +497,20 @@ select.bulk-btn { max-width: 170px; }
   display: flex; flex-direction: column; gap: 0.4rem; min-width: 250px; font-size: 0.85rem;
 }
 .compose-more label { display: flex; gap: 0.5rem; align-items: center; color: var(--self-text-2); cursor: pointer; }
+/* Vorlagen-Menü + „Senden rückgängig"-Leiste. */
+.compose-tpl { left: 110px; max-height: 260px; overflow-y: auto; }
+.compose-tpl-row { display: flex; align-items: center; gap: 0.3rem; }
+.compose-tpl-ins {
+  flex: 1; text-align: left; background: none; border: none; color: var(--self-text);
+  padding: 0.35rem 0.4rem; border-radius: 6px; cursor: pointer; font: inherit; font-size: 0.85rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.compose-tpl-ins:hover { background: var(--self-bg-3); color: var(--self-teal-bright); }
+.compose-undo {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+  background: var(--self-teal-deep); border: 1px solid var(--self-teal);
+  border-radius: 8px; padding: 0.45rem 0.7rem; color: var(--self-teal-bright); font-size: 0.85rem;
+}
 /* Compose-Fenster: standardmäßig groß, Editor füllt den freien Platz. */
 .compose-modal { display: flex; flex-direction: column; height: 80vh; overflow: hidden; }
 .compose-modal > .stack { flex: 1 1 auto; min-height: 0; overflow: auto; }

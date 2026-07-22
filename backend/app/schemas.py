@@ -331,6 +331,28 @@ class NoteOut(BaseModel):
     updated_at: dt.datetime
 
 
+# ---- Vorlagen / Textbausteine -------------------------------------------
+class TemplateCreate(BaseModel):
+    name: str = ""
+    subject: str = ""
+    body: str = ""
+
+
+class TemplateUpdate(BaseModel):
+    name: str | None = None
+    subject: str | None = None
+    body: str | None = None
+
+
+class TemplateOut(BaseModel):
+    id: int
+    name: str
+    subject: str
+    body: str
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
 # ---- Kalender -----------------------------------------------------------
 class EventCreate(BaseModel):
     title: str = ""

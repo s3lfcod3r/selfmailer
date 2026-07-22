@@ -161,6 +161,10 @@ export type Task = {
   id: number; title: string; notes: string; due: string | null;
   done: boolean; position: number;
 };
+export type MailTemplate = {
+  id: number; name: string; subject: string; body: string;
+  created_at: string; updated_at: string;
+};
 
 export type DavKind = "caldav" | "carddav" | "ics" | "gcal";
 export type DavAccount = {
