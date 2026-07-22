@@ -227,6 +227,7 @@ export const en = {
   "mail.showImages": "Show images",
   "mail.quoteShow": "Show history",
   "mail.quoteHide": "Hide history",
+  "mail.me": "Me",
   "shell.blockImages": "Block external images",
   "shell.darkMail": "Tint light mails dark",
   "shell.pinFlagged": "Pin flagged mails to top",

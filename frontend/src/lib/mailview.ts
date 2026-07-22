@@ -57,6 +57,23 @@ export function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Absender-Avatar (Initialen + stabile Farbe aus dem Namen) — wie Synology/die
+// Android-App. Buchstaben aus bis zu zwei Wortanfängen, sonst erster Buchstabe.
+const _AVATAR_COLORS = [
+  "#e05a5a", "#e0865a", "#d9a441", "#5aa85a", "#3fa9a0",
+  "#4f8bd4", "#6a6ad0", "#a45ad0", "#d05a9e", "#8a8f98",
+];
+export function avatarFor(nameOrEmail: string): { initials: string; color: string } {
+  const s = (nameOrEmail || "").trim();
+  const letters = s.replace(/[<>"]/g, "").split(/[\s@._-]+/).filter(Boolean);
+  let initials = "?";
+  if (letters.length >= 2) initials = (letters[0][0] + letters[1][0]).toUpperCase();
+  else if (letters.length === 1) initials = letters[0].slice(0, 2).toUpperCase();
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+  return { initials, color: _AVATAR_COLORS[hash % _AVATAR_COLORS.length] };
+}
+
 // Erkennt die typische Zitat-Einleitung ("Am … schrieb …:", "On … wrote:",
 // "-----Original…", Outlook-Kopf "Von:/From:"). Kurz gehalten, damit ein normaler
 // Satz, der zufällig so anfängt, nicht fälschlich als Zitat gilt.

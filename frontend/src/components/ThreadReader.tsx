@@ -1,8 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { api, download, type MsgHeader, type MsgDetail } from "../lib/api";
 import { useLang } from "../lib/i18n";
-import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, trimQuotedHtml, trimQuotedText } from "../lib/mailview";
+import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, trimQuotedHtml, trimQuotedText, avatarFor } from "../lib/mailview";
 import type { Conversation } from "../lib/threads";
+
+// Kleiner Absender-Avatar (Initialen + Farbe), wie Synology/die App.
+function Avatar({ label, size = 30 }: { label: string; size?: number }) {
+  const { initials, color } = avatarFor(label);
+  return (
+    <span className="thread-avatar" aria-hidden
+      style={{ width: size, height: size, background: color, fontSize: size * 0.4 }}>
+      {initials}
+    </span>
+  );
+}
 
 /**
  * Lesebereich für eine Konversation (mehrere zusammengehörende Mails).
@@ -16,7 +27,7 @@ import type { Conversation } from "../lib/threads";
  * zwischengespeichert — ein bereits geöffneter Verlauf kostet kein erneutes IMAP.
  */
 export function ThreadReader({
-  accountId, folder, conversation, blockImages, darkMail,
+  accountId, folder, conversation, blockImages, darkMail, ownEmails = [], meLabel = "",
   onClose, onReply, onForward, onDelete, onFlag, onSeen,
 }: {
   accountId: number;
@@ -24,6 +35,9 @@ export function ThreadReader({
   conversation: Conversation;
   blockImages: boolean;
   darkMail: boolean;
+  /** Eigene Absenderadressen → im Verlauf als „Ich" statt der Adresse. */
+  ownEmails?: string[];
+  meLabel?: string;
   onClose: () => void;
   onReply: (d: MsgDetail) => void;
   onForward: (d: MsgDetail) => void;
@@ -35,6 +49,13 @@ export function ThreadReader({
   const { t } = useLang();
   const msgs = conversation.messages; // chronologisch aufsteigend
   const latestUid = conversation.latest.uid;
+  const ownSet = new Set(ownEmails.map((e) => e.trim().toLowerCase()).filter(Boolean));
+  // Anzeigename eines Absenders — eigene Adresse als „Ich".
+  const nameOf = (m: MsgHeader) => {
+    const a = parseAddr(m.from);
+    if (meLabel && a.email && ownSet.has(a.email.trim().toLowerCase())) return meLabel;
+    return a.name || a.email;
+  };
 
   // Geladene Detail-Bodies je UID (Cache über die Lebensdauer der Ansicht).
   const [details, setDetails] = useState<Record<string, MsgDetail>>({});
@@ -135,7 +156,14 @@ export function ThreadReader({
   return (
     <div className="mail-readcol thread-readcol">
       <div className="thread-head">
-        <h2 className="mail-head-subject">{conversation.subject || t("mail.noSubject")}</h2>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2 className="mail-head-subject">{conversation.subject || t("mail.noSubject")}</h2>
+          {conversation.fromNames.length > 0 && (
+            <div className="thread-participants" title={conversation.fromNames.join(", ")}>
+              {conversation.fromNames.join(", ")}
+            </div>
+          )}
+        </div>
         <div className="thread-head-actions">
           <span className="thread-count" title={t("shell.conversationView")}>💬 {conversation.count}</span>
           <button className="icon-btn" onClick={onClose} title={t("mail.back")}>✕</button>
@@ -148,6 +176,7 @@ export function ThreadReader({
           const isOpen = openUids.has(m.uid);
           const d = details[m.uid];
           const from = parseAddr(m.from);
+          const dispName = nameOf(m);
           const sameAddr = from.name.trim().toLowerCase() === from.email.trim().toLowerCase();
           const dark = darkMail;
           const showImgs = imgOk.has(m.uid);
@@ -160,9 +189,10 @@ export function ThreadReader({
                 <button className="thread-star" onClick={(e) => { e.stopPropagation(); onFlag(m); }} title={t("mail.flag")}>
                   {m.flagged ? "★" : "☆"}
                 </button>
+                <Avatar label={dispName} />
                 <div className="thread-msg-who">
-                  <span className="thread-msg-name">{from.name}</span>
-                  {!sameAddr && <span className="thread-msg-addr">&lt;{from.email}&gt;</span>}
+                  <span className="thread-msg-name">{dispName}</span>
+                  {!sameAddr && dispName !== from.email && <span className="thread-msg-addr">&lt;{from.email}&gt;</span>}
                   {!isOpen && m.snippet && <span className="thread-msg-snip">{m.snippet}</span>}
                 </div>
                 {m.has_attachments && <span className="thread-clip" title={t("mail.attachments")}>📎</span>}

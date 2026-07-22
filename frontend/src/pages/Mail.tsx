@@ -4,7 +4,7 @@ import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
-import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize } from "../lib/mailview";
+import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, avatarFor } from "../lib/mailview";
 import { ThreadReader } from "../components/ThreadReader";
 import { groupThreads, type Conversation } from "../lib/threads";
 
@@ -154,6 +154,7 @@ const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, onOpen, onTo
   // Teilnehmer kompakt: bis zu 3 Namen, sonst "A, B +N".
   const names = conv.fromNames;
   const who = names.length <= 3 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+  const av = avatarFor(names[0] || latest.from);
   return (
     <div className={`mail-row conv-row ${conv.anyUnseen ? "unseen" : ""}`}
       style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: isActive ? "var(--self-teal)" : undefined }}>
@@ -161,6 +162,7 @@ const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, onOpen, onTo
       <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: conv.anyFlagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={onToggleFlag} title={labels.flag}>
         {conv.anyFlagged ? "★" : "☆"}
       </button>
+      <span className="thread-avatar" aria-hidden style={{ width: 30, height: 30, background: av.color, fontSize: 12, marginTop: "0.1rem", flex: "0 0 auto" }}>{av.initials}</span>
       <div className="grow" role="button" tabIndex={0} style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={onOpen} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
           <span style={{ flex: 1, minWidth: 0, fontWeight: conv.anyUnseen ? 700 : 400, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{who}</span>
@@ -170,7 +172,6 @@ const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, onOpen, onTo
         <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{latest.subject || labels.noSubject}</span>
           {conv.anyAttachment && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
-          {latest.folder && <span className="mail-folder-tag" title={latest.folder}>{latest.folder.split(/[/.]/).pop()}</span>}
         </div>
         {latest.snippet && <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{latest.snippet}</div>}
       </div>
@@ -192,6 +193,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Geöffnete Konversation (Thread-Lesebereich). Hat Vorrang vor `open`: ist ein
   // Thread offen, zeigt die Lesespalte den gestapelten Verlauf statt einer Einzelmail.
   const [openThread, setOpenThread] = useState<Conversation | null>(null);
+  // Gecachte „Gesendet"-Kopfzeilen je Konto — damit der Listen-Zähler einer
+  // Konversation auch die EIGENEN Antworten mitzählt (wie Synology). Wird im
+  // Hintergrund geladen, sobald die Konversations-Ansicht aktiv ist.
+  const [sentByAcc, setSentByAcc] = useState<Record<number, MsgHeader[]>>({});
   // Suche hat die Obergrenze (SEARCH_LIMIT) erreicht → sichtbarer Hinweis, dass
   // die Trefferliste abgeschnitten ist (sonst wirkt sie irreführend vollständig).
   const [searchTruncated, setSearchTruncated] = useState(false);
@@ -780,6 +785,23 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Konversations-Ansicht ausgeschaltet -> offenen Thread schließen (sonst bliebe
   // die Lesespalte an einem Thread hängen, den es in der flachen Liste nicht gibt).
   useEffect(() => { if (!conversationView) setOpenThread(null); }, [conversationView]);
+  // „Gesendet"-Kopfzeilen des aktiven Kontos im Hintergrund laden (einmal je Konto),
+  // damit die Listen-Konversationen die eigenen Antworten mitzählen. Der Ordner wird
+  // über die special-Kennung (bzw. Namensheuristik) gefunden.
+  useEffect(() => {
+    if (!conversationView || activeId == null) return;
+    if (sentByAcc[activeId] !== undefined) return;             // schon geladen
+    const fols = foldersByAcc[activeId] || [];
+    const sf = fols.find((f) => f.special === "sent")?.name
+      ?? fols.map((f) => f.name).find((n) => specialKind(n.split(/[/.]/).pop() || n) === "sent");
+    if (!sf) return;                                           // Ordnerliste noch nicht da
+    const acc = activeId;
+    let alive = true;
+    api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(sf)}&limit=200&offset=0`)
+      .then((ms) => { if (alive) setSentByAcc((prev) => ({ ...prev, [acc]: ms.map((m) => ({ ...m, folder: sf })) })); })
+      .catch(() => { if (alive) setSentByAcc((prev) => ({ ...prev, [acc]: [] })); });
+    return () => { alive = false; };
+  }, [conversationView, activeId, foldersByAcc, sentByAcc]);
 
   function patchHeader(uid: string, patch: Partial<MsgHeader>) {
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
@@ -1226,12 +1248,35 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo)),
     [messages, ftResults, search, filter]);
 
+  // Eigene Absenderadressen (alle Konten) — für „Ich"-Anzeige. Stabil memoisiert.
+  const ownEmails = useMemo(() => accounts.map((a) => a.email).filter(Boolean), [accounts]);
+  const meLabel = t("mail.me");
+
   // Konversations-Ansicht: sichtbare Mails in Threads gruppieren. Bei ausgeschaltetem
   // Schalter leer — dann rendert die Liste wie gewohnt Einzelmails.
-  const conversations = useMemo(
-    () => (conversationView ? groupThreads(visible) : []),
-    [conversationView, visible],
-  );
+  // Zusätzlich werden die gecachten „Gesendet"-Mails eingemischt, damit der Zähler
+  // die eigenen Antworten mitzählt — aber NUR Konversationen behalten, die auch eine
+  // Mail des aktuellen Ordners enthalten (keine reinen Gesendet-Threads in der INBOX).
+  const conversations = useMemo(() => {
+    if (!conversationView) return [];
+    const sent = sentByAcc[activeId ?? -1] || [];
+    let all = visible;
+    if (sent.length) {
+      const seenKey = new Set<string>();
+      const seenMid = new Set<string>();
+      all = [];
+      for (const m of [...visible, ...sent]) {
+        const k = `${m.folder ?? ""}:${m.uid}`;
+        const mid = (m.message_id || "").trim();
+        if (seenKey.has(k) || (mid && seenMid.has(mid))) continue;
+        seenKey.add(k); if (mid) seenMid.add(mid); all.push(m);
+      }
+    }
+    const groups = groupThreads(all, ownEmails, meLabel);
+    if (!sent.length) return groups;
+    const visKeys = new Set(visible.map((m) => `${m.folder ?? ""}:${m.uid}`));
+    return groups.filter((g) => g.messages.some((m) => visKeys.has(`${m.folder ?? ""}:${m.uid}`)));
+  }, [conversationView, visible, sentByAcc, activeId, ownEmails, meLabel]);
   // Der offene Thread ist die alleinige Wahrheit für den Lesebereich. Alle
   // Änderungen (gelesen/Stern/löschen) pflegen ihn direkt (patchThreadMsg &Co.).
   // Bewusst NICHT aus `conversations` nachgezogen: die enthalten nur den aktuellen
@@ -1660,6 +1705,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             conversation={liveThread}
             blockImages={blockImages}
             darkMail={darkMail}
+            ownEmails={ownEmails}
+            meLabel={meLabel}
             onClose={() => { setOpenThread(null); setMobilePane("list"); }}
             onReply={(d) => setDraft(replyDraft(d, t))}
             onForward={(d) => setDraft(forwardDraft(d, t))}

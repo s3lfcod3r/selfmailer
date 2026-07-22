@@ -72,13 +72,28 @@ function makeUF(n: number) {
   return { find, union };
 }
 
+/** Ist die Adresse dieser Mail eines der eigenen Konten? (für „Ich"-Anzeige) */
+function displayName(m: MsgHeader, ownEmails: Set<string>, meLabel: string): string {
+  const a = parseAddr(m.from);
+  if (meLabel && a.email && ownEmails.has(a.email.trim().toLowerCase())) return meLabel;
+  return a.name || m.from;
+}
+
 /**
  * Gruppiert eine (bereits sortierte) Nachrichtenliste in Konversationen.
  * Die Reihenfolge der Konversationen folgt der Eingangsreihenfolge: jede
  * Konversation erbt die Position ihrer am weitesten oben stehenden Mail. So
  * bleiben z. B. oben angeheftete markierte Mails oben.
+ *
+ * ``ownEmails``/``meLabel``: eigene Absenderadressen werden in ``fromNames`` als
+ * „Ich" ausgewiesen (wie Synology/Gmail).
  */
-export function groupThreads(messages: MsgHeader[]): Conversation[] {
+export function groupThreads(
+  messages: MsgHeader[],
+  ownEmails: string[] = [],
+  meLabel = "",
+): Conversation[] {
+  const own = new Set(ownEmails.map((e) => e.trim().toLowerCase()).filter(Boolean));
   const n = messages.length;
   if (n === 0) return [];
   const uf = makeUF(n);
@@ -128,10 +143,10 @@ export function groupThreads(messages: MsgHeader[]): Conversation[] {
     const sorted = [...members].sort((a, b) => msgTime(a) - msgTime(b));
     // Neueste Mail bestimmt die Listen-Anzeige.
     const latest = sorted.reduce((acc, m) => (msgTime(m) >= msgTime(acc) ? m : acc), sorted[0]);
-    // Absendernamen neueste-zuerst, eindeutig.
+    // Absendernamen neueste-zuerst, eindeutig; eigene Adressen als „Ich".
     const names: string[] = [];
     for (let k = sorted.length - 1; k >= 0; k--) {
-      const nm = parseAddr(sorted[k].from).name || sorted[k].from;
+      const nm = displayName(sorted[k], own, meLabel);
       if (nm && !names.includes(nm)) names.push(nm);
     }
     convs.push({

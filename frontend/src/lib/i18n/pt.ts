@@ -225,6 +225,7 @@ export const pt: Dict = {
   "mail.showImages": "Mostrar imagens",
   "mail.quoteShow": "Mostrar histórico",
   "mail.quoteHide": "Ocultar histórico",
+  "mail.me": "Eu",
   "shell.blockImages": "Bloquear imagens externas",
   "shell.darkMail": "Escurecer os correios claros",
   "shell.pinFlagged": "Fixar no topo os correios marcados",

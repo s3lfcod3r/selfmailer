@@ -225,6 +225,7 @@ export const da: Dict = {
   "mail.showImages": "Vis billeder",
   "mail.quoteShow": "Vis historik",
   "mail.quoteHide": "Skjul historik",
+  "mail.me": "Mig",
   "shell.blockImages": "Blokér eksterne billeder",
   "shell.darkMail": "Tonér lyse mails mørke",
   "shell.pinFlagged": "Fastgør markerede mails øverst",
