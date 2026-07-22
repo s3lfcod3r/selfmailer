@@ -515,6 +515,29 @@ def set_flags(
     return {"ok": True}
 
 
+@router.post("/{account_id}/messages/{uid}/label")
+def set_label(
+    account_id: int,
+    uid: str,
+    keyword: str,
+    on: bool = True,
+    folder: str = "INBOX",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Ein Label (IMAP-Keyword) an einer Nachricht setzen/entfernen."""
+    acc = _account(account_id, user, session)
+    ok = imap_mod.set_keyword(acc, _account_secret(acc), uid, folder, keyword, on)
+    if not ok:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Label konnte nicht gesetzt werden (Server erlaubt evtl. keine Keywords)")
+    try:
+        cache_mod.update_keyword(session, account_id, folder, uid, keyword, on)
+    except Exception:  # noqa: BLE001 - Cache-Pflege darf die Aktion nie kippen
+        pass
+    bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
+    return {"ok": True}
+
+
 @router.post("/{account_id}/messages/{uid}/move")
 def move_message(
     account_id: int,

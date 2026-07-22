@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount, type SearchResult } from "../lib/api";
+import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount, type SearchResult, type MailLabel } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
@@ -9,6 +9,25 @@ import { ThreadReader } from "../components/ThreadReader";
 import { groupThreads, type Conversation } from "../lib/threads";
 
 type Sel = { acc: number; folder: string };
+
+// Farbauswahl für neue Labels.
+const LABEL_COLORS = [
+  "#e05a5a", "#e0865a", "#d9a441", "#5aa85a", "#3fa9a0",
+  "#4f8bd4", "#6a6ad0", "#a45ad0", "#d05a9e", "#8a8f98",
+];
+
+// Farbige Label-Chips einer Mail (nur bekannte, definierte Labels).
+function LabelChips({ keywords, labelMap }: { keywords?: string[]; labelMap: Record<string, MailLabel> }) {
+  const known = (keywords ?? []).map((k) => labelMap[k]).filter(Boolean) as MailLabel[];
+  if (known.length === 0) return null;
+  return (
+    <>
+      {known.map((l) => (
+        <span key={l.keyword} className="mail-label-chip" style={{ background: l.color || "#8a8f98" }} title={l.name}>{l.name}</span>
+      ))}
+    </>
+  );
+}
 
 const PAGE_SIZE = 50;  // Mails pro Seite
 const SEARCH_LIMIT = 1000;  // Obergrenze der bei aktiver Suche geladenen Mails
@@ -112,8 +131,8 @@ type RowLabels = { flag: string; noSubject: string; markUnread: string; markRead
 // Eine Nachrichtenzeile der Liste. React.memo: rendert nur neu, wenn sich die
 // eigenen Props ändern — bei hunderten/tausenden Treffern (Suche) reconcilen so
 // nicht mehr alle Zeilen bei jeder Interaktion (Auswahl/Öffnen/Sync).
-const MailRow = memo(function MailRow({ m, isSelected, isActive, handlers, labels }: {
-  m: MsgHeader; isSelected: boolean; isActive: boolean; handlers: RowHandlers; labels: RowLabels;
+const MailRow = memo(function MailRow({ m, isSelected, isActive, handlers, labels, labelMap }: {
+  m: MsgHeader; isSelected: boolean; isActive: boolean; handlers: RowHandlers; labels: RowLabels; labelMap: Record<string, MailLabel>;
 }) {
   return (
     <div className={`mail-row ${m.seen ? "" : "unseen"}`}
@@ -131,6 +150,7 @@ const MailRow = memo(function MailRow({ m, isSelected, isActive, handlers, label
         <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || labels.noSubject}</span>
           {m.has_attachments && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
+          <LabelChips keywords={m.labels} labelMap={labelMap} />
           {/* Bei Volltext-Treffern: aus welchem Ordner stammt die Mail? Ohne das
               wirkt eine Trefferliste über mehrere Ordner zusammenhanglos. */}
           {m.folder && <span className="mail-folder-tag" title={m.folder}>{m.folder.split(/[/.]/).pop()}</span>}
@@ -197,6 +217,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Konversation auch die EIGENEN Antworten mitzählt (wie Synology). Wird im
   // Hintergrund geladen, sobald die Konversations-Ansicht aktiv ist.
   const [sentByAcc, setSentByAcc] = useState<Record<number, MsgHeader[]>>({});
+  // Labels/Schlagworte des Nutzers + aktiver Label-Filter (Keyword) + Menü im Lesekopf.
+  const [labels, setLabels] = useState<MailLabel[]>([]);
+  const [labelFilter, setLabelFilter] = useState<string | null>(null);
+  const [labelMenu, setLabelMenu] = useState(false);
   // Suche hat die Obergrenze (SEARCH_LIMIT) erreicht → sichtbarer Hinweis, dass
   // die Trefferliste abgeschnitten ist (sonst wirkt sie irreführend vollständig).
   const [searchTruncated, setSearchTruncated] = useState(false);
@@ -785,6 +809,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Konversations-Ansicht ausgeschaltet -> offenen Thread schließen (sonst bliebe
   // die Lesespalte an einem Thread hängen, den es in der flachen Liste nicht gibt).
   useEffect(() => { if (!conversationView) setOpenThread(null); }, [conversationView]);
+  // Labels des Nutzers einmalig laden.
+  useEffect(() => { api.get<MailLabel[]>("/labels").then(setLabels).catch(() => {}); }, []);
   // „Gesendet"-Kopfzeilen des aktiven Kontos im Hintergrund laden (einmal je Konto),
   // damit die Listen-Konversationen die eigenen Antworten mitzählen. Der Ordner wird
   // über die special-Kennung (bzw. Namensheuristik) gefunden.
@@ -805,6 +831,52 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
 
   function patchHeader(uid: string, patch: Partial<MsgHeader>) {
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
+  }
+
+  // --- Labels/Schlagworte ---
+  const labelMap = useMemo(() => {
+    const m: Record<string, MailLabel> = {};
+    for (const l of labels) m[l.keyword] = l;
+    return m;
+  }, [labels]);
+
+  // Ein Label (IMAP-Keyword) an einer Mail setzen/entfernen — optimistisch, dann Server.
+  async function setLabel(uid: string, msgFolder: string | undefined, keyword: string, on: boolean) {
+    if (activeId == null) return;
+    const fol = msgFolder || folder;
+    const apply = (arr?: string[]) => {
+      const base = (arr ?? []).filter((k) => k !== keyword);
+      return on ? [...base, keyword] : base;
+    };
+    setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, labels: apply(m.labels) } : m)));
+    setOpen((o) => (o && o.uid === uid ? { ...o, labels: apply(o.labels) } : o));
+    setOpenThread((c) => c ? { ...c, messages: c.messages.map((m) => (m.uid === uid ? { ...m, labels: apply(m.labels) } : m)) } : c);
+    try {
+      await api.post(`/mail/${activeId}/messages/${uid}/label?folder=${encodeURIComponent(fol)}&keyword=${encodeURIComponent(keyword)}&on=${on}`);
+    } catch (e) {
+      // Zurückrollen bei Fehler.
+      setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, labels: apply2(m.labels, keyword, !on) } : m)));
+      setOpen((o) => (o && o.uid === uid ? { ...o, labels: apply2(o.labels, keyword, !on) } : o));
+      setErr((e as Error).message);
+    }
+  }
+  function apply2(arr: string[] | undefined, keyword: string, on: boolean): string[] {
+    const base = (arr ?? []).filter((k) => k !== keyword);
+    return on ? [...base, keyword] : base;
+  }
+
+  async function createLabel() {
+    const name = (await promptDialog(t("label.namePrompt")))?.trim();
+    if (!name) return;
+    const color = LABEL_COLORS[labels.length % LABEL_COLORS.length];
+    try {
+      const created = await api.post<MailLabel>("/labels", { name, color });
+      setLabels((ls) => [...ls, created].sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (e) { setErr((e as Error).message); }
+  }
+  async function deleteLabel(id: number) {
+    try { await api.del(`/labels/${id}`); setLabels((ls) => ls.filter((x) => x.id !== id)); }
+    catch (e) { setErr((e as Error).message); }
   }
 
   // Gleiche Nachricht? UIDs sind nur INNERHALB eines Ordners eindeutig — daher
@@ -1245,8 +1317,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     .filter((m) => !filter?.unread || !m.seen)
     .filter((m) => !filter?.starred || m.flagged)
     .filter((m) => !filter?.attachments || m.has_attachments)
+    .filter((m) => !labelFilter || (m.labels ?? []).includes(labelFilter))
     .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo)),
-    [messages, ftResults, search, filter]);
+    [messages, ftResults, search, filter, labelFilter]);
 
   // Eigene Absenderadressen (alle Konten) — für „Ich"-Anzeige. Stabil memoisiert.
   const ownEmails = useMemo(() => accounts.map((a) => a.email).filter(Boolean), [accounts]);
@@ -1645,6 +1718,17 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               </button>
             </div>
           )}
+          {labels.length > 0 && (
+            <div className="mail-labelbar">
+              {labels.map((l) => (
+                <button key={l.keyword}
+                  className={`label-filter ${labelFilter === l.keyword ? "on" : ""}`}
+                  style={labelFilter === l.keyword ? { background: l.color, borderColor: l.color, color: "#fff" } : { borderColor: l.color, color: l.color }}
+                  onClick={() => setLabelFilter((c) => (c === l.keyword ? null : l.keyword))}
+                  title={l.name}>{l.name}</button>
+              ))}
+            </div>
+          )}
           <div className="mail-list">
             {/* Ordner MIT in den Schlüssel: UIDs sind nur INNERHALB eines Ordners
                 eindeutig — bei ordnerübergreifenden Volltext-Treffern kollidieren
@@ -1659,6 +1743,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                       isActive={open?.uid === conv.latest.uid}
                       handlers={rowHandlers}
                       labels={rowLabels}
+                      labelMap={labelMap}
                     />
                   ) : (
                     <ConvRow
@@ -1681,6 +1766,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                     isActive={open?.uid === m.uid}
                     handlers={rowHandlers}
                     labels={rowLabels}
+                    labelMap={labelMap}
                   />
                 ))}
             {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
@@ -1728,6 +1814,29 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                     <button className="icon-btn" onClick={() => moveMsg(open.uid, spamFolder)} title={t("mail.spam")}>🚫</button>
                   )}
                   <button className="icon-btn read-del" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
+                  <button className={`icon-btn ${labelMenu ? "on" : ""}`} onClick={() => setLabelMenu((v) => !v)} title={t("label.title")}>🏷</button>
+                  {labelMenu && (
+                    <>
+                      <div className="menu-backdrop" onClick={() => setLabelMenu(false)} />
+                      <div className="read-menu label-menu">
+                        {labels.length === 0 && <div className="muted" style={{ fontSize: "0.8rem", padding: "0.2rem 0.4rem" }}>{t("label.none")}</div>}
+                        {labels.map((l) => {
+                          const applied = (open.labels ?? []).includes(l.keyword);
+                          return (
+                            <div key={l.keyword} className="label-menu-row">
+                              <button className="label-menu-toggle" onClick={() => setLabel(open.uid, open.folder, l.keyword, !applied)}>
+                                <span className="label-dot" style={{ background: l.color }} />
+                                <span className="grow">{l.name}</span>
+                                {applied && <span>✓</span>}
+                              </button>
+                              <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => deleteLabel(l.id)} title={t("common.delete")}>🗑</button>
+                            </div>
+                          );
+                        })}
+                        <button className="link-btn" style={{ marginTop: "0.3rem" }} onClick={() => { setLabelMenu(false); createLabel(); }}>＋ {t("label.new")}</button>
+                      </div>
+                    </>
+                  )}
                   <button className={`icon-btn ${readMenu ? "on" : ""}`} onClick={() => setReadMenu((v) => !v)} title={t("mail.more")}>⋯</button>
                   <button className="icon-btn" onClick={() => { setOpen(null); setMobilePane("list"); }} title={t("mail.back")}>✕</button>
                   {readMenu && (
@@ -1778,6 +1887,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                 </button>
                 {/* Echtheits-Chip + „Bilder anzeigen" direkt neben „Details". */}
                 {authCluster(open)}
+                <LabelChips keywords={open.labels} labelMap={labelMap} />
                 <span className="grow" />
                 <span className="mail-head-date">{prettyDate(open.date)}</span>
               </div>

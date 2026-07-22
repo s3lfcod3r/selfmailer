@@ -130,6 +130,18 @@ class MailTemplate(SQLModel, table=True):
     updated_at: dt.datetime = Field(default_factory=_now)
 
 
+class MailLabel(SQLModel, table=True):
+    """Farbiges Schlagwort/Label (pro User). Angewendet wird es als IMAP-Keyword
+    (``keyword``) direkt auf der Nachricht am Server; name+color sind nur Anzeige.
+    Tabelle via create_all (keine Migration nötig)."""
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    name: str = ""
+    color: str = ""                     # Hex oder Token-Name für die Chip-Farbe
+    keyword: str = ""                   # IMAP-Keyword (atom-tauglicher Slug)
+    created_at: dt.datetime = Field(default_factory=_now)
+
+
 class CalendarEvent(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
@@ -265,6 +277,9 @@ class CachedMessage(SQLModel, table=True):
     flagged: bool = False
     snippet: str = ""
     has_attachments: bool = False
+    # Gesetzte IMAP-Keywords (Labels) als Space-getrennte Liste — für farbige Chips
+    # in der Liste ohne erneuten Fetch. Systemflags (\Seen etc.) NICHT enthalten.
+    keywords: str = ""
     # Thread-/Konversations-Header (RFC 5322) für die Gruppierung zusammengehöriger
     # Mails. Werden schon beim Sync des Kopfes mitgeholt, damit die Liste ohne
     # Öffnen threaden kann. Leer bei Altbeständen, bis der Flag-Refresh sie nachträgt

@@ -16,7 +16,7 @@ from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
-from .imap import FLAGGED, SEEN, _mailbox, _snippet, thread_headers
+from .imap import FLAGGED, SEEN, _mailbox, _snippet, keywords_of, thread_headers
 
 # Obergrenze, wie viele (neueste) Mail-Köpfe pro Sync nachgeladen werden.
 # Bewusst nicht zu hoch: ein Lauf bleibt zeitlich beschaenkt; sehr große Ordner
@@ -78,6 +78,8 @@ def _to_dict(r: CachedMessage) -> dict:
         "has_attachments": r.has_attachments,
         # Thread-Header für die Konversations-Gruppierung im Frontend.
         "message_id": r.message_id, "in_reply_to": r.in_reply_to, "references": r.refs,
+        # Gesetzte Labels (IMAP-Keywords).
+        "labels": r.keywords.split() if r.keywords else [],
     }
 
 
@@ -287,6 +289,26 @@ def update_flags(session: Session, account_id: int, folder: str, uid: str, *, se
     session.commit()
 
 
+def update_keyword(session: Session, account_id: int, folder: str, uid: str, keyword: str, on: bool) -> None:
+    """Cache-Keywords (Labels) einer Mail nachziehen, wenn der Nutzer ein Label
+    setzt/entfernt — sonst zeigt die Liste bis zum nächsten Sync das Alte."""
+    row = session.exec(
+        select(CachedMessage).where(
+            CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid == uid
+        )
+    ).first()
+    if not row:
+        return
+    kws = [k for k in row.keywords.split() if k]
+    if on and keyword not in kws:
+        kws.append(keyword)
+    elif not on and keyword in kws:
+        kws = [k for k in kws if k != keyword]
+    row.keywords = " ".join(kws)
+    session.add(row)
+    session.commit()
+
+
 def set_flags_bulk(
     session: Session, account_id: int, folder: str, uids: list[str],
     *, seen: bool | None = None, flagged: bool | None = None,
@@ -398,6 +420,7 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                     sort_date=_to_utc_naive(msg.date), seen=SEEN in msg.flags, flagged=FLAGGED in msg.flags,
                     snippet=_snippet(msg.text or "", msg.html or ""), has_attachments=bool(msg.attachments),
                     message_id=th["message_id"], in_reply_to=th["in_reply_to"], refs=th["references"],
+                    keywords=" ".join(keywords_of(msg)),
                 ))
                 added += 1
                 if added % _COMMIT_EVERY == 0:  # Teilfortschritt sichern
@@ -417,6 +440,7 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                     if row:
                         row.seen = SEEN in msg.flags
                         row.flagged = FLAGGED in msg.flags
+                        row.keywords = " ".join(keywords_of(msg))
                         # Altbestand ohne Thread-Header (vor dem Update gecacht) einmalig
                         # nachtragen — headers_only liefert Message-ID/References mit.
                         if not row.message_id:

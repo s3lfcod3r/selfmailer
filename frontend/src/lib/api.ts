@@ -125,6 +125,8 @@ export type MsgHeader = {
   /** Thread-Header für die Konversations-Gruppierung. Leer, wenn der Server sie
    *  (noch) nicht liefert — dann greift die Betreff-Heuristik. */
   message_id?: string; in_reply_to?: string; references?: string;
+  /** Gesetzte IMAP-Keywords (Labels) der Nachricht. */
+  labels?: string[];
 };
 /** Antwort der Volltextsuche (GET /mail/{id}/search). */
 export type SearchResult = {
@@ -164,6 +166,9 @@ export type Task = {
 export type MailTemplate = {
   id: number; name: string; subject: string; body: string;
   created_at: string; updated_at: string;
+};
+export type MailLabel = {
+  id: number; name: string; color: string; keyword: string; created_at: string;
 };
 
 export type DavKind = "caldav" | "carddav" | "ics" | "gcal";

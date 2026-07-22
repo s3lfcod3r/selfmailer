@@ -511,6 +511,30 @@ select.bulk-btn { max-width: 170px; }
   background: var(--self-teal-deep); border: 1px solid var(--self-teal);
   border-radius: 8px; padding: 0.45rem 0.7rem; color: var(--self-teal-bright); font-size: 0.85rem;
 }
+
+/* ===== Labels/Schlagworte ===== */
+.mail-label-chip {
+  flex: 0 0 auto; color: #fff; font-size: 0.62rem; font-weight: 700; line-height: 1;
+  padding: 0.12rem 0.4rem; border-radius: 999px; white-space: nowrap;
+  max-width: 120px; overflow: hidden; text-overflow: ellipsis;
+}
+.mail-labelbar {
+  display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.35rem 0.55rem;
+  border-bottom: 1px solid var(--self-line);
+}
+.label-filter {
+  background: none; border: 1px solid var(--self-line); border-radius: 999px;
+  padding: 0.1rem 0.55rem; font-size: 0.72rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.label-menu { min-width: 220px; }
+.label-menu-row { display: flex; align-items: center; gap: 0.2rem; }
+.label-menu-toggle {
+  flex: 1; display: flex; align-items: center; gap: 0.5rem; text-align: left;
+  background: none; border: none; color: var(--self-text-2); cursor: pointer; font: inherit;
+  font-size: 0.85rem; padding: 0.4rem 0.5rem; border-radius: 6px;
+}
+.label-menu-toggle:hover { background: var(--self-bg-3); color: var(--self-text); }
+.label-dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; }
 /* Compose-Fenster: standardmäßig groß, Editor füllt den freien Platz. */
 .compose-modal { display: flex; flex-direction: column; height: 80vh; overflow: hidden; }
 .compose-modal > .stack { flex: 1 1 auto; min-height: 0; overflow: auto; }

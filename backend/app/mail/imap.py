@@ -321,6 +321,28 @@ def thread_headers(msg) -> dict:
 _SUBJ_PREFIX_RE = re.compile(r"^\s*(re|aw|fwd?|wg|sv|antw?|antwort)\s*(\[\d+\])?\s*:\s*", re.IGNORECASE)
 
 
+def keywords_of(msg) -> list[str]:
+    """Benutzer-Keywords (Labels) einer Mail — alle Flags OHNE führenden Backslash
+    (\\Seen, \\Flagged usw. sind Systemflags und werden ausgelassen)."""
+    return [f for f in (msg.flags or ()) if f and not f.startswith("\\")]
+
+
+def set_keyword(
+    account: MailAccount, password: str, uid: str, folder: str, keyword: str, on: bool
+) -> bool:
+    """Setzt/entfernt ein IMAP-Keyword (Label) an einer Nachricht. Liefert False,
+    wenn der Server keine Keywords erlaubt (best effort, kein Absturz)."""
+    if not keyword:
+        return False
+    try:
+        with _mailbox(account, password, folder=folder) as box:
+            box.flag(uid, keyword, on)
+        return True
+    except Exception:  # noqa: BLE001 - Server ohne PERMANENTFLAGS \\* o. Ä.
+        logger.warning("Keyword %r setzen fehlgeschlagen (account_id=%s)", keyword, account.id, exc_info=True)
+        return False
+
+
 def _base_subject(subject: str) -> str:
     s = (subject or "").strip()
     for _ in range(10):
@@ -356,6 +378,7 @@ def collect_thread(
             "uid": msg.uid, "folder": fol, "subject": msg.subject, "from": msg.from_,
             "date": msg.date_str, "seen": SEEN in msg.flags, "flagged": FLAGGED in msg.flags,
             "snippet": _snippet(msg.text or "", msg.html or ""), "has_attachments": bool(msg.attachments),
+            "labels": keywords_of(msg),
             **thread_headers(msg),
         })
 
@@ -413,6 +436,7 @@ def list_messages(
                     "flagged": FLAGGED in msg.flags,
                     "snippet": _snippet(msg.text or "", msg.html or ""),
                     "has_attachments": bool(msg.attachments),
+                    "labels": keywords_of(msg),
                     **thread_headers(msg),
                 }
             )
@@ -562,6 +586,7 @@ def _detail_dict(msg, account: MailAccount) -> dict:
         "date": msg.date_str,
         "seen": SEEN in msg.flags,
         "flagged": FLAGGED in msg.flags,
+        "labels": keywords_of(msg),
         "text": msg.text or "",
         "html": msg.html or "",
         "attachments": attachments,

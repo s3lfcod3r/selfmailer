@@ -73,6 +73,7 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("message_id", "VARCHAR"),
         ("in_reply_to", "VARCHAR"),
         ("refs", "VARCHAR"),
+        ("keywords", "VARCHAR"),
     ],
     "cachedfolder": [("special", "VARCHAR")],
     "calendarevent": [

@@ -167,6 +167,8 @@ class MessageHeader(BaseModel):
     message_id: str = ""
     in_reply_to: str = ""
     references: str = ""
+    # Gesetzte IMAP-Keywords (Labels) der Nachricht.
+    labels: list[str] = []
 
     model_config = {"populate_by_name": True}
 
@@ -351,6 +353,25 @@ class TemplateOut(BaseModel):
     body: str
     created_at: dt.datetime
     updated_at: dt.datetime
+
+
+# ---- Labels / Schlagworte -----------------------------------------------
+class LabelCreate(BaseModel):
+    name: str = ""
+    color: str = ""
+
+
+class LabelUpdate(BaseModel):
+    name: str | None = None
+    color: str | None = None
+
+
+class LabelOut(BaseModel):
+    id: int
+    name: str
+    color: str
+    keyword: str
+    created_at: dt.datetime
 
 
 # ---- Kalender -----------------------------------------------------------
