@@ -127,6 +127,9 @@ export function Compose({
   const UNDO_SECONDS = 5;
   const [countdown, setCountdown] = useState<number | null>(null);
   const sendTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Später senden (Terminversand).
+  const [schedMenu, setSchedMenu] = useState(false);
+  const [customTime, setCustomTime] = useState("");
 
   useEffect(() => { api.get<Account[]>("/accounts").then(setAccounts).catch(() => {}); }, []);
   useEffect(() => { api.get<MailTemplate[]>("/templates").then(setTemplates).catch(() => {}); }, []);
@@ -203,25 +206,45 @@ export function Compose({
     editorRef.current?.focus();
   }
 
+  // Gemeinsamer Nachrichten-Payload (Anhänge + Signatur) für Sofort- UND
+  // Terminversand.
+  async function buildPayload() {
+    const attachments = await Promise.all(
+      files.map(async (f) => ({
+        filename: f.name,
+        content_type: f.type || "application/octet-stream",
+        content_b64: await fileToB64(f),
+      })),
+    );
+    const sig = accounts.find((a) => a.id === fromId)?.signature ?? "";
+    const html = (editorRef.current?.innerHTML ?? "") + sigHtml(sig);
+    const body = (editorRef.current?.innerText ?? d.body) + sigText(sig);
+    return {
+      to: split(d.to), cc: split(d.cc), bcc: split(d.bcc),
+      subject: d.subject, body, html,
+      in_reply_to: d.in_reply_to, attachments,
+      read_receipt: readReceipt, delivery_receipt: deliveryReceipt,
+    };
+  }
+
   async function doSend() {
     setBusy(true);
     try {
-      const attachments = await Promise.all(
-        files.map(async (f) => ({
-          filename: f.name,
-          content_type: f.type || "application/octet-stream",
-          content_b64: await fileToB64(f),
-        })),
-      );
-      const sig = accounts.find((a) => a.id === fromId)?.signature ?? "";
-      const html = (editorRef.current?.innerHTML ?? "") + sigHtml(sig);
-      const body = (editorRef.current?.innerText ?? d.body) + sigText(sig);
-      await api.post(`/mail/${fromId}/send`, {
-        to: split(d.to), cc: split(d.cc), bcc: split(d.bcc),
-        subject: d.subject, body, html,
-        in_reply_to: d.in_reply_to, attachments,
-        read_receipt: readReceipt, delivery_receipt: deliveryReceipt,
-      });
+      await api.post(`/mail/${fromId}/send`, await buildPayload());
+      onClose();
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  // Termin-Versand: parkt die Mail zum gewählten Zeitpunkt (ISO). Der Server
+  // sendet sie dann automatisch.
+  async function scheduleSend(when: Date) {
+    setSchedMenu(false);
+    if (split(d.to).length === 0) { setErr(t("compose.needRecipient")); return; }
+    if (files.reduce((s, f) => s + f.size, 0) > MAX_ATTACH_BYTES) { setErr(t("compose.tooLarge")); return; }
+    setBusy(true);
+    try {
+      await api.post(`/mail/${fromId}/schedule`, { ...(await buildPayload()), send_at: when.toISOString() });
       onClose();
     } catch (e) { setErr((e as Error).message); }
     finally { setBusy(false); }
@@ -339,6 +362,18 @@ export function Compose({
                   </div>
                 ))}
                 <button className="link-btn" style={{ marginTop: "0.3rem" }} onClick={saveAsTemplate}>＋ {t("tpl.saveCurrent")}</button>
+              </div>
+            )}
+            <button className="ghost" title={t("sched.later")} onClick={() => setSchedMenu((o) => !o)}>🕒</button>
+            {schedMenu && (
+              <div className="compose-more compose-sched">
+                <button className="compose-tpl-ins" onClick={() => scheduleSend(new Date(Date.now() + 3600e3))}>{t("sched.in1h")}</button>
+                <button className="compose-tpl-ins" onClick={() => scheduleSend(new Date(Date.now() + 3 * 3600e3))}>{t("sched.in3h")}</button>
+                <button className="compose-tpl-ins" onClick={() => { const dt = new Date(); dt.setDate(dt.getDate() + 1); dt.setHours(8, 0, 0, 0); scheduleSend(dt); }}>{t("sched.tomorrow8")}</button>
+                <div className="row" style={{ gap: "0.3rem", marginTop: "0.3rem" }}>
+                  <input type="datetime-local" value={customTime} onChange={(e) => setCustomTime(e.target.value)} style={{ flex: 1 }} />
+                  <button className="link-btn" disabled={!customTime} onClick={() => { const dt = new Date(customTime); if (!isNaN(dt.getTime())) scheduleSend(dt); }}>{t("sched.schedule")}</button>
+                </div>
               </div>
             )}
             <button className="ghost" title={t("compose.options")} onClick={() => setMoreOpen((o) => !o)}>⋯</button>

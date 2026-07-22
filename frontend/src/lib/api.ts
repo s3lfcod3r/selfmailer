@@ -170,6 +170,10 @@ export type MailTemplate = {
 export type MailLabel = {
   id: number; name: string; color: string; keyword: string; created_at: string;
 };
+export type ScheduledMail = {
+  id: number; account_id: number; subject: string; to: string[];
+  send_at: string; status: string; error: string; created_at: string;
+};
 
 export type DavKind = "caldav" | "carddav" | "ics" | "gcal";
 export type DavAccount = {

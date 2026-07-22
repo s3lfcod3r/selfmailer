@@ -374,6 +374,22 @@ class LabelOut(BaseModel):
     created_at: dt.datetime
 
 
+# ---- Später senden / Schedule Send --------------------------------------
+class ScheduleCreate(SendRequest):
+    send_at: dt.datetime            # ISO 8601 (mit oder ohne Zeitzone)
+
+
+class ScheduledOut(BaseModel):
+    id: int
+    account_id: int
+    subject: str
+    to: list[str]
+    send_at: dt.datetime
+    status: str
+    error: str
+    created_at: dt.datetime
+
+
 # ---- Kalender -----------------------------------------------------------
 class EventCreate(BaseModel):
     title: str = ""

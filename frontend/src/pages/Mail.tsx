@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount, type SearchResult, type MailLabel } from "../lib/api";
+import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount, type SearchResult, type MailLabel, type ScheduledMail } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
@@ -221,6 +221,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [labels, setLabels] = useState<MailLabel[]>([]);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
   const [labelMenu, setLabelMenu] = useState(false);
+  // Geplante Mails (Später senden) — Liste + Modal-Sichtbarkeit.
+  const [scheduled, setScheduled] = useState<ScheduledMail[]>([]);
+  const [schedOpen, setSchedOpen] = useState(false);
   // Suche hat die Obergrenze (SEARCH_LIMIT) erreicht → sichtbarer Hinweis, dass
   // die Trefferliste abgeschnitten ist (sonst wirkt sie irreführend vollständig).
   const [searchTruncated, setSearchTruncated] = useState(false);
@@ -876,6 +879,15 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   }
   async function deleteLabel(id: number) {
     try { await api.del(`/labels/${id}`); setLabels((ls) => ls.filter((x) => x.id !== id)); }
+    catch (e) { setErr((e as Error).message); }
+  }
+
+  // --- Geplante Mails (Später senden) ---
+  async function loadScheduled() {
+    try { setScheduled(await api.get<ScheduledMail[]>("/schedule")); } catch { /* leer lassen */ }
+  }
+  async function cancelScheduled(id: number) {
+    try { await api.del(`/schedule/${id}`); setScheduled((s) => s.filter((x) => x.id !== id)); }
     catch (e) { setErr((e as Error).message); }
   }
 
@@ -1540,8 +1552,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       <div className="mail-layout" data-pane={mobilePane}>
         {/* Konten + Ordner (Thunderbird-Stil) */}
         <aside className="mail-folders" style={{ flex: `0 0 ${foldersW}px` }}>
-          <div className="row" style={{ marginBottom: "0.55rem" }}>
+          <div className="row" style={{ marginBottom: "0.55rem", gap: "0.4rem" }}>
             <button className="primary" style={{ flex: 1 }} onClick={() => activeId != null && setDraft(emptyDraft())}>{t("mail.newMail")}</button>
+            <button className="ghost" title={t("sched.title")} onClick={() => { setSchedOpen(true); loadScheduled(); }}>🕒</button>
           </div>
 
           {orderedAccounts.map((a) => {
@@ -2009,7 +2022,36 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       )}
 
       {draft && activeId != null && (
-        <Compose accountId={activeId} draft={draft} onClose={() => { setDraft(null); }} />
+        <Compose accountId={activeId} draft={draft} onClose={() => { setDraft(null); loadScheduled(); }} />
+      )}
+
+      {schedOpen && (
+        <div className="modal-backdrop" onClick={() => setSchedOpen(false)}>
+          <div className="modal card stack" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
+            <div className="topbar">
+              <h2 style={{ margin: 0, fontSize: "1.1rem" }}>🕒 {t("sched.title")}</h2>
+              <button type="button" className="ghost" onClick={() => setSchedOpen(false)}>✕</button>
+            </div>
+            {scheduled.length === 0 ? (
+              <p className="muted" style={{ fontSize: "0.9rem" }}>{t("sched.none")}</p>
+            ) : (
+              <div className="stack" style={{ gap: "0.4rem" }}>
+                {scheduled.map((s) => (
+                  <div key={s.id} className="sched-row">
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.subject || t("mail.noSubject")}</div>
+                      <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t("compose.to")}: {s.to.join(", ")}</div>
+                      <div className={s.status === "failed" ? "err" : "muted"} style={{ fontSize: "0.75rem" }}>
+                        {s.status === "failed" ? `⚠ ${s.error || t("sched.failed")}` : `→ ${prettyDate(s.send_at)}`}
+                      </div>
+                    </div>
+                    <button className="ghost" onClick={() => cancelScheduled(s.id)} title={t("sched.cancel")}>🗑</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {confirmBox && (

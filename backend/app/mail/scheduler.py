@@ -17,21 +17,24 @@ auftauchen, ohne dafür jeden IMAP-Provider öfter pollen zu müssen.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 import threading
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlmodel import Session, select
 
 from ..core.crypto import decrypt
 from ..core.db import engine
 from ..events import bus
-from ..models import DavAccount, FolderNotify, MailAccount, MailRule, User
+from ..models import DavAccount, FolderNotify, MailAccount, MailRule, ScheduledMail, User
 from . import cache as cache_mod
 from . import imap as imap_mod
 from . import push as push_mod
+from . import smtp as smtp_mod
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +238,55 @@ def _maybe_backup() -> None:
         _last_backup_date = now.date()
 
 
+def _send_due_scheduled() -> None:
+    """Fällige geplante Mails (send_at <= jetzt, status=pending) per SMTP versenden.
+    Nach Erfolg wird payload_json geleert (Body/Anhänge nicht länger als nötig halten)."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        with Session(engine) as s:
+            due = list(s.exec(
+                select(ScheduledMail)
+                .where(ScheduledMail.status == "pending", ScheduledMail.send_at <= now)
+                .limit(50)
+            ).all())
+            if not due:
+                return
+            for row in due:
+                acc = s.get(MailAccount, row.account_id)
+                if acc is None:
+                    row.status = "failed"; row.error = "Konto nicht mehr vorhanden"
+                    s.add(row); continue
+                try:
+                    pw = decrypt(acc.secret_enc)
+                    p = json.loads(row.payload_json or "{}")
+                    raw = asyncio.run(smtp_mod.send_message(
+                        acc, pw,
+                        to=[str(x) for x in p.get("to", [])],
+                        subject=p.get("subject", ""),
+                        body=p.get("body", ""),
+                        cc=[str(x) for x in p.get("cc", [])],
+                        bcc=[str(x) for x in p.get("bcc", [])],
+                        in_reply_to=p.get("in_reply_to", ""),
+                        attachments=p.get("attachments", []),
+                        html=p.get("html", ""),
+                        read_receipt=p.get("read_receipt", False),
+                        delivery_receipt=p.get("delivery_receipt", False),
+                    ))
+                    try:
+                        imap_mod.save_to_sent(acc, pw, raw)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    row.status = "sent"; row.sent_at = now; row.payload_json = ""
+                    bus.publish(row.user_id, {"type": "mail", "account_id": row.account_id, "folder": "INBOX"})
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Geplanter Versand fehlgeschlagen (id=%s)", row.id, exc_info=True)
+                    row.status = "failed"; row.error = str(exc)[:300]
+                s.add(row)
+            s.commit()
+    except Exception:  # noqa: BLE001 - der Scheduler darf nie sterben
+        logger.warning("Scheduled-Send-Lauf fehlgeschlagen", exc_info=True)
+
+
 def _loop() -> None:
     # kleiner Anlauf, damit der Sync nicht mit dem App-Boot kollidiert
     if _stop.wait(_STARTUP_DELAY):
@@ -252,6 +304,9 @@ def _loop() -> None:
         if now - last_dav >= _DAV_INTERVAL:
             _sync_dav()
             last_dav = time.monotonic()
+        # Geplante Mails JEDEN Tick prüfen (nicht ans Sync-Intervall gekoppelt) →
+        # zeitnaher Versand (Granularität = _TICK, i. d. R. 60-120 s).
+        _send_due_scheduled()
         _maybe_backup()
         _stop.wait(_TICK)
 

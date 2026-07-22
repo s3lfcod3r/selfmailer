@@ -130,6 +130,23 @@ class MailTemplate(SQLModel, table=True):
     updated_at: dt.datetime = Field(default_factory=_now)
 
 
+class ScheduledMail(SQLModel, table=True):
+    """Zum späteren Versand geparkte Mail (Schedule Send). Der Scheduler versendet
+    fällige Einträge per SMTP. ``payload_json`` = vollständige SendRequest als JSON.
+    Tabelle via create_all (keine Migration nötig)."""
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    account_id: int = Field(index=True, foreign_key="mailaccount.id")
+    subject: str = ""
+    to_addrs: str = ""                  # Komma-Liste, nur Anzeige
+    payload_json: str = ""              # komplette SendRequest als JSON
+    send_at: dt.datetime = Field(index=True)  # geplanter Zeitpunkt (naive UTC)
+    status: str = "pending"            # pending | sent | failed | canceled
+    error: str = ""
+    created_at: dt.datetime = Field(default_factory=_now)
+    sent_at: dt.datetime | None = None
+
+
 class MailLabel(SQLModel, table=True):
     """Farbiges Schlagwort/Label (pro User). Angewendet wird es als IMAP-Keyword
     (``keyword``) direkt auf der Nachricht am Server; name+color sind nur Anzeige.

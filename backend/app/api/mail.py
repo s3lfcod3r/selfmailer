@@ -1,6 +1,8 @@
 """Mail lesen/senden über ein hinterlegtes Konto des Users."""
 from __future__ import annotations
 
+import datetime as _dt
+import json
 import logging
 from urllib.parse import quote
 
@@ -18,13 +20,14 @@ from ..mail import imap as imap_mod
 from ..mail import migrate as migrate_mod
 from ..mail import smtp as smtp_mod
 from ..core import jobs
-from ..models import MailAccount, User
+from ..models import MailAccount, ScheduledMail, User
 from ..schemas import (
     BatchRequest,
     MAX_ATTACHMENTS_B64_BYTES,
     MessageDetail,
     MessageHeader,
     MigrateRequest,
+    ScheduleCreate,
     SendRequest,
     TransferRequest,
 )
@@ -754,6 +757,36 @@ async def send(
     except Exception:  # noqa: BLE001
         logger.warning("Gesendete Mail nicht in 'Gesendet' ablegbar (account_id=%s)", account_id, exc_info=True)
     return {"sent": True}
+
+
+@router.post("/{account_id}/schedule", status_code=status.HTTP_201_CREATED)
+async def schedule_send(
+    account_id: int,
+    data: ScheduleCreate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Eine Mail zum SPÄTEREN Versand parken. Der Scheduler sendet sie zur Zeit
+    ``send_at`` (Granularität ~1-2 Min). Body/Anhänge liegen bis dahin verschlüsselt-
+    frei als JSON in der DB und werden nach dem Versand gelöscht."""
+    _reject_if_too_large(data)
+    acc = await run_in_threadpool(_account, account_id, user, session)
+    # Zeitpunkt auf naive UTC bringen (aware -> umrechnen; naiv -> als UTC deuten).
+    sa = data.send_at
+    send_at = sa.astimezone(_dt.timezone.utc).replace(tzinfo=None) if sa.tzinfo else sa
+    now = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
+    if send_at <= now:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Zeitpunkt liegt in der Vergangenheit")
+    payload = data.model_dump(mode="json", exclude={"send_at"})
+    row = ScheduledMail(
+        user_id=user.id, account_id=account_id,
+        subject=data.subject, to_addrs=", ".join(str(x) for x in data.to),
+        payload_json=json.dumps(payload), send_at=send_at, status="pending",
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return {"id": row.id, "send_at": row.send_at.isoformat(), "status": row.status}
 
 
 @router.post("/{account_id}/messages/{uid}/read-receipt", status_code=status.HTTP_202_ACCEPTED)

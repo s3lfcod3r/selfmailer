@@ -30,6 +30,7 @@ from .api import (
     labels,
     push,
     rules,
+    schedule,
     tasks,
     templates,
     translate,
@@ -152,6 +153,7 @@ app.include_router(rules.router)
 app.include_router(notes.router)
 app.include_router(templates.router)
 app.include_router(labels.router)
+app.include_router(schedule.router)
 app.include_router(tasks.router)
 app.include_router(calendar.router)
 app.include_router(contacts.router)
