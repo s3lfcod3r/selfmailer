@@ -419,8 +419,34 @@ def message(
         pass
     msg = imap_mod.get_message(acc, _account_secret(acc), uid, folder=folder)
     if msg is None:
-        # Die Mail ist serverseitig weg (verschoben/gelöscht) — etwaigen stale
-        # Cache-Eintrag entfernen, damit die Liste sich selbst heilt.
+        # Die Mail ist serverseitig weg (verschoben/gelöscht). Statt hart 404 —
+        # was im Thread als hässliches „Nachricht nicht gefunden" erscheint —
+        # zeigen wir, was der Zwischenspeicher noch hat: zuerst den gecachten
+        # Volltext, sonst wenigstens die Kopf-Vorschau. So bleibt der Verlauf
+        # (z. B. alte Antworten einer Konversation) lesbar.
+        try:
+            cached_full = cache_mod.read_detail(session, account_id, folder, uid)
+        except Exception:  # noqa: BLE001
+            cached_full = None
+        if cached_full is not None:
+            return cached_full
+        try:
+            header = cache_mod.read_header(session, account_id, folder, uid)
+        except Exception:  # noqa: BLE001
+            header = None
+        if header is not None:
+            note = "Diese Nachricht ist auf dem Server nicht mehr verfügbar. Vorschau aus dem Zwischenspeicher:"
+            snip = (header.get("snippet") or "").strip()
+            return {
+                **header,
+                "to": [],
+                "text": (note + "\n\n" + snip) if snip else note,
+                "html": "",
+                "attachments": [],
+                "auth": None,
+                "mdn_request": "",
+            }
+        # Wirklich nichts im Cache — stale Kopf entfernen, damit die Liste heilt.
         try:
             cache_mod.remove_uids(session, account_id, folder, [uid])
         except Exception:  # noqa: BLE001

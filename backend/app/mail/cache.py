@@ -210,6 +210,20 @@ def read_detail(session: Session, account_id: int, folder: str, uid: str) -> dic
     return detail
 
 
+def read_header(session: Session, account_id: int, folder: str, uid: str) -> dict | None:
+    """Nur den gecachten Kopf (Betreff/Absender/Datum/Vorschau) einer Mail.
+
+    Rückfall, wenn die Mail serverseitig weg ist und KEIN Volltext gecacht wurde:
+    besser die Vorschau aus dem Zwischenspeicher zeigen als „nicht gefunden".
+    """
+    row = session.exec(
+        select(CachedMessage).where(
+            CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid == uid
+        )
+    ).first()
+    return _to_dict(row) if row else None
+
+
 def uncached_detail_uids(session: Session, account_id: int, folder: str, uids: list[str]) -> list[str]:
     """Von uids diejenigen, die noch KEINEN gecachten Volltext haben.
 
