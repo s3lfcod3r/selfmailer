@@ -430,7 +430,7 @@ def message(
     return msg
 
 
-@router.get("/{account_id}/thread", response_model=list[MessageHeader])
+@router.get("/{account_id}/thread")
 def thread(
     account_id: int,
     folder: str = "INBOX",
@@ -442,7 +442,12 @@ def thread(
 
     Wird beim Öffnen eines Threads aufgerufen, um die EIGENEN Antworten mit
     einzuweben. Fehler/keine Treffer → leere Liste (das Frontend zeigt dann nur
-    die ohnehin geladenen Ordner-Mails)."""
+    die ohnehin geladenen Ordner-Mails).
+
+    BEWUSST OHNE response_model: das ``folder`` je Treffer MUSS erhalten bleiben
+    (MessageHeader kennt es nicht und würde es rausfiltern). Ohne den Ordner
+    kollidieren im Frontend die Zeilen-Keys ordnerübergreifend (gleiche UID in
+    INBOX und Gesendet) und gesendete Mails ließen sich nicht öffnen."""
     acc = _account(account_id, user, session)
     if not uid:
         return []

@@ -153,7 +153,7 @@ export function ThreadReader({
           const showImgs = imgOk.has(m.uid);
           const remote = !!d?.html && hasRemoteContent(d.html);
           return (
-            <div key={`${m.folder ?? ""}:${m.uid}`} className={`thread-msg ${isOpen ? "open" : ""} ${m.seen ? "" : "unseen"}`}>
+            <div key={`${m.folder ?? ""}:${m.uid}:${m.message_id ?? ""}`} className={`thread-msg ${isOpen ? "open" : ""} ${m.seen ? "" : "unseen"}`}>
               <div className="thread-msg-head" role="button" tabIndex={0}
                 onClick={() => toggle(m)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(m); } }}>
