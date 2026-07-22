@@ -316,6 +316,80 @@ def thread_headers(msg) -> dict:
     }
 
 
+# "Re:/AW:/Fwd:/WG: …" vorne (auch mehrfach) abschneiden → Basis-Betreff für die
+# ordnerübergreifende Thread-Suche (IMAP SEARCH SUBJECT).
+_SUBJ_PREFIX_RE = re.compile(r"^\s*(re|aw|fwd?|wg|sv|antw?|antwort)\s*(\[\d+\])?\s*:\s*", re.IGNORECASE)
+
+
+def _base_subject(subject: str) -> str:
+    s = (subject or "").strip()
+    for _ in range(10):
+        n = _SUBJ_PREFIX_RE.sub("", s)
+        if n == s:
+            break
+        s = n
+    return s.strip()
+
+
+def collect_thread(
+    account: MailAccount, password: str, folder: str, uid: str, *, per_folder: int = 50
+) -> list[dict]:
+    """Sammelt ALLE Nachrichten einer Konversation über mehrere Ordner hinweg —
+    besonders die EIGENEN Antworten aus „Gesendet", damit der Verlauf gesendet +
+    empfangen zusammen zeigt (wie Synology MailPlus).
+
+    Ansatz: Betreff der geöffneten Mail auf den Basis-Betreff reduzieren und in den
+    relevanten Ordnern (aktueller Ordner, Gesendet, Posteingang) per IMAP SEARCH
+    SUBJECT suchen. Bewusst betreffbasiert (wie die Frontend-Gruppierung) — robust,
+    auch wenn ein Client keine References mitschickt. Papierkorb/Spam bleiben außen
+    vor. Pro Ordner gedeckelt, damit ein generischer Betreff die Suche nicht sprengt.
+    """
+    out: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(fol: str, msg) -> None:
+        key = (fol, msg.uid or "")
+        if not msg.uid or key in seen:
+            return
+        seen.add(key)
+        out.append({
+            "uid": msg.uid, "folder": fol, "subject": msg.subject, "from": msg.from_,
+            "date": msg.date_str, "seen": SEEN in msg.flags, "flagged": FLAGGED in msg.flags,
+            "snippet": _snippet(msg.text or "", msg.html or ""), "has_attachments": bool(msg.attachments),
+            **thread_headers(msg),
+        })
+
+    with _mailbox(account, password, folder=folder) as box:
+        target = None
+        for m in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
+            target = m
+            break
+        if target is None:
+            return []
+        base = _base_subject(target.subject or "")
+        if not base:
+            add(folder, target)  # ohne sinnvollen Betreff nur die eine Mail
+            return out
+        sent = _sent_folder(box)
+        folders: list[str] = []
+        for f in (folder, sent, "INBOX"):
+            if f and f not in folders:
+                folders.append(f)
+        for fol in folders:
+            try:
+                box.folder.set(fol)
+                uids = box.uids(AND(subject=base))
+                sel = uids[-per_folder:]
+                if not sel:
+                    continue
+                for m in box.fetch(AND(uid=",".join(sel)), mark_seen=False, bulk=True):
+                    add(fol, m)
+            except Exception:  # noqa: BLE001 - einzelner Ordner darf die Sammlung nicht kippen
+                logger.warning("Thread-Suche in %r fehlgeschlagen (account_id=%s)", fol, account.id, exc_info=True)
+                continue
+    return out
+
+
 def list_messages(
     account: MailAccount, password: str, folder: str = "INBOX", limit: int = 50, offset: int = 0
 ) -> list[dict]:

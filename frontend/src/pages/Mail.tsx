@@ -527,6 +527,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // schnelleren zweiten (andere Mail) nicht überschreiben. Nur die JÜNGSTE
   // Öffnung darf ihren Zustand setzen (siehe isLatest() in openMsg).
   const openSeqRef = useRef(0);
+  // Versionszähler fürs ordnerübergreifende Nachladen eines Threads (Gesendet-
+  // Antworten): eine langsame Antwort darf einen inzwischen anderen offenen Thread
+  // nicht überschreiben.
+  const threadReqRef = useRef(0);
   // Sequenzzähler je (Konto,Ordner) für bgSync: überlappende Sync-Aufrufe
   // (Polling + 20-s-Refresh + SSE) laufen sonst parallel und schreiben in
   // beliebiger Reihenfolge zurück. Nur die JÜNGSTE Antwort pro (acc,folder)
@@ -781,8 +785,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
   }
 
+  // Gleiche Nachricht? UIDs sind nur INNERHALB eines Ordners eindeutig — daher
+  // IMMER Ordner + UID vergleichen (sonst trifft man im Thread die falsche Mail).
+  const sameMsg = (a: MsgHeader, b: MsgHeader) => a.uid === b.uid && (a.folder ?? "") === (b.folder ?? "");
+
   // Konversation öffnen: Einzelmail wie gewohnt (öffnet die Leseansicht), ein
   // echter Thread (mehrere Mails) den gestapelten Verlauf im ThreadReader.
+  // Beim Thread wird zusätzlich ordnerübergreifend nachgeladen (Gesendet-
+  // Antworten einweben) — das läuft ASYNCHRON, der Thread erscheint sofort.
   function openConversation(conv: Conversation) {
     if (conv.count <= 1) {
       setOpenThread(null);
@@ -792,16 +802,93 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     setOpen(null);
     setOpenThread(conv);
     setMobilePane("read");
+    augmentThread(conv);
+  }
+
+  // Ordnerübergreifende Nachlade-Logik: holt alle Thread-Mails (inkl. Gesendet),
+  // führt sie mit den bereits geladenen zusammen und ersetzt den offenen Thread.
+  function augmentThread(conv: Conversation) {
+    if (activeId == null) return;
+    const acc = activeId;
+    const req = ++threadReqRef.current;
+    const fol = conv.latest.folder || folder;
+    api.get<MsgHeader[]>(`/mail/${acc}/thread?folder=${encodeURIComponent(fol)}&uid=${encodeURIComponent(conv.latest.uid)}`)
+      .then((extra) => {
+        if (req !== threadReqRef.current) return;          // ein anderer Thread ist inzwischen offen
+        if (!extra || extra.length === 0) return;
+        const merged = mergeThread(conv.messages, extra);
+        if (merged.length <= conv.messages.length) return; // nichts Neues dazugekommen
+        const groups = groupThreads(merged);
+        const g = groups.find((c) => c.messages.some((m) => sameMsg(m, conv.latest))) ?? groups[0];
+        if (g) setOpenThread(g);
+      })
+      .catch(() => { /* Nachladen ist Komfort — Thread bleibt mit Ordner-Mails bestehen */ });
+  }
+
+  // Zwei Nachrichtenlisten vereinen (Duplikate raus: gleiche Ordner+UID ODER
+  // gleiche Message-ID — dieselbe Mail kann in zwei Ordnern liegen).
+  function mergeThread(base: MsgHeader[], extra: MsgHeader[]): MsgHeader[] {
+    const out = [...base];
+    const keys = new Set(base.map((m) => `${m.folder ?? ""}:${m.uid}`));
+    const mids = new Set(base.map((m) => (m.message_id || "").trim()).filter(Boolean));
+    for (const m of extra) {
+      const k = `${m.folder ?? ""}:${m.uid}`;
+      const mid = (m.message_id || "").trim();
+      if (keys.has(k) || (mid && mids.has(mid))) continue;
+      out.push(m); keys.add(k); if (mid) mids.add(mid);
+    }
+    return out;
+  }
+
+  // Eine Thread-Nachricht patchen: im offenen Thread UND (wenn sie im aktuellen
+  // Ordner liegt) in der Listen-`messages`, damit beide konsistent bleiben.
+  function patchThreadMsg(target: MsgHeader, patch: Partial<MsgHeader>) {
+    setOpenThread((prev) => prev
+      ? { ...prev, messages: prev.messages.map((x) => (sameMsg(x, target) ? { ...x, ...patch } : x)) }
+      : prev);
+    if ((target.folder ?? folder) === folder) patchHeader(target.uid, patch);
   }
 
   // Eine (vorher ungelesene) Thread-Nachricht wurde geöffnet: Flag serverseitig
-  // setzen, Kopf im Cache patchen und den Ungelesen-Zähler des Ordners anpassen.
+  // setzen, Kopf patchen und den Ungelesen-Zähler des RICHTIGEN Ordners anpassen.
   function markThreadSeen(m: MsgHeader) {
     if (activeId == null || m.seen) return;
     const fol = m.folder || folder;
     api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&seen=true`).catch(() => {});
-    patchHeader(m.uid, { seen: true });
+    patchThreadMsg(m, { seen: true });
     bumpUnseen(activeId, fol, -1);
+  }
+
+  // Stern einer Thread-Nachricht umschalten (ordner-bewusst).
+  function flagThreadMsg(m: MsgHeader) {
+    if (activeId == null) return;
+    const fol = m.folder || folder;
+    const next = !m.flagged;
+    patchThreadMsg(m, { flagged: next });
+    api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&flagged=${next}`)
+      .catch((e) => { patchThreadMsg(m, { flagged: m.flagged }); setErr((e as Error).message); });
+  }
+
+  // Eine einzelne Thread-Nachricht löschen (im RICHTIGEN Ordner — UIDs sind nur
+  // ordnerintern eindeutig, ein hartkodierter Ordner würde die falsche Mail treffen).
+  async function delThreadMsg(m: MsgHeader) {
+    if (activeId == null) return;
+    const fol = m.folder || folder;
+    if (!(await askConfirm(t("mail.confirmDelete")))) return;
+    setErr("");
+    try {
+      await api.del(`/mail/${activeId}/messages/${m.uid}?folder=${encodeURIComponent(fol)}`);
+      if (fol === folder) {
+        setMessages((ms) => ms.filter((x) => x.uid !== m.uid));
+        if (!m.seen) bumpUnseen(activeId, fol, -1);
+      }
+      setOpenThread((prev) => {
+        if (!prev) return prev;
+        const rest = prev.messages.filter((x) => !sameMsg(x, m));
+        if (rest.length === 0) { setMobilePane("list"); return null; }  // letzte Mail weg → Thread schließen
+        return { ...prev, messages: rest, count: rest.length };
+      });
+    } catch (e) { setErr((e as Error).message); }
   }
 
   async function openMsg(uid: string, asPopup = false, fromFolder?: string) {
@@ -1145,12 +1232,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     () => (conversationView ? groupThreads(visible) : []),
     [conversationView, visible],
   );
-  // Offener Thread stets aus der frischen Gruppierung nachziehen (Flags/gelesen/
-  // gelöschte Mails aktualisieren sich so live). Verschwindet er (alles gelöscht),
-  // bleibt der letzte Stand stehen, bis der Nutzer schließt.
-  const liveThread = openThread
-    ? conversations.find((c) => c.key === openThread.key) ?? openThread
-    : null;
+  // Der offene Thread ist die alleinige Wahrheit für den Lesebereich. Alle
+  // Änderungen (gelesen/Stern/löschen) pflegen ihn direkt (patchThreadMsg &Co.).
+  // Bewusst NICHT aus `conversations` nachgezogen: die enthalten nur den aktuellen
+  // Ordner, das ordnerübergreifende Nachladen (Gesendet) würde sonst verworfen.
+  const liveThread = openThread;
 
   // Stabile Handler- und Label-Bündel für die memoisierten Listenzeilen (MailRow).
   // handlersRef zeigt immer auf die aktuellen Closures (mit frischem State), die
@@ -1577,8 +1663,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             onClose={() => { setOpenThread(null); setMobilePane("list"); }}
             onReply={(d) => setDraft(replyDraft(d, t))}
             onForward={(d) => setDraft(forwardDraft(d, t))}
-            onDelete={(m) => del(m)}
-            onFlag={(m) => toggleFlag(m)}
+            onDelete={(m) => delThreadMsg(m)}
+            onFlag={(m) => flagThreadMsg(m)}
             onSeen={(m) => markThreadSeen(m)}
           />
         ) : opening ? (

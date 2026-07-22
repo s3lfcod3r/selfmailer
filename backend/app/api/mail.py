@@ -430,6 +430,28 @@ def message(
     return msg
 
 
+@router.get("/{account_id}/thread", response_model=list[MessageHeader])
+def thread(
+    account_id: int,
+    folder: str = "INBOX",
+    uid: str = "",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """Alle Nachrichten einer Konversation über mehrere Ordner (inkl. „Gesendet").
+
+    Wird beim Öffnen eines Threads aufgerufen, um die EIGENEN Antworten mit
+    einzuweben. Fehler/keine Treffer → leere Liste (das Frontend zeigt dann nur
+    die ohnehin geladenen Ordner-Mails)."""
+    acc = _account(account_id, user, session)
+    if not uid:
+        return []
+    try:
+        return imap_mod.collect_thread(acc, _account_secret(acc), folder, uid)
+    except Exception:  # noqa: BLE001 - Thread-Zusammenführung ist Komfort, kein Muss
+        return []
+
+
 @router.get("/{account_id}/messages/{uid}/raw")
 def message_raw(
     account_id: int,
