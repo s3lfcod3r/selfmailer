@@ -171,11 +171,13 @@ const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, onOpen, onTo
   onOpen: () => void; onToggleFlag: () => void; onToggleSelect: () => void; labels: RowLabels; avatarMap: Record<string, string>;
 }) {
   const latest = conv.latest;
+  // Name/Avatar aus der neuesten Mail eines ANDEREN Absenders (nicht „Ich").
+  const head = conv.displayFrom ?? latest;
   // Teilnehmer kompakt: bis zu 3 Namen, sonst "A, B +N".
   const names = conv.fromNames;
   const who = names.length <= 3 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
-  const av = avatarFor(names[0] || latest.from);
-  const photo = avatarMap[parseAddr(latest.from).email.trim().toLowerCase()];
+  const av = avatarFor(names[0] || head.from);
+  const photo = avatarMap[parseAddr(head.from).email.trim().toLowerCase()];
   return (
     <div className={`mail-row conv-row ${conv.anyUnseen ? "unseen" : ""}`}
       style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: isActive ? "var(--self-teal)" : undefined }}>

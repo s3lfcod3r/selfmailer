@@ -18,8 +18,12 @@ export type Conversation = {
   subject: string;
   /** Chronologisch aufsteigend (älteste zuerst) — so liest man einen Thread. */
   messages: MsgHeader[];
-  /** Neueste Mail — bestimmt Anzeige (Absender/Datum/Vorschau) in der Liste. */
+  /** Neueste Mail — bestimmt Datum/Vorschau in der Liste. */
   latest: MsgHeader;
+  /** Neueste Mail eines ANDEREN (nicht eigenen) Absenders — bestimmt Name+Avatar
+   *  in der Liste. So steht dort der Gesprächspartner, auch wenn meine eigene
+   *  Antwort die zeitlich neueste Mail ist (wie Synology/Gmail). */
+  displayFrom: MsgHeader;
   count: number;
   anyUnseen: boolean;
   anyFlagged: boolean;
@@ -70,13 +74,6 @@ function makeUF(n: number) {
     if (ra !== rb) parent[ra] = rb;
   }
   return { find, union };
-}
-
-/** Ist die Adresse dieser Mail eines der eigenen Konten? (für „Ich"-Anzeige) */
-function displayName(m: MsgHeader, ownEmails: Set<string>, meLabel: string): string {
-  const a = parseAddr(m.from);
-  if (meLabel && a.email && ownEmails.has(a.email.trim().toLowerCase())) return meLabel;
-  return a.name || m.from;
 }
 
 /**
@@ -141,13 +138,30 @@ export function groupThreads(
     const members = idxs.map((i) => messages[i]);
     // Chronologisch aufsteigend fürs Lesen.
     const sorted = [...members].sort((a, b) => msgTime(a) - msgTime(b));
-    // Neueste Mail bestimmt die Listen-Anzeige.
+    // Neueste Mail bestimmt Datum/Vorschau.
     const latest = sorted.reduce((acc, m) => (msgTime(m) >= msgTime(acc) ? m : acc), sorted[0]);
-    // Absendernamen neueste-zuerst, eindeutig; eigene Adressen als „Ich".
-    const names: string[] = [];
+    const isOwn = (m: MsgHeader) => {
+      const e = parseAddr(m.from).email.trim().toLowerCase();
+      return !!e && own.has(e);
+    };
+    // Teilnehmer-Namen: die ANDEREN zuerst (neueste zuerst, eindeutig), „Ich" nur
+    // ans Ende, falls ich mitgeschrieben habe. So steht der Gesprächspartner vorn,
+    // auch wenn meine Antwort die zeitlich neueste Mail ist.
+    const others: string[] = [];
+    let iParticipated = false;
     for (let k = sorted.length - 1; k >= 0; k--) {
-      const nm = displayName(sorted[k], own, meLabel);
-      if (nm && !names.includes(nm)) names.push(nm);
+      if (isOwn(sorted[k])) { iParticipated = true; continue; }
+      const a = parseAddr(sorted[k].from);
+      const nm = a.name || a.email || sorted[k].from;
+      if (nm && !others.includes(nm)) others.push(nm);
+    }
+    const names = others.length
+      ? (iParticipated && meLabel ? [...others, meLabel] : others)
+      : (meLabel ? [meLabel] : [parseAddr(latest.from).name || latest.from]);
+    // Avatar/Name-Quelle: neueste Mail eines ANDEREN Absenders (sonst die neueste).
+    let displayFrom = latest;
+    for (let k = sorted.length - 1; k >= 0; k--) {
+      if (!isOwn(sorted[k])) { displayFrom = sorted[k]; break; }
     }
     convs.push({
       pos: firstPos.get(root)!,
@@ -156,6 +170,7 @@ export function groupThreads(
         subject: latest.subject,
         messages: sorted,
         latest,
+        displayFrom,
         count: sorted.length,
         anyUnseen: sorted.some((m) => !m.seen),
         anyFlagged: sorted.some((m) => m.flagged),

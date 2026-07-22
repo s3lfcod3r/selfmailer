@@ -1146,6 +1146,15 @@ img.thread-avatar { object-fit: cover; }
 }
 .thread-msg-body { padding: 0.2rem 0.7rem 0.7rem; border-top: 1px solid var(--self-line); display: flex; flex-direction: column; }
 .thread-msg-toolbar { display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0; flex-wrap: wrap; }
+/* Kompakte Icon-Aktionen OBEN in der Absenderzeile einer offenen Thread-Mail. */
+.thread-msg-actions { display: inline-flex; align-items: center; gap: 0.05rem; flex: 0 0 auto; }
+.thread-msg-actions .ghost {
+  padding: 0.15rem 0.3rem; font-size: 0.92rem; line-height: 1; border-radius: 6px;
+  min-width: 1.6rem; text-align: center;
+}
+.thread-msg-actions .ghost:hover { background: var(--self-bg-3); }
+.thread-msg-actions .ghost.on { color: var(--self-teal); background: var(--self-bg-3); }
+.thread-msg-actions .read-del:hover { color: var(--self-red, #ff6b6b); }
 /* Thread-Mail füllt NICHT die Resthöhe, sondern bekommt die gemessene Inhaltshöhe
    (per JS gesetzt) → keine inneren Scrollbalken, man scrollt die Konversation. */
 .thread-body-frame { flex: 0 0 auto; min-height: 48px; height: 260px; width: 100%; }
