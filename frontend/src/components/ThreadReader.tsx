@@ -4,8 +4,11 @@ import { useLang } from "../lib/i18n";
 import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, trimQuotedHtml, trimQuotedText, avatarFor } from "../lib/mailview";
 import type { Conversation } from "../lib/threads";
 
-// Kleiner Absender-Avatar (Initialen + Farbe), wie Synology/die App.
-function Avatar({ label, size = 30 }: { label: string; size?: number }) {
+// Kleiner Absender-Avatar: Kontakt-Foto, sonst Initialen + Farbe.
+function Avatar({ label, photo, size = 30 }: { label: string; photo?: string; size?: number }) {
+  if (photo) {
+    return <img className="thread-avatar" src={photo} alt="" style={{ width: size, height: size, objectFit: "cover" }} />;
+  }
   const { initials, color } = avatarFor(label);
   return (
     <span className="thread-avatar" aria-hidden
@@ -27,7 +30,7 @@ function Avatar({ label, size = 30 }: { label: string; size?: number }) {
  * zwischengespeichert — ein bereits geöffneter Verlauf kostet kein erneutes IMAP.
  */
 export function ThreadReader({
-  accountId, folder, conversation, blockImages, darkMail, ownEmails = [], meLabel = "",
+  accountId, folder, conversation, blockImages, darkMail, ownEmails = [], meLabel = "", avatarMap = {},
   onClose, onReply, onForward, onDelete, onFlag, onSeen,
 }: {
   accountId: number;
@@ -38,6 +41,8 @@ export function ThreadReader({
   /** Eigene Absenderadressen → im Verlauf als „Ich" statt der Adresse. */
   ownEmails?: string[];
   meLabel?: string;
+  /** E-Mail→Foto für Kontakt-Avatare. */
+  avatarMap?: Record<string, string>;
   onClose: () => void;
   onReply: (d: MsgDetail) => void;
   onForward: (d: MsgDetail) => void;
@@ -189,7 +194,7 @@ export function ThreadReader({
                 <button className="thread-star" onClick={(e) => { e.stopPropagation(); onFlag(m); }} title={t("mail.flag")}>
                   {m.flagged ? "★" : "☆"}
                 </button>
-                <Avatar label={dispName} />
+                <Avatar label={dispName} photo={avatarMap[from.email.trim().toLowerCase()]} />
                 <div className="thread-msg-who">
                   <span className="thread-msg-name">{dispName}</span>
                   {!sameAddr && dispName !== from.email && <span className="thread-msg-addr">&lt;{from.email}&gt;</span>}

@@ -362,6 +362,8 @@ export const el: Dict = {
   "contacts.city": "Πόλη",
   "contacts.country": "Χώρα",
   "contacts.birthday": "Γενέθλια",
+  "contacts.photo": "Φωτογραφία",
+  "contacts.photoRemove": "Αφαίρεση φωτογραφίας",
   "contacts.save": "Αποθήκευση επαφής",
   "contacts.edit": "Επεξεργασία",
   "contacts.editTitle": "Επεξεργασία επαφής",

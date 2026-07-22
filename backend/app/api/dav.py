@@ -306,6 +306,7 @@ def _sync_contacts(
             target.city = card.get("city", "")
             target.country = card.get("country", "")
             target.notes = card["notes"]
+            target.photo = card.get("photo", "")
             target.birthday = card.get("birthday")
             target.updated_at = dt.datetime.now(dt.timezone.utc)
             session.add(target)

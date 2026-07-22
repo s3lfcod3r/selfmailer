@@ -364,6 +364,8 @@ export const en = {
   "contacts.city": "City",
   "contacts.country": "Country",
   "contacts.birthday": "Birthday",
+  "contacts.photo": "Photo",
+  "contacts.photoRemove": "Remove photo",
   "contacts.save": "Save contact",
   "contacts.edit": "Edit",
   "contacts.editTitle": "Edit contact",

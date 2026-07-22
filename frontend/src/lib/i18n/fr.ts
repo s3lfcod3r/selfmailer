@@ -362,6 +362,8 @@ export const fr: Dict = {
   "contacts.city": "Ville",
   "contacts.country": "Pays",
   "contacts.birthday": "Anniversaire",
+  "contacts.photo": "Photo",
+  "contacts.photoRemove": "Supprimer la photo",
   "contacts.save": "Enregistrer le contact",
   "contacts.edit": "Modifier",
   "contacts.editTitle": "Modifier le contact",

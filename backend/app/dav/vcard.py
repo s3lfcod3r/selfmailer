@@ -8,9 +8,25 @@ Contact überführen kann.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any, Iterable
 
 from . import rfc
+
+_DATA_URL_RE = re.compile(r"^data:(image/[\w.+-]+);base64,(.+)$", re.DOTALL)
+
+
+def _photo_line(photo: str) -> str | None:
+    """vCard-PHOTO-Zeile aus einer gespeicherten Data-URL (oder http-URL)."""
+    if not photo:
+        return None
+    m = _DATA_URL_RE.match(photo.strip())
+    if m:
+        subtype = m.group(1).split("/", 1)[-1].upper()   # JPEG / PNG / …
+        return f"PHOTO;ENCODING=b;TYPE={subtype}:{m.group(2).strip()}"
+    if photo.startswith(("http://", "https://")):
+        return f"PHOTO;VALUE=uri:{photo}"
+    return None
 
 
 def _parse_bday(value: str) -> dt.date | None:
@@ -82,6 +98,9 @@ def build_vcards(contacts: Iterable[Any]) -> str:
             )
         if getattr(ct, "notes", ""):
             lines.append(f"NOTE:{rfc.escape_text(ct.notes)}")
+        photo_line = _photo_line(getattr(ct, "photo", "") or "")
+        if photo_line:
+            lines.append(photo_line)
         bday = getattr(ct, "birthday", None)
         if bday:
             lines.append(f"BDAY:{bday.isoformat()}")
@@ -115,6 +134,7 @@ def parse_vcards(text: str) -> list[dict[str, Any]]:
                 "city": "",
                 "country": "",
                 "notes": "",
+                "photo": "",
                 "birthday": None,
             }
             continue
@@ -163,6 +183,18 @@ def parse_vcards(text: str) -> list[dict[str, Any]]:
             current["country"] = _c(6)
         elif name == "NOTE":
             current["notes"] = rfc.unescape_text(value)
+        elif name == "PHOTO" and not current["photo"]:
+            v = value.strip()
+            if v.startswith("data:") or v.startswith(("http://", "https://")):
+                current["photo"] = v                       # vCard 4.0 / URI
+            elif v and ("B" in types or "BASE64" in types):
+                # vCard 3.0: PHOTO;ENCODING=b;TYPE=JPEG:<base64>
+                subtype = "jpeg"
+                for t in types.split(","):
+                    tl = t.strip().lower()
+                    if tl in ("jpeg", "jpg", "png", "gif", "webp"):
+                        subtype = "jpeg" if tl == "jpg" else tl
+                current["photo"] = f"data:image/{subtype};base64,{v}"
         elif name == "BDAY":
             current["birthday"] = _parse_bday(value)
     return cards

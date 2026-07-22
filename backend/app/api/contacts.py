@@ -14,7 +14,7 @@ from ..core import jobs
 from ..core.db import engine, get_session
 from ..dav.vcard import build_vcards
 from ..models import Contact, User
-from ..schemas import BirthdayCalIn, BirthdayCalOut, ContactCreate, ContactOut, ContactUpdate
+from ..schemas import BirthdayCalIn, BirthdayCalOut, ContactAvatarOut, ContactCreate, ContactOut, ContactUpdate
 from .deps import get_current_user
 from .feeds import feed_or_bearer_user
 
@@ -132,6 +132,25 @@ def list_contacts(
         )
     stmt = stmt.order_by(Contact.last_name, Contact.first_name).limit(_MAX_LIST)
     return list(session.exec(stmt).all())
+
+
+@router.get("/avatars", response_model=list[ContactAvatarOut])
+def list_avatars(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[ContactAvatarOut]:
+    """Leichte E-Mail→Foto-Liste (nur Kontakte MIT Foto) für die Mail-Avatare."""
+    rows = session.exec(
+        select(Contact).where(
+            Contact.user_id == user.id, Contact.photo != "", Contact.email != ""
+        )
+    ).all()
+    seen: dict[str, str] = {}
+    for c in rows:
+        e = c.email.strip().lower()
+        if e and e not in seen and c.photo:
+            seen[e] = c.photo
+    return [ContactAvatarOut(email=e, photo=p) for e, p in seen.items()]
 
 
 @router.post("", response_model=ContactOut, status_code=status.HTTP_201_CREATED)

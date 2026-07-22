@@ -468,6 +468,7 @@ class ContactCreate(BaseModel):
     city: str = ""
     country: str = ""
     notes: str = ""
+    photo: str = ""
     birthday: dt.date | None = None
 
 
@@ -486,6 +487,7 @@ class ContactUpdate(BaseModel):
     city: str | None = None
     country: str | None = None
     notes: str | None = None
+    photo: str | None = None
     birthday: dt.date | None = None
 
 
@@ -505,7 +507,14 @@ class ContactOut(BaseModel):
     city: str = ""
     country: str = ""
     notes: str
+    photo: str = ""
     birthday: dt.date | None = None
+
+
+class ContactAvatarOut(BaseModel):
+    """Leichte E-Mail→Foto-Zuordnung für die Avatare in der Mailliste."""
+    email: str
+    photo: str
 
 
 # ---- Aufgaben / Tasks ----------------------------------------------------

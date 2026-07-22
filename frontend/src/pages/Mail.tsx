@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount, type SearchResult, type MailLabel, type ScheduledMail } from "../lib/api";
+import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount, type SearchResult, type MailLabel, type ScheduledMail, type ContactAvatar } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
@@ -166,15 +166,16 @@ const MailRow = memo(function MailRow({ m, isSelected, isActive, handlers, label
 // Eine ZUSAMMENGEFASSTE Konversationszeile (mehrere Mails). Zeigt die Teilnehmer,
 // den Betreff, die Vorschau der neuesten Mail und eine Zähler-Plakette. Ein Klick
 // öffnet den gestapelten Verlauf (ThreadReader).
-const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, onOpen, onToggleFlag, onToggleSelect, labels }: {
+const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, onOpen, onToggleFlag, onToggleSelect, labels, avatarMap }: {
   conv: Conversation; isSelected: boolean; isActive: boolean;
-  onOpen: () => void; onToggleFlag: () => void; onToggleSelect: () => void; labels: RowLabels;
+  onOpen: () => void; onToggleFlag: () => void; onToggleSelect: () => void; labels: RowLabels; avatarMap: Record<string, string>;
 }) {
   const latest = conv.latest;
   // Teilnehmer kompakt: bis zu 3 Namen, sonst "A, B +N".
   const names = conv.fromNames;
   const who = names.length <= 3 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
   const av = avatarFor(names[0] || latest.from);
+  const photo = avatarMap[parseAddr(latest.from).email.trim().toLowerCase()];
   return (
     <div className={`mail-row conv-row ${conv.anyUnseen ? "unseen" : ""}`}
       style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: isActive ? "var(--self-teal)" : undefined }}>
@@ -182,7 +183,9 @@ const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, onOpen, onTo
       <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: conv.anyFlagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={onToggleFlag} title={labels.flag}>
         {conv.anyFlagged ? "★" : "☆"}
       </button>
-      <span className="thread-avatar" aria-hidden style={{ width: 30, height: 30, background: av.color, fontSize: 12, marginTop: "0.1rem", flex: "0 0 auto" }}>{av.initials}</span>
+      {photo
+        ? <img className="thread-avatar" src={photo} alt="" style={{ width: 30, height: 30, marginTop: "0.1rem", flex: "0 0 auto", objectFit: "cover" }} />
+        : <span className="thread-avatar" aria-hidden style={{ width: 30, height: 30, background: av.color, fontSize: 12, marginTop: "0.1rem", flex: "0 0 auto" }}>{av.initials}</span>}
       <div className="grow" role="button" tabIndex={0} style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={onOpen} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
           <span style={{ flex: 1, minWidth: 0, fontWeight: conv.anyUnseen ? 700 : 400, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{who}</span>
@@ -224,6 +227,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Geplante Mails (Später senden) — Liste + Modal-Sichtbarkeit.
   const [scheduled, setScheduled] = useState<ScheduledMail[]>([]);
   const [schedOpen, setSchedOpen] = useState(false);
+  // E-Mail→Foto-Karte für die Avatare (aus Kontakten mit Foto).
+  const [avatarMap, setAvatarMap] = useState<Record<string, string>>({});
   // Suche hat die Obergrenze (SEARCH_LIMIT) erreicht → sichtbarer Hinweis, dass
   // die Trefferliste abgeschnitten ist (sonst wirkt sie irreführend vollständig).
   const [searchTruncated, setSearchTruncated] = useState(false);
@@ -814,6 +819,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   useEffect(() => { if (!conversationView) setOpenThread(null); }, [conversationView]);
   // Labels des Nutzers einmalig laden.
   useEffect(() => { api.get<MailLabel[]>("/labels").then(setLabels).catch(() => {}); }, []);
+  // Kontakt-Fotos (E-Mail→Foto) für die Avatare laden.
+  useEffect(() => {
+    api.get<ContactAvatar[]>("/contacts/avatars")
+      .then((list) => { const m: Record<string, string> = {}; for (const a of list) if (a.email) m[a.email.toLowerCase()] = a.photo; setAvatarMap(m); })
+      .catch(() => {});
+  }, []);
   // „Gesendet"-Kopfzeilen des aktiven Kontos im Hintergrund laden (einmal je Konto),
   // damit die Listen-Konversationen die eigenen Antworten mitzählen. Der Ordner wird
   // über die special-Kennung (bzw. Namensheuristik) gefunden.
@@ -1768,6 +1779,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                       onToggleFlag={() => toggleFlag(conv.latest)}
                       onToggleSelect={() => toggleConvSelect(conv)}
                       labels={rowLabels}
+                      avatarMap={avatarMap}
                     />
                   )
                 ))
@@ -1806,6 +1818,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             darkMail={darkMail}
             ownEmails={ownEmails}
             meLabel={meLabel}
+            avatarMap={avatarMap}
             onClose={() => { setOpenThread(null); setMobilePane("list"); }}
             onReply={(d) => setDraft(replyDraft(d, t))}
             onForward={(d) => setDraft(forwardDraft(d, t))}

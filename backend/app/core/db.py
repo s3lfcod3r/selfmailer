@@ -98,6 +98,7 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("city", "VARCHAR"),
         ("country", "VARCHAR"),
         ("bday_event_id", "VARCHAR"),
+        ("photo", "VARCHAR"),
     ],
 }
 

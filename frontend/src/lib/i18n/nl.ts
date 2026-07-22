@@ -362,6 +362,8 @@ export const nl: Dict = {
   "contacts.city": "Plaats",
   "contacts.country": "Land",
   "contacts.birthday": "Verjaardag",
+  "contacts.photo": "Foto",
+  "contacts.photoRemove": "Foto verwijderen",
   "contacts.save": "Contact opslaan",
   "contacts.edit": "Bewerken",
   "contacts.editTitle": "Contact bewerken",

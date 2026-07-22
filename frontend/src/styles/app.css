@@ -1132,6 +1132,14 @@ select.bulk-btn { max-width: 170px; }
   border-radius: 50%; color: #fff; font-weight: 700; line-height: 1;
   flex: 0 0 auto; text-transform: uppercase; letter-spacing: 0.02em;
 }
+img.thread-avatar { object-fit: cover; }
+/* Kontakt-Foto (Formular + Liste). */
+.contact-photo { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
+.contact-photo-empty {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--self-bg-3); color: var(--self-text-2); font-weight: 700; font-size: 1.2rem;
+}
+.ct-avatar-img { object-fit: cover; padding: 0 !important; }
 .thread-participants {
   color: var(--self-text-2); font-size: 0.8rem; margin-top: 0.15rem;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

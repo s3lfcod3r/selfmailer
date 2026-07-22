@@ -157,8 +157,10 @@ export type Contact = {
   phone: string; mobile: string; work_phone: string;
   organization: string; title: string; website: string;
   street: string; postal_code: string; city: string; country: string;
-  notes: string; birthday: string | null;
+  notes: string; birthday: string | null; photo?: string;
 };
+/** Leichte E-Mail→Foto-Zuordnung für die Mail-Avatare. */
+export type ContactAvatar = { email: string; photo: string };
 export type Task = {
   id: number; title: string; notes: string; due: string | null;
   done: boolean; position: number;

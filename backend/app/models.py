@@ -199,6 +199,7 @@ class Contact(SQLModel, table=True):
     city: str = ""                        # Ort
     country: str = ""                     # Land
     notes: str = ""
+    photo: str = ""                       # Avatar als Data-URL (data:image/…;base64,…)
     birthday: dt.date | None = None       # Geburtstag -> jährlicher Kalender-Eintrag
     bday_event_id: str = ""               # Google-Event-ID des Geburtstags (zum Pflegen/Löschen)
     # Herkunft: gesetzt, wenn der Kontakt aus einem externen CardDAV-Konto stammt.

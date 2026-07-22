@@ -6,11 +6,33 @@ import { confirmDialog } from "../lib/dialog";
 const EMPTY = {
   first_name: "", last_name: "", email: "", phone: "", mobile: "", work_phone: "",
   organization: "", title: "", website: "", street: "", postal_code: "", city: "",
-  country: "", birthday: "", notes: "",
+  country: "", birthday: "", notes: "", photo: "",
 };
 type Form = typeof EMPTY;
 
 const SEARCH_DEBOUNCE_MS = 250;
+
+// Bild in einen quadratischen, verkleinerten JPEG-Data-URL wandeln (Avatar).
+function fileToAvatarUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const size = 240;
+      const canvas = document.createElement("canvas");
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("no-canvas")); return; }
+      const scale = Math.max(size / img.width, size / img.height);
+      const w = img.width * scale, h = img.height * scale;
+      ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+      resolve(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("load")); };
+    img.src = url;
+  });
+}
 
 function fmtBirthday(iso: string, lang: Lang): string {
   const d = new Date(iso + "T00:00:00");
@@ -31,14 +53,28 @@ function formFrom(ct: Contact): Form {
     first_name: ct.first_name, last_name: ct.last_name, email: ct.email, phone: ct.phone,
     mobile: ct.mobile, work_phone: ct.work_phone, organization: ct.organization, title: ct.title,
     website: ct.website, street: ct.street, postal_code: ct.postal_code, city: ct.city,
-    country: ct.country, birthday: ct.birthday ?? "", notes: ct.notes,
+    country: ct.country, birthday: ct.birthday ?? "", notes: ct.notes, photo: ct.photo ?? "",
   };
 }
 
 // Gemeinsamer Feldblock für Anlegen + Bearbeiten (DRY).
 function ContactFields({ form, set, t }: { form: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; t: TFunc }) {
+  async function pickPhoto(file: File | undefined) {
+    if (!file) return;
+    try { set("photo", await fileToAvatarUrl(file)); } catch { /* ignorieren */ }
+  }
   return (
     <>
+      <div className="row" style={{ alignItems: "center", gap: "0.8rem" }}>
+        {form.photo
+          ? <img src={form.photo} alt="" className="contact-photo" />
+          : <span className="contact-photo contact-photo-empty">{(form.first_name?.[0] || form.email?.[0] || "?").toUpperCase()}</span>}
+        <label className="ghost" style={{ cursor: "pointer" }}>
+          📷 {t("contacts.photo")}
+          <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { pickPhoto(e.target.files?.[0]); e.target.value = ""; }} />
+        </label>
+        {form.photo && <button type="button" className="ghost" onClick={() => set("photo", "")}>{t("contacts.photoRemove")}</button>}
+      </div>
       <div className="row">
         <input placeholder={t("contacts.firstName")} value={form.first_name} onChange={(e) => set("first_name", e.target.value)} />
         <input placeholder={t("contacts.lastName")} value={form.last_name} onChange={(e) => set("last_name", e.target.value)} />
@@ -194,7 +230,9 @@ export function Contacts() {
         <div className="md-scroll">
           {contacts.map((ct) => (
             <button key={ct.id} className={`md-item ct-item ${sel === ct.id ? "active" : ""}`} onClick={() => openContact(ct)}>
-              <span className="ct-avatar">{initials(ct)}</span>
+              {ct.photo
+                ? <img src={ct.photo} alt="" className="ct-avatar ct-avatar-img" />
+                : <span className="ct-avatar">{initials(ct)}</span>}
               <div className="md-item-main">
                 <div className="md-item-title">{displayName(ct, t("contacts.noName"))}</div>
                 <div className="md-item-snippet">{[ct.organization, ct.email].filter(Boolean).join(" · ")}</div>
