@@ -6,7 +6,7 @@ import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
 import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, avatarFor } from "../lib/mailview";
 import { ThreadReader } from "../components/ThreadReader";
-import { groupThreads, type Conversation } from "../lib/threads";
+import { groupThreads, normalizeSubject, type Conversation } from "../lib/threads";
 
 type Sel = { acc: number; folder: string };
 
@@ -1433,6 +1433,32 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const visKeys = new Set(visible.map((m) => `${m.folder ?? ""}:${m.uid}`));
     return groups.filter((g) => g.messages.some((m) => visKeys.has(`${m.folder ?? ""}:${m.uid}`)));
   }, [conversationView, visible, sentByAcc, activeId, ownEmails, meLabel]);
+
+  // Gemerkter Gesprächspartner je Thread (Schlüssel: Konto + normalisierter Betreff).
+  // Verhindert das „Ich"-Flackern: sobald wir einmal einen anderen Absender gesehen
+  // haben, bleibt er der Anzeigename — auch wenn dessen Eingangsmails gerade nicht
+  // geladen sind (Pagination/Refresh) und die Gruppe kurz nur aus eigenen Mails besteht.
+  const counterpartRef = useRef<Map<string, { label: string; from: string }>>(new Map());
+  const conversationsStable = useMemo(() => {
+    const map = counterpartRef.current;
+    return conversations.map((conv) => {
+      const key = `${activeId ?? -1}:${normalizeSubject(conv.subject)}`;
+      if (!conv.selfOnly) {
+        // Echter Gegenüber vorhanden → merken und unverändert zeigen.
+        map.set(key, { label: conv.fromNames[0], from: conv.displayFrom.from });
+        return conv;
+      }
+      // Nur eigene Mails geladen → gemerkten Gegenüber einsetzen, sonst „Ich".
+      const known = map.get(key);
+      if (!known) return conv;
+      const withMe = conv.fromNames.includes(meLabel);
+      return {
+        ...conv,
+        fromNames: withMe ? [known.label, meLabel] : [known.label],
+        displayFrom: { ...conv.displayFrom, from: known.from },
+      };
+    });
+  }, [conversations, activeId, meLabel]);
   // Der offene Thread ist die alleinige Wahrheit für den Lesebereich. Alle
   // Änderungen (gelesen/Stern/löschen) pflegen ihn direkt (patchThreadMsg &Co.).
   // Bewusst NICHT aus `conversations` nachgezogen: die enthalten nur den aktuellen
@@ -1818,7 +1844,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                 eindeutig — bei ordnerübergreifenden Volltext-Treffern kollidieren
                 sie sonst und React zeigt Zeilen doppelt oder gar nicht. */}
             {conversationView
-              ? conversations.map((conv) => (
+              ? conversationsStable.map((conv) => (
                   conv.count <= 1 ? (
                     <MailRow
                       key={conv.key}

@@ -30,6 +30,10 @@ export type Conversation = {
   anyAttachment: boolean;
   /** Eindeutige Absender-Anzeigenamen (neueste zuerst) für "A, B, C". */
   fromNames: string[];
+  /** true, wenn ALLE Mails der Gruppe von eigenen Konten stammen (kein Gegenüber
+   *  in den gerade geladenen Daten). Dann kann die Liste auf einen zuvor gemerkten
+   *  Gesprächspartner zurückgreifen, statt „Ich" anzuzeigen. */
+  selfOnly: boolean;
 };
 
 // "Re: AW: Fwd: …" u. Ä. vorne wiederholt abschneiden und normalisieren.
@@ -176,6 +180,7 @@ export function groupThreads(
         anyFlagged: sorted.some((m) => m.flagged),
         anyAttachment: sorted.some((m) => m.has_attachments),
         fromNames: names,
+        selfOnly: others.length === 0,
       },
     });
   }
