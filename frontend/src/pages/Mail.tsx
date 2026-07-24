@@ -222,6 +222,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Konversation auch die EIGENEN Antworten mitzählt (wie Synology). Wird im
   // Hintergrund geladen, sobald die Konversations-Ansicht aktiv ist.
   const [sentByAcc, setSentByAcc] = useState<Record<number, MsgHeader[]>>({});
+  // Konten, deren „Gesendet"-Ordner gerade geladen wird (verhindert Parallel-Abrufe).
+  const sentLoadingRef = useRef<Set<number>>(new Set());
   // Labels/Schlagworte des Nutzers + aktiver Label-Filter (Keyword) + Menü im Lesekopf.
   const [labels, setLabels] = useState<MailLabel[]>([]);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
@@ -833,15 +835,21 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   useEffect(() => {
     if (!conversationView || activeId == null) return;
     if (sentByAcc[activeId] !== undefined) return;             // schon geladen
+    // Läuft der Abruf schon? Bis die Antwort da ist, bleibt sentByAcc[acc] undefined,
+    // und der Effekt feuert bei jeder foldersByAcc-/sentByAcc-Änderung erneut. Ohne
+    // diesen Wächter wird der (200 Mails große) Gesendet-Ordner mehrfach parallel geladen.
+    if (sentLoadingRef.current.has(activeId)) return;
     const fols = foldersByAcc[activeId] || [];
     const sf = fols.find((f) => f.special === "sent")?.name
       ?? fols.map((f) => f.name).find((n) => specialKind(n.split(/[/.]/).pop() || n) === "sent");
     if (!sf) return;                                           // Ordnerliste noch nicht da
     const acc = activeId;
     let alive = true;
+    sentLoadingRef.current.add(acc);
     api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(sf)}&limit=200&offset=0`)
       .then((ms) => { if (alive) setSentByAcc((prev) => ({ ...prev, [acc]: ms.map((m) => ({ ...m, folder: sf })) })); })
-      .catch(() => { if (alive) setSentByAcc((prev) => ({ ...prev, [acc]: [] })); });
+      .catch(() => { if (alive) setSentByAcc((prev) => ({ ...prev, [acc]: [] })); })
+      .finally(() => { sentLoadingRef.current.delete(acc); });
     return () => { alive = false; };
   }, [conversationView, activeId, foldersByAcc, sentByAcc]);
 
