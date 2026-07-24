@@ -309,6 +309,10 @@ class CachedMessage(SQLModel, table=True):
     # Leer, solange die Mail noch nie geöffnet wurde; dann beim ersten Öffnen
     # einmal live geholt und hier abgelegt → jedes weitere Öffnen ohne IMAP.
     detail_json: str = ""
+    # Aufeinanderfolgende Syncs OHNE Server-Treffer. Schützt vor flatternden Cluster-
+    # Servern (z. B. web.de): eine Mail wird erst nach mehreren Fehlläufen entfernt,
+    # nicht schon, wenn ein einzelner Sync sie kurz nicht sieht.
+    miss_count: int = 0
 
 
 class FolderSync(SQLModel, table=True):

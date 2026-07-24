@@ -74,6 +74,9 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("in_reply_to", "VARCHAR"),
         ("refs", "VARCHAR"),
         ("keywords", "VARCHAR"),
+        # Wie oft in Folge kein Server-Treffer mehr (gegen flatternde Cluster-Server):
+        # erst nach mehreren Fehlläufen wird die Mail wirklich aus dem Cache entfernt.
+        ("miss_count", "INTEGER DEFAULT 0"),
     ],
     "cachedfolder": [("special", "VARCHAR")],
     "calendarevent": [

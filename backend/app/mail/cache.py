@@ -24,6 +24,10 @@ from .imap import FLAGGED, SEEN, _mailbox, _snippet, keywords_of, thread_headers
 # füllen sich über mehrere Syncs. Der Sync committet ATOMAR (nur einmal am Ende),
 # damit die Liste während des Aufbaus nie einen inkonsistenten Zwischenstand zeigt.
 _SYNC_CAP = 1000
+# Erst nach so vielen Syncs IN FOLGE ohne Server-Treffer wird eine Mail entfernt.
+# Härtung gegen flatternde Cluster-Server (z. B. web.de), die je Verbindung eine
+# andere Ordnersicht liefern — sonst würden Mails ständig verschwinden/wiederkommen.
+_MISS_LIMIT = 5
 # Flag-Abgleich nur für die neuesten N UIDs (dort ändern sich Flags am ehesten).
 _FLAG_WINDOW = 120
 # Der Flag-Abgleich (Header-Fetch vieler Mails) ist der teuerste Teil eines Syncs
@@ -451,45 +455,62 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
             select(CachedMessage).where(CachedMessage.account_id == account.id, CachedMessage.folder == folder)
         ).all()
 
-        # UIDVALIDITY-Wechsel → kompletten Ordner-Cache verwerfen. Die Löschungen
-        # werden NICHT sofort committet, sondern gemeinsam mit dem Neuaufbau am Ende
-        # (ein einziger Commit) → Leser sehen nie einen halb geleerten Ordner.
-        if fs and fs.uidvalidity and uidvalidity and fs.uidvalidity != uidvalidity:
-            for r in cached_rows:
-                session.delete(r)
-            cached_rows = []
+        # UIDVALIDITY-Wechsel: FRÜHER wurde hier der GANZE Ordner-Cache verworfen.
+        # web.de u. a. Cluster melden die UIDVALIDITY aber teils flatterhaft (jede
+        # Verbindung landet auf einem anderen, nicht synchronen Knoten) → das hätte
+        # den Ordner ständig komplett neu aufgebaut: Lese-Status weg, Mails „kommen
+        # wieder", Absender kippt auf „Ich". Darum NICHT mehr wipen — verwaiste UIDs
+        # altern über miss_count aus, echte Dubletten fängt die Message-ID ab.
 
         cached_by_uid = {r.uid: r for r in cached_rows}
+        cached_mids = {r.message_id for r in cached_rows if r.message_id}
         server_uids = list(box.uids())            # aufsteigend (alt → neu)
         server_set = set(server_uids)
 
-        # Gelöschte raus.
+        # Verschwundene NICHT sofort löschen — erst nach _MISS_LIMIT Syncs in Folge
+        # ohne Treffer (Härtung gegen flatternde Server). Wieder aufgetauchte Mails
+        # setzen den Zähler zurück.
         for uid, row in list(cached_by_uid.items()):
-            if uid not in server_set:
-                session.delete(row)
-                del cached_by_uid[uid]
+            if uid in server_set:
+                if row.miss_count:
+                    row.miss_count = 0
+                    session.add(row)
+            else:
+                row.miss_count = (row.miss_count or 0) + 1
+                if row.miss_count >= _MISS_LIMIT:
+                    session.delete(row)
+                    del cached_by_uid[uid]
+                    if row.message_id:
+                        cached_mids.discard(row.message_id)
+                else:
+                    session.add(row)
 
         # Neue Köpfe holen (neueste zuerst, gedeckelt).
         new_uids = [u for u in server_uids if u not in cached_by_uid]
         fetch_uids = new_uids[-cap:] if cap else new_uids
         if fetch_uids:
             # WICHTIG: KEINE Zwischen-Commits. Alle neuen Köpfe werden nur in der
-            # Session vorgemerkt und erst am Ende in EINEM Commit sichtbar. Sonst
-            # liefert der Listen-Endpunkt während des Syncs einen halb aufgebauten
-            # Ordner (mal weniger Mails, mal ein inkonsistenter Zwischenstand) —
-            # das war die Ursache für gelegentlich falsche Absender/„Ich" in der Liste.
+            # Session vorgemerkt und erst am Ende in EINEM Commit sichtbar → Leser
+            # sehen nie einen halb aufgebauten Ordner.
             for msg in box.fetch(AND(uid=",".join(fetch_uids)), mark_seen=False, bulk=50):
                 if not msg.uid:
                     continue
                 th = thread_headers(msg)
+                # Dublette über UIDVALIDITY-/Knoten-Wechsel hinweg vermeiden: gleiche
+                # Message-ID schon im Cache (unter anderer UID) → nicht doppelt anlegen.
+                mid = th["message_id"]
+                if mid and mid in cached_mids:
+                    continue
                 session.add(CachedMessage(
                     account_id=account.id, folder=folder, uid=msg.uid,
                     subject=msg.subject or "", from_addr=msg.from_ or "", date_str=msg.date_str or "",
                     sort_date=_to_utc_naive(msg.date), seen=SEEN in msg.flags, flagged=FLAGGED in msg.flags,
                     snippet=_snippet(msg.text or "", msg.html or ""), has_attachments=bool(msg.attachments),
-                    message_id=th["message_id"], in_reply_to=th["in_reply_to"], refs=th["references"],
+                    message_id=mid, in_reply_to=th["in_reply_to"], refs=th["references"],
                     keywords=" ".join(keywords_of(msg)),
                 ))
+                if mid:
+                    cached_mids.add(mid)
 
         # Flags der neuesten gecachten Mails abgleichen — TEUERSTER Teil (Header-
         # Fetch vieler Mails). Gedrosselt: nur, wenn der letzte Sync länger als
@@ -503,7 +524,11 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                 for msg in box.fetch(AND(uid=",".join(recent)), mark_seen=False, headers_only=True, bulk=100):
                     row = cached_by_uid.get(msg.uid or "")
                     if row:
-                        row.seen = SEEN in msg.flags
+                        # Lese-Status NICHT durch einen Sync zurücksetzen: einmal
+                        # gelesen bleibt gelesen (flatternde Server melden sonst
+                        # gelesene Mails wieder als ungelesen). „Ungelesen markieren"
+                        # setzt row.seen selbst per update_flags — das bleibt erhalten.
+                        row.seen = bool(row.seen) or (SEEN in msg.flags)
                         row.flagged = FLAGGED in msg.flags
                         row.keywords = " ".join(keywords_of(msg))
                         # Altbestand ohne Thread-Header (vor dem Update gecacht) einmalig
