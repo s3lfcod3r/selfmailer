@@ -44,11 +44,15 @@ def _ip_blocked(ip: ipaddress._BaseAddress, block_private: bool) -> bool:
     return False
 
 
-def _validate_dav_url(url: str) -> None:
-    """SSRF-Schutz: Schema prüfen und alle aufgelösten IPs gegen die Blockliste.
+def _resolve_validated(url: str) -> tuple[str, str, int]:
+    """SSRF-Schutz + IP-Pinning-Vorbereitung. Prüft Schema und ALLE aufgelösten
+    IPs gegen die Blockliste und gibt ``(pinned_ip, host, port)`` zurück.
 
     link-local/loopback/metadata werden immer abgelehnt; private LAN-Ziele nur,
     wenn ``SELFMAILER_DAV_BLOCK_PRIVATE=true`` gesetzt ist (untrusted Multi-User).
+    Die zurückgegebene IP ist die, zu der ANSCHLIESSEND verbunden wird — so kann
+    zwischen Prüfung und Verbindung kein zweites DNS eine andere (interne) IP
+    liefern (DNS-Rebinding/TOCTOU).
     """
     block_private = get_settings().dav_block_private
     parsed = urlparse(url)
@@ -57,14 +61,57 @@ def _validate_dav_url(url: str) -> None:
     host = parsed.hostname
     if not host:
         raise DavUrlError("URL ohne Host")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
-        infos = socket.getaddrinfo(host, parsed.port or 0, proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
         raise DavUrlError(f"Host nicht aufloesbar: {host}") from exc
+    pinned: str | None = None
     for *_rest, sockaddr in infos:
         ip = ipaddress.ip_address(sockaddr[0])
         if _ip_blocked(ip, block_private):
             raise DavUrlError(f"Interne/gesperrte Adresse blockiert: {host} → {ip}")
+        if pinned is None:
+            pinned = sockaddr[0]
+    if pinned is None:
+        raise DavUrlError(f"Keine Adresse fuer {host}")
+    return pinned, host, port
+
+
+def _validate_dav_url(url: str) -> None:
+    """Nur validieren (ohne zu verbinden) — für Ziel-URLs, die erst später oder
+    gar nicht selbst kontaktiert werden (z. B. beim Sammeln von Collection-Hrefs)."""
+    _resolve_validated(url)
+
+
+def _pinned_request(
+    client: httpx.Client, method: str, url: str, *, content: str | bytes | None = None,
+    json: object | None = None, headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    """Request mit an die vorab geprüfte IP GEPINNTER Verbindung.
+
+    Der Socket verbindet exakt zur validierten IP (kein zweites DNS → kein
+    DNS-Rebinding); TLS-SNI und Zertifikatsprüfung laufen weiter gegen den echten
+    Hostnamen (``sni_hostname``-Extension + ``Host``-Header)."""
+    ip, host, port = _resolve_validated(url)
+    parsed = urlparse(url)
+    ip_host = f"[{ip}]" if ":" in ip else ip
+    pinned_url = parsed._replace(netloc=f"{ip_host}:{port}").geturl()
+    hdrs = dict(headers or {})
+    hdrs["Host"] = host if port in (80, 443) else f"{host}:{port}"
+    return client.request(
+        method, pinned_url, content=content, json=json, headers=hdrs,
+        extensions={"sni_hostname": host},
+    )
+
+
+def post_pinned(url: str, *, json: object | None = None, timeout: float = 10.0) -> httpx.Response:
+    """Öffentlicher POST mit SSRF-Prüfung + IP-Pinning — für user-konfigurierte Ziele
+    (z. B. ntfy). Validiert die URL und verbindet zur geprüften IP; kein DNS-Rebinding
+    zwischen Prüfung und Verbindung."""
+    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+        return _pinned_request(client, "POST", url, json=json)
+
 
 def validate_external_url(url: str) -> None:
     """Öffentliche SSRF-Prüfung für beliebige user-konfigurierte Ziel-URLs.
@@ -142,20 +189,23 @@ _LIST_BODY = (
 )
 
 
-def _propfind(http: httpx.Client, url: str, body: str, depth: str) -> httpx.Response:
-    """PROPFIND mit MANUELLEM Redirect-Folgen (jede Ziel-URL SSRF-geprüft)."""
+def _propfind(http: httpx.Client, url: str, body: str, depth: str) -> tuple[httpx.Response, str]:
+    """PROPFIND mit MANUELLEM Redirect-Folgen (jede Ziel-URL SSRF-geprüft + IP-gepinnt).
+
+    Gibt ``(response, final_url)`` zurück — ``final_url`` ist die LOGISCHE (Hostname-)
+    URL nach etwaigen Redirects und die korrekte Basis für relative Hrefs (die
+    IP-gepinnte ``response.url`` wäre dafür falsch)."""
     cur = url
     for _ in range(5):
-        _validate_dav_url(cur)
-        r = http.request(
-            "PROPFIND", cur, content=body,
+        r = _pinned_request(
+            http, "PROPFIND", cur, content=body,
             headers={"Depth": depth, "Content-Type": "application/xml; charset=utf-8"},
         )
         if r.status_code in (301, 302, 307, 308) and "location" in r.headers:
-            cur = urljoin(str(r.url), r.headers["location"])
+            cur = urljoin(cur, r.headers["location"])
             continue
         r.raise_for_status()
-        return r
+        return r, cur
     raise httpx.HTTPError("Zu viele Weiterleitungen")
 
 
@@ -216,25 +266,25 @@ def discover_collections(base_url: str, username: str, password: str, *, want_co
         principal: str | None = None
         for start in (well_known, base_url):
             try:
-                r = _propfind(http, start, _PRINCIPAL_BODY, "0")
+                r, base = _propfind(http, start, _PRINCIPAL_BODY, "0")
             except httpx.HTTPError:
                 continue
             p = _first_href(r.text, "current-user-principal")
             if p:
-                principal = urljoin(str(r.url), p)
+                principal = urljoin(base, p)
                 break
         if not principal:
             principal = base_url
         _validate_dav_url(principal)
         # 2) home-set
-        r = _propfind(http, principal, _HOME_BODY_CARD if want_contacts else _HOME_BODY_CAL, "0")
+        r, base = _propfind(http, principal, _HOME_BODY_CARD if want_contacts else _HOME_BODY_CAL, "0")
         home_prop = "addressbook-home-set" if want_contacts else "calendar-home-set"
         home_href = _first_href(r.text, home_prop)
-        home = urljoin(str(r.url), home_href) if home_href else principal
+        home = urljoin(base, home_href) if home_href else principal
         _validate_dav_url(home)
         # 3) Collections unter dem Home-Set auflisten
-        r = _propfind(http, home, _LIST_BODY, "1")
-        return _parse_collections(r.text, str(r.url), want_contacts)
+        r, base = _propfind(http, home, _LIST_BODY, "1")
+        return _parse_collections(r.text, base, want_contacts)
 
 
 def fetch_ics(url: str, username: str = "", password: str = "") -> str:
@@ -248,10 +298,9 @@ def fetch_ics(url: str, username: str = "", password: str = "") -> str:
     cur = url
     with httpx.Client(auth=auth, timeout=_TIMEOUT, follow_redirects=False) as http:
         for _ in range(5):
-            _validate_dav_url(cur)
-            r = http.get(cur)
+            r = _pinned_request(http, "GET", cur)
             if r.status_code in (301, 302, 307, 308) and "location" in r.headers:
-                cur = urljoin(str(r.url), r.headers["location"])
+                cur = urljoin(cur, r.headers["location"])
                 continue
             r.raise_for_status()
             return r.text
@@ -273,10 +322,8 @@ def fetch_collection(url: str, username: str, password: str, *, token: str | Non
     # per 3xx auf eine interne Adresse umleiten und damit die Vorab-Prüfung
     # umgehen (SSRF via Redirect).
     with httpx.Client(auth=auth, headers=headers, timeout=_TIMEOUT, follow_redirects=False) as client:
-        pf = client.request(
-            "PROPFIND",
-            url,
-            content=_PROPFIND_BODY,
+        pf = _pinned_request(
+            client, "PROPFIND", url, content=_PROPFIND_BODY,
             headers={"Depth": "1", "Content-Type": "application/xml; charset=utf-8"},
         )
         pf.raise_for_status()
@@ -284,10 +331,11 @@ def fetch_collection(url: str, username: str, password: str, *, token: str | Non
 
         results: list[tuple[str, str]] = []
         for href in hrefs:
-            resource_url = urljoin(str(pf.url), href)
-            # Ein böser Server könnte absolute hrefs auf interne Ziele liefern.
-            _validate_dav_url(resource_url)
-            r = client.get(resource_url)
+            # Gegen die LOGISCHE (Hostname-)URL joinen, nicht die IP-gepinnte pf.url.
+            resource_url = urljoin(url, href)
+            # _pinned_request validiert die Ziel-URL erneut (böse absolute hrefs auf
+            # interne Ziele) und pinnt die Verbindung auf die geprüfte IP.
+            r = _pinned_request(client, "GET", resource_url)
             r.raise_for_status()
             results.append((href, r.text))
     return results

@@ -136,6 +136,11 @@ def login(
     data: LoginRequest, request: Request, response: Response, session: Session = Depends(get_session)
 ) -> LoginResponse:
     check_rate_limit(f"login:{client_ip(request)}", limit=10, window_s=60)
+    # Zusätzlich pro Benutzername bremsen, damit ein VERTEILTER Angriff (viele IPs)
+    # ein einzelnes Konto nicht ungebremst durchprobieren kann. Läuft VOR der DB-
+    # Abfrage → gleiche Bremse für existierende wie nicht existierende Namen (keine
+    # Enumeration). Großzügig (30/min), damit normale Nutzer nicht gesperrt werden.
+    check_rate_limit(f"login-user:{data.username.strip().lower()}", limit=30, window_s=60)
     user = session.exec(select(User).where(User.username == data.username)).first()
     # Immer ein Argon2-Verify ausführen (Dummy-Hash bei unbekanntem User), damit
     # die Antwortzeit nicht verrät, ob der Benutzername existiert.

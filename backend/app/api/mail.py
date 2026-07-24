@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import logging
+import re
 from urllib.parse import quote
 
 from aiosmtplib.errors import SMTPRecipientsRefused
@@ -43,6 +44,25 @@ def _account(account_id: int, user: User, session: Session) -> MailAccount:
     if acc is None or acc.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Konto nicht gefunden")
     return acc
+
+
+# Steuerzeichen (inkl. CR/LF) in Werten, die als IMAP-Befehlsargumente über den
+# rohen Socket gehen (Ordnernamen, Label-Keyword, Suchbegriff), ablehnen — sonst
+# ließe sich per \r\n eine zweite IMAP-Zeile einschleusen (CRLF-Injection).
+_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _reject_ctrl(*values: str) -> None:
+    for v in values:
+        if v and _CTRL_RE.search(v):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ungültige Zeichen im Namen")
+
+
+def _valid_keyword(keyword: str) -> None:
+    """IMAP-Keyword (Label) auf sichere Atom-Zeichen einschränken: sichtbares ASCII
+    ohne Leerzeichen/Klammern/Anführungszeichen/Backslash und ohne Steuerzeichen."""
+    if not keyword or not re.fullmatch(r"[\x21-\x7e]+", keyword) or re.search(r'[()\{\}"\\%*\x7f]', keyword):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ungültiges Label-Keyword")
 
 
 def _reject_if_too_large(data: SendRequest) -> None:
@@ -141,6 +161,7 @@ def create_folder(
     session: Session = Depends(get_session),
 ) -> dict:
     acc = _account(account_id, user, session)
+    _reject_ctrl(name, parent)
     try:
         full = imap_mod.create_folder(acc, _account_secret(acc), name, parent=parent)
     except Exception:  # noqa: BLE001
@@ -173,6 +194,7 @@ def rename_folder(
     session: Session = Depends(get_session),
 ) -> dict:
     acc = _account(account_id, user, session)
+    _reject_ctrl(name, new_name)
     try:
         new_path = imap_mod.rename_folder(acc, _account_secret(acc), name, new_name)
     except Exception:  # noqa: BLE001
@@ -192,6 +214,7 @@ def move_folder(
     """Verschiebt einen Ordner unter einen anderen Eltern-Ordner (parent leer =
     oberste Ebene) — Reorganisation der Ordnerhierarchie im selben Konto."""
     acc = _account(account_id, user, session)
+    _reject_ctrl(name, parent)
     try:
         new_path = imap_mod.move_folder(acc, _account_secret(acc), name, parent)
     except Exception:  # noqa: BLE001
@@ -208,6 +231,7 @@ def delete_folder(
     session: Session = Depends(get_session),
 ) -> dict:
     acc = _account(account_id, user, session)
+    _reject_ctrl(name)
     try:
         imap_mod.delete_folder(acc, _account_secret(acc), name)
     except Exception:  # noqa: BLE001
@@ -294,6 +318,7 @@ def search(
     Backend eine Zeitgrenze und meldet dem Client, wenn sie abbrechen musste.
     """
     acc = _account(account_id, user, session)
+    _reject_ctrl(q, folder)
     query = q.strip()
     if not query:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Suchbegriff fehlt")
@@ -590,6 +615,8 @@ def set_label(
 ) -> dict:
     """Ein Label (IMAP-Keyword) an einer Nachricht setzen/entfernen."""
     acc = _account(account_id, user, session)
+    _valid_keyword(keyword)
+    _reject_ctrl(folder)
     ok = imap_mod.set_keyword(acc, _account_secret(acc), uid, folder, keyword, on)
     if not ok:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Label konnte nicht gesetzt werden (Server erlaubt evtl. keine Keywords)")

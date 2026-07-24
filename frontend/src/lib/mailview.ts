@@ -51,26 +51,39 @@ const _DARK_STYLE =
 // zeigt aber trotzdem das hässliche „kaputtes Bild"-Symbol für jedes <img>.
 // Nach dem Strippen ist ein src-loses <img> unsichtbar; „Bilder anzeigen"
 // rendert den Original-HTML ohne block=true einfach neu.
-function _stripRemote(html: string): string {
+// Bereitet den Mail-HTML fürs iframe auf:
+//  - Reverse-Tabnabbing-Schutz: JEDER Link bekommt rel="noopener noreferrer",
+//    damit eine im neuen Tab geöffnete (Angreifer-)Seite NICHT über window.opener
+//    unseren Mail-Tab auf eine Phishing-Seite umleiten kann. Läuft IMMER.
+//  - Bei ``block`` zusätzlich: externe Bild-/Hintergrund-Verweise KOMPLETT raus
+//    (sonst zeigt der Browser trotz CSP das „kaputtes Bild"-Symbol). „Bilder
+//    anzeigen" rendert den Original-HTML dann ohne block neu.
+function _prepareMailHtml(html: string, block: boolean): string {
   try {
     const doc = new DOMParser().parseFromString(html, "text/html");
-    const isRemote = (v: string | null) => !!v && /^\s*https?:/i.test(v);
-    doc.querySelectorAll("img, source").forEach((el) => {
-      if (isRemote(el.getAttribute("src"))) el.removeAttribute("src");
-      if (isRemote(el.getAttribute("srcset"))) el.removeAttribute("srcset");
-      // Verwaistes <img> ohne src ganz ausblenden (kein Rahmen/Alt-Text-Rest).
-      if (el.tagName === "IMG" && !el.getAttribute("src")) {
-        (el as HTMLElement).style.display = "none";
-      }
+    // Links härten (immer).
+    doc.querySelectorAll("a").forEach((a) => {
+      a.setAttribute("rel", "noopener noreferrer");
     });
-    // background="http…" und inline background-image:url(http…)
-    doc.querySelectorAll<HTMLElement>("[background], [style*='url(']").forEach((el) => {
-      if (isRemote(el.getAttribute("background"))) el.removeAttribute("background");
-      const st = el.getAttribute("style");
-      if (st && /url\(\s*['"]?\s*https?:/i.test(st)) {
-        el.setAttribute("style", st.replace(/url\(\s*['"]?\s*https?:[^)]*\)/gi, "none"));
-      }
-    });
+    if (block) {
+      const isRemote = (v: string | null) => !!v && /^\s*https?:/i.test(v);
+      doc.querySelectorAll("img, source").forEach((el) => {
+        if (isRemote(el.getAttribute("src"))) el.removeAttribute("src");
+        if (isRemote(el.getAttribute("srcset"))) el.removeAttribute("srcset");
+        // Verwaistes <img> ohne src ganz ausblenden (kein Rahmen/Alt-Text-Rest).
+        if (el.tagName === "IMG" && !el.getAttribute("src")) {
+          (el as HTMLElement).style.display = "none";
+        }
+      });
+      // background="http…" und inline background-image:url(http…)
+      doc.querySelectorAll<HTMLElement>("[background], [style*='url(']").forEach((el) => {
+        if (isRemote(el.getAttribute("background"))) el.removeAttribute("background");
+        const st = el.getAttribute("style");
+        if (st && /url\(\s*['"]?\s*https?:/i.test(st)) {
+          el.setAttribute("style", st.replace(/url\(\s*['"]?\s*https?:[^)]*\)/gi, "none"));
+        }
+      });
+    }
     return doc.body ? doc.body.innerHTML : html;
   } catch {
     return html;
@@ -78,7 +91,7 @@ function _stripRemote(html: string): string {
 }
 
 export function buildSrcDoc(html: string, block: boolean, dark: boolean): string {
-  const body = block ? _stripRemote(html) : html;
+  const body = _prepareMailHtml(html, block);
   return `<!DOCTYPE html><meta charset="utf-8">${block ? _CSP_BLOCK : ""}${dark ? _DARK_STYLE : ""}<base target="_blank">${body}`;
 }
 

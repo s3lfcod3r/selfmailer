@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import logging
 
-import httpx
 from sqlmodel import Session, select
 
-from ..dav.client import DavUrlError, validate_external_url
+from ..dav.client import DavUrlError, post_pinned
 from ..models import CachedMessage, MailAccount, PushConfig
 from . import fcm as fcm_mod
 
@@ -51,15 +50,13 @@ def _push_ntfy(session: Session, account: MailAccount, title: str, text: str) ->
     cfg = session.exec(select(PushConfig).where(PushConfig.user_id == account.user_id)).first()
     if cfg is None or not cfg.enabled or not cfg.ntfy_url or not cfg.topic:
         return
-    # SSRF-Schutz: Altbestand-URLs (vor Validierung gespeichert) defensiv prüfen.
+    payload = {"topic": cfg.topic, "title": title, "message": text, "tags": ["email"]}
+    # SSRF-Schutz mit IP-Pinning: prüft die URL UND verbindet zur geprüften IP
+    # (kein DNS-Rebinding zwischen Prüfung und POST).
     try:
-        validate_external_url(cfg.ntfy_url.rstrip("/"))
+        post_pinned(cfg.ntfy_url.rstrip("/"), json=payload, timeout=10.0)
     except DavUrlError:
         logger.warning("ntfy-URL blockiert (SSRF-Schutz, user_id=%s)", account.user_id)
-        return
-    payload = {"topic": cfg.topic, "title": title, "message": text, "tags": ["email"]}
-    try:
-        httpx.post(cfg.ntfy_url.rstrip("/"), json=payload, timeout=10.0)
     except Exception:  # noqa: BLE001 - Push ist best-effort
         logger.warning("ntfy-Push fehlgeschlagen (user_id=%s)", account.user_id, exc_info=True)
 

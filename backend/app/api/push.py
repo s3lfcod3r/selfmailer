@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import logging
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from ..core.db import get_session
-from ..dav.client import DavUrlError, validate_external_url
+from ..dav.client import DavUrlError, post_pinned, validate_external_url
 from ..mail import fcm as fcm_mod
 from ..models import DeviceToken, FolderNotify, MailAccount, PushConfig, User
 from ..schemas import DeviceTokenIn, FolderNotifyIn, PushConfigIn, PushConfigOut
@@ -145,10 +144,10 @@ def test_push(
             logger.warning("Test-FCM fehlgeschlagen (user_id=%s)", user.id, exc_info=True)
     if ntfy_on and cfg is not None:
         try:
-            validate_external_url(cfg.ntfy_url.rstrip("/"))  # defensiv (Altbestand)
-            httpx.post(cfg.ntfy_url.rstrip("/"),
-                       json={"topic": cfg.topic, "title": "SelfMailer Test", "message": "Push funktioniert ✅", "tags": ["white_check_mark"]},
-                       timeout=10.0)
+            # SSRF-Schutz mit IP-Pinning (prüft + verbindet zur geprüften IP).
+            post_pinned(cfg.ntfy_url.rstrip("/"),
+                        json={"topic": cfg.topic, "title": "SelfMailer Test", "message": "Push funktioniert ✅", "tags": ["white_check_mark"]},
+                        timeout=10.0)
         except Exception:  # noqa: BLE001
             logger.warning("Test-ntfy fehlgeschlagen (user_id=%s)", user.id, exc_info=True)
 

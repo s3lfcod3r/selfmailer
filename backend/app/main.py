@@ -83,8 +83,14 @@ _MAX_REQUEST_BYTES = 30 * 1024 * 1024  # ~30 MB
 
 @app.middleware("http")
 async def limit_request_size(request: Request, call_next):
-    """Weist zu große Requests anhand des Content-Length-Headers ab (413), bevor
-    der Body gelesen wird — schützt vor Speicher-Spitzen durch riesige Uploads."""
+    """Begrenzt die Rohgröße eines Requests — schützt vor Speicher-Spitzen.
+
+    1. Mit ``Content-Length``: früh mit 413 abweisen, bevor der Body gelesen wird.
+    2. OHNE ``Content-Length`` (``Transfer-Encoding: chunked``): die Bytes beim Lesen
+       mitzählen und den Body bei Überschreitung abschneiden. Die App bekommt dann
+       einen unvollständigen Body und lehnt ihn ab (4xx) — statt dass ein riesiger
+       chunked-Upload das Content-Length-Limit umgeht und den RAM vollpuffert.
+    """
     content_length = request.headers.get("content-length")
     if content_length is not None:
         try:
@@ -95,6 +101,21 @@ async def limit_request_size(request: Request, call_next):
                 )
         except ValueError:
             pass  # unlesbarer Header -> normal weiterreichen
+    else:
+        received = 0
+        original_receive = request._receive
+
+        async def _capped_receive():
+            nonlocal received
+            message = await original_receive()
+            if message.get("type") == "http.request":
+                received += len(message.get("body", b"") or b"")
+                if received > _MAX_REQUEST_BYTES:
+                    # Nicht weiter puffern: Body hier beenden → unvollständig → App lehnt ab.
+                    return {"type": "http.request", "body": b"", "more_body": False}
+            return message
+
+        request._receive = _capped_receive
     return await call_next(request)
 
 
