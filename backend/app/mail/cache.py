@@ -13,7 +13,7 @@ import re
 from email.utils import parsedate_to_datetime
 
 from imap_tools import AND
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlmodel import Session, select
 
 from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
@@ -201,6 +201,30 @@ def folder_uids(session: Session, account_id: int, folder: str) -> list[str]:
         .order_by(CachedMessage.sort_date.desc(), CachedMessage.id.desc())
     ).all()
     return [u for u in rows if u]
+
+
+def unseen_by_folder(session: Session, account_id: int) -> dict[str, int]:
+    """Ungelesen-Zahl je Ordner AUS DEM CACHE — konsistent mit der angezeigten Liste.
+
+    Verhindert die verwirrende Situation „Badge zeigt 7 ungelesen, aber keine sichtbar":
+    die Zahl kommt dann aus derselben Quelle wie die Liste (der Cache), nicht aus dem
+    (bei web.de unzuverlässigen) Server-Status.
+    """
+    rows = session.exec(
+        select(CachedMessage.folder, func.count())
+        .where(CachedMessage.account_id == account_id, CachedMessage.seen == False)  # noqa: E712
+        .group_by(CachedMessage.folder)
+    ).all()
+    return {folder: int(cnt) for folder, cnt in rows}
+
+
+def cached_folder_names(session: Session, account_id: int) -> set[str]:
+    """Ordner, für die überhaupt Cache-Zeilen existieren (nur für die stimmt die
+    Cache-Ungelesen-Zahl; sonst besser beim Server-Wert bleiben)."""
+    rows = session.exec(
+        select(CachedMessage.folder).where(CachedMessage.account_id == account_id).distinct()
+    ).all()
+    return {f for f in rows if f}
 
 
 def read_counts(session: Session, account_id: int) -> dict[str, FolderSync]:
@@ -527,17 +551,17 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
         now = dt.datetime.now(dt.timezone.utc)
         prev_sync = _as_utc(fs.last_sync) if fs else None
         do_flags = prev_sync is None or (now - prev_sync).total_seconds() >= _FLAG_REFRESH_SECS
-        if do_flags:
+        # Flags NUR von einer VERTRAUENSWÜRDIGEN Server-Sicht übernehmen. Bei einer
+        # kaputten/partiellen Antwort (web.de-Cluster) NICHT anfassen — sonst würde
+        # eine echte ungelesene Mail fälschlich als gelesen (oder umgekehrt) markiert
+        # und wäre in der Liste nicht mehr als ungelesen erkennbar.
+        if do_flags and reliable:
             recent = [u for u in server_uids[-_FLAG_WINDOW:] if u in cached_by_uid]
             if recent:
                 for msg in box.fetch(AND(uid=",".join(recent)), mark_seen=False, headers_only=True, bulk=100):
                     row = cached_by_uid.get(msg.uid or "")
                     if row:
-                        # Lese-Status NICHT durch einen Sync zurücksetzen: einmal
-                        # gelesen bleibt gelesen (flatternde Server melden sonst
-                        # gelesene Mails wieder als ungelesen). „Ungelesen markieren"
-                        # setzt row.seen selbst per update_flags — das bleibt erhalten.
-                        row.seen = bool(row.seen) or (SEEN in msg.flags)
+                        row.seen = SEEN in msg.flags
                         row.flagged = FLAGGED in msg.flags
                         row.keywords = " ".join(keywords_of(msg))
                         # Altbestand ohne Thread-Header (vor dem Update gecacht) einmalig

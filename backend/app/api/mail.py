@@ -107,13 +107,29 @@ def folder_counts(
     if not live:
         cached = cache_mod.read_folder_counts(session, account_id)
         if cached:
-            return cached
+            return _override_unseen_from_cache(session, account_id, cached)
     out = imap_mod.folder_counts(acc, _account_secret(acc))
     try:
         cache_mod.write_folder_counts(session, account_id, out)
     except Exception:  # noqa: BLE001 - Cache-Pflege darf den Abruf nie kippen
         pass
-    return out
+    return _override_unseen_from_cache(session, account_id, out)
+
+
+def _override_unseen_from_cache(session: Session, account_id: int, folders: list[dict]) -> list[dict]:
+    """Ungelesen-Zahl je Ordner auf den Cache-Wert setzen (nur für gecachte Ordner),
+    damit die Badge immer zur tatsächlich angezeigten Liste passt — auch wenn der
+    Server (web.de-Cluster) eine unvollständige/andere Sicht meldet."""
+    try:
+        cached_names = cache_mod.cached_folder_names(session, account_id)
+        unseen_map = cache_mod.unseen_by_folder(session, account_id)
+    except Exception:  # noqa: BLE001 - reine Anzeige-Korrektur, nie hart scheitern
+        return folders
+    for f in folders:
+        name = f.get("name")
+        if name in cached_names:
+            f["unseen"] = unseen_map.get(name, 0)
+    return folders
 
 
 @router.post("/{account_id}/folders")
