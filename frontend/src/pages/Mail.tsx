@@ -224,6 +224,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [sentByAcc, setSentByAcc] = useState<Record<number, MsgHeader[]>>({});
   // Konten, deren „Gesendet"-Ordner gerade geladen wird (verhindert Parallel-Abrufe).
   const sentLoadingRef = useRef<Set<number>>(new Set());
+  // Gesprächspartner je Thread (normalisierter Betreff → From) vom Server, über den
+  // GESAMTEN Konto-Cache. Damit die Liste den Partner auch kennt, wenn dessen Mails
+  // gerade nicht geladen sind (verhindert „Ich" auch bei kaputten/paginierten Daten).
+  const [cpByAcc, setCpByAcc] = useState<Record<number, Record<string, string>>>({});
+  const cpLoadingRef = useRef<Set<number>>(new Set());
   // Labels/Schlagworte des Nutzers + aktiver Label-Filter (Keyword) + Menü im Lesekopf.
   const [labels, setLabels] = useState<MailLabel[]>([]);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
@@ -853,6 +858,23 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     return () => { alive = false; };
   }, [conversationView, activeId, foldersByAcc, sentByAcc]);
 
+  // Gesprächspartner-Map je Konto vom Server laden (einmal je Konto). Autoritativ
+  // über den ganzen Cache — füllt in der Liste den Partner, wo die geladene Seite
+  // nur eigene Mails hat. Bei jedem Sync frisch, daher an bgSync-Ticks gekoppelt.
+  useEffect(() => {
+    if (!conversationView || activeId == null) return;
+    if (cpByAcc[activeId] !== undefined) return;              // schon geladen
+    if (cpLoadingRef.current.has(activeId)) return;           // läuft gerade
+    const acc = activeId;
+    let alive = true;
+    cpLoadingRef.current.add(acc);
+    api.get<Record<string, string>>(`/mail/${acc}/counterparts`)
+      .then((m) => { if (alive) setCpByAcc((prev) => ({ ...prev, [acc]: m || {} })); })
+      .catch(() => { if (alive) setCpByAcc((prev) => ({ ...prev, [acc]: {} })); })
+      .finally(() => { cpLoadingRef.current.delete(acc); });
+    return () => { alive = false; };
+  }, [conversationView, activeId, cpByAcc]);
+
   function patchHeader(uid: string, patch: Partial<MsgHeader>) {
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
   }
@@ -1449,15 +1471,25 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const counterpartRef = useRef<Map<string, { label: string; from: string }>>(new Map());
   const conversationsStable = useMemo(() => {
     const map = counterpartRef.current;
+    const cpMap = cpByAcc[activeId ?? -1] || {};   // Server-Partner (ganzer Cache)
     return conversations.map((conv) => {
-      const key = `${activeId ?? -1}:${normalizeSubject(conv.subject)}`;
+      const norm = normalizeSubject(conv.subject);
+      const key = `${activeId ?? -1}:${norm}`;
       if (!conv.selfOnly) {
         // Echter Gegenüber vorhanden → merken und unverändert zeigen.
         map.set(key, { label: conv.fromNames[0], from: conv.displayFrom.from });
         return conv;
       }
-      // Nur eigene Mails geladen → gemerkten Gegenüber einsetzen, sonst „Ich".
-      const known = map.get(key);
+      // Nur eigene Mails geladen → Gegenüber einsetzen statt „Ich":
+      // 1) zuvor in dieser Sitzung gesehen, sonst 2) Server-Map über den ganzen Cache.
+      let known = map.get(key);
+      if (!known) {
+        const raw = cpMap[norm];
+        if (raw) {
+          const a = parseAddr(raw);
+          known = { label: a.name || a.email || raw, from: raw };
+        }
+      }
       if (!known) return conv;
       const withMe = conv.fromNames.includes(meLabel);
       return {
@@ -1466,7 +1498,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         displayFrom: { ...conv.displayFrom, from: known.from },
       };
     });
-  }, [conversations, activeId, meLabel]);
+  }, [conversations, activeId, meLabel, cpByAcc]);
   // Der offene Thread ist die alleinige Wahrheit für den Lesebereich. Alle
   // Änderungen (gelesen/Stern/löschen) pflegen ihn direkt (patchThreadMsg &Co.).
   // Bewusst NICHT aus `conversations` nachgezogen: die enthalten nur den aktuellen

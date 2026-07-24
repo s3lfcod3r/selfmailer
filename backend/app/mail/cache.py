@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from email.utils import parsedate_to_datetime
 
 from imap_tools import AND
@@ -109,6 +110,54 @@ def read_messages(
         .offset(offset).limit(limit)
     ).all()
     return [_to_dict(r) for r in rows]
+
+
+# Betreff-Normalisierung — MUSS 1:1 zum Frontend (lib/threads.ts normalizeSubject)
+# passen, damit die Schlüssel der Counterpart-Map dort greifen: Re/AW/Fwd/…-Präfixe
+# (auch CJK) wiederholt abschneiden, Whitespace glätten, kleinschreiben.
+_CP_PREFIX_RE = re.compile(r"^\s*(re|aw|fwd?|wg|sv|antw?|antwort|回复|转发)\s*(\[\d+])?\s*:\s*", re.IGNORECASE)
+
+
+def _norm_subject(subject: str) -> str:
+    s = (subject or "").strip()
+    for _ in range(10):
+        n = _CP_PREFIX_RE.sub("", s)
+        if n == s:
+            break
+        s = n
+    return re.sub(r"\s+", " ", s).strip().lower()
+
+
+def _addr_of(frm: str) -> str:
+    m = re.search(r"<([^>]+)>", frm or "")
+    return (m.group(1) if m else (frm or "")).strip().lower()
+
+
+def thread_counterparts(session: Session, account_id: int, own_emails: list[str]) -> dict[str, str]:
+    """Je Thread (normalisierter Betreff) den zuletzt gesehenen NICHT-eigenen Absender
+    über den GESAMTEN Konto-Cache (alle Ordner).
+
+    Zweck: Die Listen-Konversation kennt so ihren Gesprächspartner auch dann, wenn
+    dessen Eingangsmails gerade nicht in der geladenen Seite stehen (Pagination/
+    Stern-Sortierung) — dann steht in der Liste NIE fälschlich „Ich".
+    Rückgabe: { normalisierter_Betreff: roher From-Header des Gegenübers }.
+    """
+    own = {_addr_of(e) for e in own_emails if e}
+    rows = session.exec(
+        select(CachedMessage.subject, CachedMessage.from_addr)
+        .where(CachedMessage.account_id == account_id)
+        .order_by(CachedMessage.sort_date.desc(), CachedMessage.id.desc())
+        .limit(4000)
+    ).all()
+    out: dict[str, str] = {}
+    for subject, from_addr in rows:
+        key = _norm_subject(subject or "")
+        if not key or key in out:                 # neueste zuerst → erster Treffer gewinnt
+            continue
+        if _addr_of(from_addr) in own:            # eigene Mail → nicht der Gegenüber
+            continue
+        out[key] = from_addr or ""
+    return out
 
 
 def recent_unseen(session: Session, account_id: int, folder: str = "INBOX", limit: int = 5) -> list[dict]:

@@ -10,7 +10,7 @@ from aiosmtplib.errors import SMTPRecipientsRefused
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from starlette.concurrency import run_in_threadpool
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ..core.crypto import decrypt
 from ..core.db import get_session
@@ -240,6 +240,24 @@ def messages(
         return _pin_flagged_first(
             imap_mod.list_messages(acc, _account_secret(acc), folder=folder, limit=limit, offset=offset), pin_flagged
         )
+
+
+@router.get("/{account_id}/counterparts")
+def counterparts(
+    account_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    """Je Thread (normalisierter Betreff) der Gesprächspartner (nicht-eigener Absender)
+    über den GESAMTEN Konto-Cache — damit die Listen-Konversation den Partner auch
+    kennt, wenn dessen Mails nicht auf der geladenen Seite stehen (kein „Ich"-Rückfall).
+    Eigene Adressen = ALLE Konten des Users (wie die Frontend-„Ich"-Erkennung)."""
+    _account(account_id, user, session)  # Zugriffsprüfung
+    own = list(session.exec(select(MailAccount.email).where(MailAccount.user_id == user.id)).all())
+    try:
+        return cache_mod.thread_counterparts(session, account_id, own)
+    except Exception:  # noqa: BLE001 - Komfortfunktion, nie hart scheitern
+        return {}
 
 
 @router.get("/{account_id}/search")
