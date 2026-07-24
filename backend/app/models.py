@@ -313,6 +313,10 @@ class CachedMessage(SQLModel, table=True):
     # Servern (z. B. web.de): eine Mail wird erst nach mehreren Fehlläufen entfernt,
     # nicht schon, wenn ein einzelner Sync sie kurz nicht sieht.
     miss_count: int = 0
+    # Der Nutzer hat den Gelesen-Status SELBST gesetzt (geöffnet / (un)gelesen
+    # markiert) → authoritativ. Ein Sync darf ihn dann NICHT mehr überschreiben
+    # (flatternde Server melden sonst gelesene Mails wieder als ungelesen).
+    seen_sticky: bool = False
 
 
 class FolderSync(SQLModel, table=True):

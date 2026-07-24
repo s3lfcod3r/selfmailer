@@ -77,6 +77,8 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # Wie oft in Folge kein Server-Treffer mehr (gegen flatternde Cluster-Server):
         # erst nach mehreren Fehlläufen wird die Mail wirklich aus dem Cache entfernt.
         ("miss_count", "INTEGER DEFAULT 0"),
+        # Nutzer hat den Gelesen-Status selbst gesetzt → Sync überschreibt ihn nicht.
+        ("seen_sticky", "INTEGER DEFAULT 0"),
     ],
     "cachedfolder": [("special", "VARCHAR")],
     "calendarevent": [
@@ -126,7 +128,8 @@ def _ensure_columns() -> None:
                 row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))
             }
             for name, ddl_type in columns:
-                if name not in present:
+                just_added = name not in present
+                if just_added:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}"))
                 # Text-Spalten dürfen nicht NULL sein: Bestandszeilen, die über
                 # ADD COLUMN (ohne DEFAULT) NULL bekamen, würden sonst die
@@ -135,6 +138,11 @@ def _ensure_columns() -> None:
                     conn.execute(
                         text(f"UPDATE {table} SET {name} = '' WHERE {name} IS NULL")
                     )
+                # Einmaliger Backfill: bereits gelesene Mails sofort schützen, damit
+                # sie nach dem Update nicht durch einen flatternden Sync wieder auf
+                # ungelesen springen. Läuft nur beim ERSTEN Anlegen der Spalte.
+                if just_added and table == "cachedmessage" and name == "seen_sticky":
+                    conn.execute(text("UPDATE cachedmessage SET seen_sticky = seen"))
 
 
 # Zusammengesetzte Indizes für die Hot-Path-Queries. Die einzelnen

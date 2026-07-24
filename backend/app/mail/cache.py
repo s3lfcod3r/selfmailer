@@ -371,9 +371,12 @@ def update_flags(session: Session, account_id: int, folder: str, uid: str, *, se
     ).first()
     if not row:
         return
-    if seen is not None and bool(row.seen) != bool(seen):
-        _adjust_cached_unseen(session, account_id, folder, -1 if seen else 1)
-        row.seen = seen
+    if seen is not None:
+        if bool(row.seen) != bool(seen):
+            _adjust_cached_unseen(session, account_id, folder, -1 if seen else 1)
+            row.seen = seen
+        # Nutzer-Entscheidung ist authoritativ → gegen spätere Sync-Überschreibung sperren.
+        row.seen_sticky = True
     if flagged is not None:
         row.flagged = flagged
     session.add(row)
@@ -410,6 +413,7 @@ def set_flags_bulk(
     vals: dict = {}
     if seen is not None:
         vals["seen"] = seen
+        vals["seen_sticky"] = True   # Nutzer-Entscheidung → gegen Sync-Überschreibung sperren
     if flagged is not None:
         vals["flagged"] = flagged
     uids = [u for u in uids if u]
@@ -561,7 +565,9 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                 for msg in box.fetch(AND(uid=",".join(recent)), mark_seen=False, headers_only=True, bulk=100):
                     row = cached_by_uid.get(msg.uid or "")
                     if row:
-                        row.seen = SEEN in msg.flags
+                        # Vom Nutzer selbst gesetzten Gelesen-Status NICHT überschreiben.
+                        if not row.seen_sticky:
+                            row.seen = SEEN in msg.flags
                         row.flagged = FLAGGED in msg.flags
                         row.keywords = " ".join(keywords_of(msg))
                         # Altbestand ohne Thread-Header (vor dem Update gecacht) einmalig
