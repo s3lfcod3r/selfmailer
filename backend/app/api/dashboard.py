@@ -53,9 +53,10 @@ _EXCLUDED_KINDS = {"trash", "spam", "sent", "drafts", "all", "important", "flagg
 
 
 def _cached_unseen(session: Session, account_id: int) -> int:
-    counts = cache_mod.read_counts(session, account_id)
-    fs = counts.get(INBOX)
-    return int(fs.unseen) if fs else 0
+    # Aus den tatsächlich ungelesenen Cache-ZEILEN (nicht aus FolderSync.unseen =
+    # Server-STATUS). So passt die Konto-Badge zur angezeigten Liste — auch wenn der
+    # Server (web.de-Cluster) eine andere/unvollständige Sicht meldet.
+    return cache_mod.unseen_by_folder(session, account_id).get(INBOX, 0)
 
 
 def _leaf(folder: str) -> str:
@@ -67,6 +68,10 @@ def _all_folders_unseen(session: Session, account_id: int) -> int:
     """Ungelesen über ALLE Ordner des Kontos (aus dem warmen Ordner-Cache),
     OHNE Papierkorb/Spam/Gesendet/Entwürfe. Quelle: CachedFolder, vom
     Hintergrund-Scheduler je Konto alle paar Minuten via IMAP STATUS gepflegt."""
+    # Ungelesen je Ordner aus den tatsächlichen Cache-ZEILEN (konsistent mit Liste/
+    # Ordner-Badges), nicht aus dem Server-STATUS. Ordnerliste + special weiterhin aus
+    # dem warmen Ordner-Cache (für die Ausschlüsse Papierkorb/Spam/…).
+    unseen_map = cache_mod.unseen_by_folder(session, account_id)
     total = 0
     for fc in cache_mod.read_folder_counts(session, account_id):
         name = fc.get("name") or ""
@@ -77,7 +82,7 @@ def _all_folders_unseen(session: Session, account_id: int) -> int:
         kind = (fc.get("special") or "") or imap_mod._special_kind(_leaf(name)) or ""
         if kind in _EXCLUDED_KINDS:
             continue
-        total += int(fc.get("unseen", 0) or 0)
+        total += unseen_map.get(name, 0)
     return total
 
 
