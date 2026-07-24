@@ -20,9 +20,9 @@ from .imap import FLAGGED, SEEN, _mailbox, _snippet, keywords_of, thread_headers
 
 # Obergrenze, wie viele (neueste) Mail-Köpfe pro Sync nachgeladen werden.
 # Bewusst nicht zu hoch: ein Lauf bleibt zeitlich beschaenkt; sehr große Ordner
-# füllen sich über mehrere Syncs. Zwischen-Commits sichern Teilfortschritt.
+# füllen sich über mehrere Syncs. Der Sync committet ATOMAR (nur einmal am Ende),
+# damit die Liste während des Aufbaus nie einen inkonsistenten Zwischenstand zeigt.
 _SYNC_CAP = 1000
-_COMMIT_EVERY = 200
 # Flag-Abgleich nur für die neuesten N UIDs (dort ändern sich Flags am ehesten).
 _FLAG_WINDOW = 120
 # Der Flag-Abgleich (Header-Fetch vieler Mails) ist der teuerste Teil eines Syncs
@@ -402,11 +402,12 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
             select(CachedMessage).where(CachedMessage.account_id == account.id, CachedMessage.folder == folder)
         ).all()
 
-        # UIDVALIDITY-Wechsel → kompletten Ordner-Cache verwerfen.
+        # UIDVALIDITY-Wechsel → kompletten Ordner-Cache verwerfen. Die Löschungen
+        # werden NICHT sofort committet, sondern gemeinsam mit dem Neuaufbau am Ende
+        # (ein einziger Commit) → Leser sehen nie einen halb geleerten Ordner.
         if fs and fs.uidvalidity and uidvalidity and fs.uidvalidity != uidvalidity:
             for r in cached_rows:
                 session.delete(r)
-            session.commit()
             cached_rows = []
 
         cached_by_uid = {r.uid: r for r in cached_rows}
@@ -423,7 +424,11 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
         new_uids = [u for u in server_uids if u not in cached_by_uid]
         fetch_uids = new_uids[-cap:] if cap else new_uids
         if fetch_uids:
-            added = 0
+            # WICHTIG: KEINE Zwischen-Commits. Alle neuen Köpfe werden nur in der
+            # Session vorgemerkt und erst am Ende in EINEM Commit sichtbar. Sonst
+            # liefert der Listen-Endpunkt während des Syncs einen halb aufgebauten
+            # Ordner (mal weniger Mails, mal ein inkonsistenter Zwischenstand) —
+            # das war die Ursache für gelegentlich falsche Absender/„Ich" in der Liste.
             for msg in box.fetch(AND(uid=",".join(fetch_uids)), mark_seen=False, bulk=50):
                 if not msg.uid:
                     continue
@@ -436,9 +441,6 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                     message_id=th["message_id"], in_reply_to=th["in_reply_to"], refs=th["references"],
                     keywords=" ".join(keywords_of(msg)),
                 ))
-                added += 1
-                if added % _COMMIT_EVERY == 0:  # Teilfortschritt sichern
-                    session.commit()
 
         # Flags der neuesten gecachten Mails abgleichen — TEUERSTER Teil (Header-
         # Fetch vieler Mails). Gedrosselt: nur, wenn der letzte Sync länger als
