@@ -467,6 +467,14 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
         server_uids = list(box.uids())            # aufsteigend (alt → neu)
         server_set = set(server_uids)
 
+        # Zuverlässigkeit der Server-Antwort prüfen: Liefert die UID-Suche DEUTLICH
+        # weniger UIDs, als der Server selbst als MESSAGES meldet, ist diese Sicht
+        # kaputt/partiell (web.de-Cluster liefert je Verbindung eine andere Teilmenge).
+        # Dann NICHT prunen — sonst würden gültige Mails fälschlich als „verschwunden"
+        # gewertet und die Liste flackerte. So wächst der Cache nur zur Vereinigung
+        # aller je gesehenen Teilmengen und schrumpft nie durch einen schlechten Sync.
+        reliable = total <= 0 or len(server_set) >= total * 0.5
+
         # Verschwundene NICHT sofort löschen — erst nach _MISS_LIMIT Syncs in Folge
         # ohne Treffer (Härtung gegen flatternde Server). Wieder aufgetauchte Mails
         # setzen den Zähler zurück.
@@ -475,7 +483,7 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                 if row.miss_count:
                     row.miss_count = 0
                     session.add(row)
-            else:
+            elif reliable:
                 row.miss_count = (row.miss_count or 0) + 1
                 if row.miss_count >= _MISS_LIMIT:
                     session.delete(row)
@@ -484,6 +492,7 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                         cached_mids.discard(row.message_id)
                 else:
                     session.add(row)
+            # unzuverlässige Sicht → Mail unangetastet lassen (kein miss_count-Hochzählen).
 
         # Neue Köpfe holen (neueste zuerst, gedeckelt).
         new_uids = [u for u in server_uids if u not in cached_by_uid]
