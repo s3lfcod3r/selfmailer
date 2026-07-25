@@ -133,7 +133,7 @@ const _ATTR_SHORT = /^(Am\s.+\sschrieb.*:|On\s.+\swrote:|Le\s.+\sécrit\s*:|El\s
 // Zitat-Kopfzeile MITTEN im Text (Verlauf ohne Zeilenumbrüche, ">" inline) — z. B.
 // "Am Thu, 23 Jul 2026 15:00:41 +0200 schrieb x@y.de:> …". Verlangt Jahr (4 Ziffern)
 // vor "schrieb/wrote", damit ein normaler Satz ("Am Montag schrieb ich …") NICHT greift.
-const _ATTR_INLINE = /(?:-{3,}\s*)?(?:Am|On|Le|El)\s.{0,80}?\d{4}.{0,80}?\s(?:schrieb|wrote|écrit|escribió)\b/i;
+const _ATTR_INLINE = /(?:-{3,}\s*)?\b(?:Am|On|Le|El)\s.{0,80}?\d{4}.{0,80}?\s(?:schrieb|wrote|écrit|escribió)\b/i;
 
 /**
  * Trennt bei einer Text-Mail den NEUEN Teil vom zitierten Verlauf ab.
@@ -159,6 +159,28 @@ export function trimQuotedText(text: string): { text: string; trimmed: boolean }
   return { text, trimmed: false };
 }
 
+// Schneidet ein DOM so ab, dass nur die ersten `offset` Text-Zeichen (in Dokument-
+// reihenfolge) übrig bleiben — alles danach wird entfernt. Für den Fall, dass der
+// zitierte Verlauf als nackter Textknoten (ohne blockquote) hinter den Absätzen hängt.
+function _truncateToOffset(root: Node, offset: number): void {
+  let remaining = offset;
+  for (const child of Array.from(root.childNodes)) {
+    if (remaining <= 0) { child.parentNode?.removeChild(child); continue; }
+    const len = (child.textContent || "").length;
+    if (len <= remaining) { remaining -= len; continue; }
+    if (child.nodeType === 3) {
+      child.textContent = (child.textContent || "").slice(0, remaining);
+      remaining = 0;
+    } else if (child.nodeType === 1) {
+      _truncateToOffset(child, remaining);
+      remaining = 0;
+    } else {
+      child.parentNode?.removeChild(child);
+      remaining = 0;
+    }
+  }
+}
+
 /**
  * Trennt bei einer HTML-Mail den NEUEN Teil vom zitierten Verlauf ab. Erkennt die
  * gängigen Zitat-Container (blockquote, Gmail/Thunderbird/Outlook) sowie eine
@@ -180,6 +202,19 @@ export function trimQuotedHtml(html: string): { html: string; trimmed: boolean }
         const txt = (node.textContent || "").trim();
         if (txt.length < 200 && _ATTR_SHORT.test(txt)) { cut = node; break; }
         node = walker.nextNode() as Element | null;
+      }
+    }
+    if (!cut) {
+      // Fallback: Inline-Kopfzeile ("Am … 2026 … schrieb …") im reinen Text finden
+      // und das HTML exakt dort abschneiden — greift auch, wenn der Verlauf ohne
+      // blockquote als nackter Textknoten hinter den Absätzen steht (verschachtelte
+      // Wand ohne Zeilenumbrüche).
+      const full = body.textContent || "";
+      const im = _ATTR_INLINE.exec(full);
+      if (im && im.index > 0) {
+        _truncateToOffset(body, im.index);
+        const t = body.innerHTML.trim();
+        if (t) return { html: t, trimmed: true };
       }
     }
     if (!cut) return { html, trimmed: false };
