@@ -238,11 +238,6 @@ def cached_folder_names(session: Session, account_id: int) -> set[str]:
     return {f for f in rows if f}
 
 
-def read_counts(session: Session, account_id: int) -> dict[str, FolderSync]:
-    rows = session.exec(select(FolderSync).where(FolderSync.account_id == account_id)).all()
-    return {r.folder: r for r in rows}
-
-
 def read_folder_counts(session: Session, account_id: int) -> list[dict]:
     """Gecachte Ordnerliste + Zähler (für die SOFORTige Seitenleiste beim F5).
 

@@ -102,22 +102,10 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   padding: 1.1rem 0.9rem;
   display: flex; flex-direction: column; gap: 0.3rem;
 }
-.nav-item {
-  display: flex; align-items: center; gap: 0.6rem;
-  padding: 0.6rem 0.7rem; border-radius: var(--self-radius-sm);
-  color: var(--self-text-2); cursor: pointer; user-select: none;
-}
-.nav-item:hover { background: var(--self-bg-2); color: var(--self-text); }
-.nav-item.active { background: var(--self-bg-3); color: var(--self-teal-bright); }
 .main { padding: 1.6rem 2rem; overflow: auto; }
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; }
 
 /* --- Notizen-Grid --- */
-.notes-grid {
-  display: grid; gap: 1rem;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-}
-.note { padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; min-height: 140px; }
 .note .note-title { font-weight: 600; }
 .note .note-body { color: var(--self-text-2); font-size: 0.9rem; white-space: pre-wrap; flex: 1; }
 .note .note-foot { display: flex; justify-content: space-between; align-items: center; }
@@ -279,14 +267,6 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
   border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45); padding: 0.6rem;
 }
 .app-switcher { display: grid; grid-template-columns: repeat(3, 94px); gap: 0.3rem; }
-.app-tile {
-  display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
-  padding: 0.85rem 0.4rem; border-radius: 9px; border: 1px solid transparent;
-  background: none; color: var(--self-text-2); cursor: pointer; font: inherit; font-size: 0.8rem;
-}
-.app-tile:hover { background: var(--self-bg-3); color: var(--self-text); }
-.app-tile.active { border-color: var(--self-teal); color: var(--self-text); }
-.app-ico { font-size: 1.5rem; }
 .user-menu { display: flex; flex-direction: column; min-width: 248px; gap: 0.02rem; }
 /* Gleiches Raster wie .user-menu-row, damit Knöpfe und Auswahlzeilen
    exakt dieselbe Höhe und Icon-Flucht haben. */
@@ -299,16 +279,11 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 .user-menu button:hover { background: var(--self-bg-3); color: var(--self-text); }
 .user-menu hr { border: none; border-top: 1px solid var(--self-line); margin: 0.3rem 0; }
 .app-main { flex: 1 1 auto; overflow: auto; padding: 1.2rem 1.4rem; }
-.view-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 1rem; }
 @media (max-width: 720px) {
   .topbar-search { max-width: none; }
   .user-chip span:nth-child(2) { display: none; }
 }
 
-.mail-mailbox-head {
-  font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--self-text-3); padding: 0.1rem 0.6rem 0.5rem;
-}
 .mail-folder-toggle {
   background: none; border: none; cursor: pointer; padding: 0;
   color: var(--self-text-3); flex: 0 0 14px; width: 14px; font-size: 0.62rem; line-height: 1;
@@ -379,7 +354,6 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 }
 .read-menu button:hover { background: var(--self-bg-3); color: var(--self-text); }
 .read-menu hr { border: none; border-top: 1px solid var(--self-line); margin: 0.3rem 0; }
-.read-menu-del { color: var(--self-red); }
 .read-menu-move { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem; font-size: 0.88rem; color: var(--self-text-2); cursor: pointer; }
 .read-menu-move select { flex: 1; font-size: 0.82rem; padding: 0.2rem 0.3rem; }
 
@@ -445,13 +419,6 @@ select.bulk-btn { max-width: 170px; }
 .bulk-del:hover { border-color: var(--self-red); color: var(--self-red); }
 
 /* --- Banner: externe Bilder blockiert --- */
-.img-banner {
-  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
-  margin-bottom: 0.6rem; padding: 0.5rem 0.8rem;
-  background: color-mix(in srgb, var(--self-teal) 9%, var(--self-bg-2));
-  border: 1px solid color-mix(in srgb, var(--self-teal) 28%, var(--self-line));
-  border-radius: 8px; font-size: 0.85rem; color: var(--self-text-2);
-}
 .img-banner button { padding: 0.3rem 0.7rem; font-size: 0.82rem; margin-left: auto; }
 
 /* --- Design anpassen (Theme-Editor) --- */
@@ -518,10 +485,6 @@ select.bulk-btn { max-width: 170px; }
   padding: 0.12rem 0.4rem; border-radius: 999px; white-space: nowrap;
   max-width: 120px; overflow: hidden; text-overflow: ellipsis;
 }
-.mail-labelbar {
-  display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.35rem 0.55rem;
-  border-bottom: 1px solid var(--self-line);
-}
 .label-filter {
   background: none; border: 1px solid var(--self-line); border-radius: 999px;
   padding: 0.1rem 0.55rem; font-size: 0.72rem; font-weight: 600; cursor: pointer; white-space: nowrap;
@@ -561,14 +524,12 @@ select.bulk-btn { max-width: 170px; }
 @keyframes self-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .mail-spinner { animation-duration: 1.6s; } }
 /* Nur Mobile/Tablet sichtbare Helfer (Standard: versteckt). */
-.mobile-only { display: none; }
 .mail-mobilebar { display: none; }
 
 /* Mobile/Tablet: 3-Spalten-Mail wird zum Drill-down (Ordner → Liste → Lesen).
    Konten bleiben IMMER gestapelt (kein nebeneinander). Es ist stets nur die zu
    data-pane passende Spalte sichtbar; die Resize-Griffe entfallen. */
 @media (max-width: 900px) {
-  .mobile-only { display: inline-flex; }
   .mail-mobilebar {
     display: flex; align-items: center; gap: 0.6rem;
     padding: 0 0 0.55rem; margin-bottom: 0.1rem;
@@ -682,15 +643,7 @@ select.bulk-btn { max-width: 170px; }
 .cal-panel { background: var(--self-bg-2); border: 1px solid var(--self-line); border-radius: var(--self-radius); padding: 0.7rem 0.8rem; }
 .cal-panel-head { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--self-text-3); margin-bottom: 0.5rem; }
 /* Kalender-Filter (Farbpunkt + Name + Haken) */
-.cal-filter-item {
-  display: flex; align-items: center; gap: 0.55rem; width: 100%;
-  background: none; border: none; cursor: pointer; text-align: left;
-  padding: 0.35rem 0.2rem; color: var(--self-text); font-size: 0.86rem;
-}
-.cal-filter-item:hover { color: var(--self-teal-bright); }
 .cal-filter-dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; }
-.cal-filter-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cal-filter-check { color: var(--self-teal-bright); font-size: 0.8rem; width: 0.9rem; }
 /* Kompakte, NICHT klickbare Kalender-Legende (Verwaltung läuft über Sync & Export) */
 .cal-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.8rem; }
 .cal-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--self-text-2); }
@@ -742,8 +695,6 @@ select.bulk-btn { max-width: 170px; }
 .recipient-mail { font-size: 0.76rem; color: var(--self-text-3); }
 
 /* Kontakt-Karte: Name als anklickbarer Titel zum Bearbeiten. */
-.contact-open { background: transparent; border: none; padding: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
-.contact-open:hover { color: var(--self-teal-bright); }
 
 /* ── Scrollbar (Self-Markenfarben) ─────────────────────────────
    Firefox + Standard via scrollbar-color, WebKit via Pseudo-Elemente.
@@ -1145,7 +1096,6 @@ img.thread-avatar { object-fit: cover; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .thread-msg-body { padding: 0.2rem 0.7rem 0.7rem; border-top: 1px solid var(--self-line); display: flex; flex-direction: column; }
-.thread-msg-toolbar { display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0; flex-wrap: wrap; }
 /* Kompakte Icon-Aktionen OBEN in der Absenderzeile einer offenen Thread-Mail. */
 .thread-msg-actions { display: inline-flex; align-items: center; gap: 0.05rem; flex: 0 0 auto; }
 .thread-msg-actions .ghost {

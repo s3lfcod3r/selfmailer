@@ -304,10 +304,6 @@ class BlockSenderResult(BaseModel):
     deleted: int                         # sofort entfernte vorhandene Mails
 
 
-class SpamPurgeResult(BaseModel):
-    deleted: int
-
-
 # ---- Notizen -------------------------------------------------------------
 class NoteCreate(BaseModel):
     title: str = ""
