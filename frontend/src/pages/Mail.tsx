@@ -4,7 +4,7 @@ import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
 import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
-import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, avatarFor } from "../lib/mailview";
+import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, avatarFor, trimQuotedHtml, trimQuotedText } from "../lib/mailview";
 import { ThreadReader } from "../components/ThreadReader";
 import { groupThreads, normalizeSubject, type Conversation } from "../lib/threads";
 
@@ -286,6 +286,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Helle Mails automatisch in den dunklen App-Look umfaerben. Standard kommt aus
   // der globalen Einstellung (darkMail), ist aber pro Mail umschaltbar.
   const [darkBody, setDarkBody] = useState(darkMail);
+  // Zitierten Verlauf in der Einzelmail standardmaessig einklappen (wie im ThreadReader);
+  // per „Verlauf anzeigen" ausklappbar. Pro geoeffneter Mail zurueckgesetzt.
+  const [showFullQuote, setShowFullQuote] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dragUids, setDragUids] = useState<string[]>([]);
@@ -1148,6 +1151,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       setDetailsOpen(false);
       setAuthOpen(false);
       setShowImages(false);
+      setShowFullQuote(false);
       setTranslated(null);
       setDarkBody(darkMail);
       if (!msg.seen) {
@@ -1633,6 +1637,44 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         <div style={{ fontSize: "0.75rem", color: "var(--self-text-3)", marginBottom: 6 }}>🌐 {de ? "Übersetzung (Deutsch)" : "Translation (German)"}</div>
         {translated}
       </div>
+    );
+  }
+  // Mail-Körper der Einzelansicht: klappt den zitierten Verlauf standardmäßig ein
+  // (nur der neue Text), mit „Verlauf anzeigen"-Schalter. Wird an beiden Render-
+  // Stellen (Lesespalte + Popup) genutzt, damit auch alte Mails aufgeräumt aussehen.
+  function mailBody(): ReactNode {
+    if (!open) return null;
+    let bodyHtml = open.html || "";
+    let bodyText = open.text || "";
+    let hasQuote = false;
+    if (open.html) {
+      const r = trimQuotedHtml(open.html);
+      hasQuote = r.trimmed;
+      if (!showFullQuote && r.trimmed) bodyHtml = r.html;
+    } else if (open.text) {
+      const r = trimQuotedText(open.text);
+      hasQuote = r.trimmed;
+      if (!showFullQuote && r.trimmed) bodyText = r.text;
+    }
+    const body = open.html ? (
+      <iframe title="mail-body" sandbox="allow-popups allow-popups-to-escape-sandbox" className="mail-body-frame"
+        srcDoc={buildSrcDoc(bodyHtml, blockImages && !showImages, darkBody)} />
+    ) : open.text ? (
+      <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{bodyText}</div>
+    ) : (
+      <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{t("mail.emptyBody")}</div>
+    );
+    return (
+      <>
+        {body}
+        {hasQuote && (
+          <button className={`ghost ${showFullQuote ? "on" : ""}`} style={{ alignSelf: "flex-start", marginTop: 6, fontSize: "0.8rem" }}
+            onClick={() => setShowFullQuote((v) => !v)}
+            title={showFullQuote ? t("mail.quoteHide") : t("mail.quoteShow")}>
+            {showFullQuote ? "▴ " + t("mail.quoteHide") : "··· " + t("mail.quoteShow")}
+          </button>
+        )}
+      </>
     );
   }
   // Ausgeklappter Volltext zum Echtheits-Chip (Warnung/Bestätigung + SPF/DKIM/DMARC).
@@ -2125,14 +2167,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             </div>
             <hr style={{ borderColor: "var(--self-line)", margin: "0.5rem 0 0.55rem" }} />
             {translatePanel()}
-            {open.html ? (
-              <iframe title="mail-body" sandbox="allow-popups allow-popups-to-escape-sandbox" className="mail-body-frame"
-                srcDoc={buildSrcDoc(open.html, blockImages && !showImages, darkBody)} />
-            ) : open.text ? (
-              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{open.text}</div>
-            ) : (
-              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{t("mail.emptyBody")}</div>
-            )}
+            {mailBody()}
             {open.attachments?.length > 0 && (
               <div style={{ marginTop: "1.2rem", borderTop: "1px solid var(--self-line)", paddingTop: "0.8rem" }}>
                 <div className="label" style={{ marginBottom: "0.5rem" }}>📎 {t("mail.attachments")}</div>
@@ -2336,14 +2371,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             )}
             <div style={{ overflow: "auto", padding: 16, flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
               {translatePanel()}
-              {open.html ? (
-                <iframe title="mail-body-popup" sandbox="allow-popups allow-popups-to-escape-sandbox" className="mail-body-frame"
-                  srcDoc={buildSrcDoc(open.html, blockImages && !showImages, darkBody)} />
-              ) : open.text ? (
-                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{open.text}</div>
-              ) : (
-                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{t("mail.emptyBody")}</div>
-              )}
+              {mailBody()}
               {open.attachments?.length > 0 && (
                 <div style={{ marginTop: "1.2rem", borderTop: "1px solid var(--self-line)", paddingTop: "0.8rem" }}>
                   <div className="label" style={{ marginBottom: "0.5rem" }}>📎 {t("mail.attachments")}</div>
