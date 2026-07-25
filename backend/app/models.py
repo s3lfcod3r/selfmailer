@@ -317,6 +317,12 @@ class CachedMessage(SQLModel, table=True):
     # markiert) → authoritativ. Ein Sync darf ihn dann NICHT mehr überschreiben
     # (flatternde Server melden sonst gelesene Mails wieder als ungelesen).
     seen_sticky: bool = False
+    # Vom Nutzer gelöscht/verschoben → in DIESEM Ordner ausgeblendet, aber NICHT aus
+    # dem Cache entfernt. So erkennt der Sync die Mail als bereits bekannt und holt
+    # sie nicht wieder rein, wenn ein flatternder Server (web.de) sie noch listet.
+    # Wird endgültig entfernt, sobald der Server die UID über mehrere Syncs nicht
+    # mehr liefert (miss_count) — also wenn die Löschung wirklich durchgezogen ist.
+    hidden: bool = False
 
 
 class FolderSync(SQLModel, table=True):

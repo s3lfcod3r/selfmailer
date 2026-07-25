@@ -79,6 +79,8 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("miss_count", "INTEGER DEFAULT 0"),
         # Nutzer hat den Gelesen-Status selbst gesetzt → Sync überschreibt ihn nicht.
         ("seen_sticky", "INTEGER DEFAULT 0"),
+        # Vom Nutzer gelöscht/verschoben → ausgeblendet (Anti-„kommt wieder"-Tombstone).
+        ("hidden", "INTEGER DEFAULT 0"),
     ],
     "cachedfolder": [("special", "VARCHAR")],
     "calendarevent": [

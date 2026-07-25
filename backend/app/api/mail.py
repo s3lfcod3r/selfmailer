@@ -644,7 +644,7 @@ def move_message(
         logger.warning("Nachricht verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Verschieben fehlgeschlagen")
     try:
-        cache_mod.remove_uids(session, account_id, folder, [uid])
+        cache_mod.hide_uids(session, account_id, folder, [uid])
     except Exception:  # noqa: BLE001
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
@@ -692,7 +692,7 @@ def delete_messages_batch(
         logger.warning("Batch-Löschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Löschen fehlgeschlagen")
     try:
-        cache_mod.remove_uids(session, account_id, data.folder, data.uids)
+        cache_mod.hide_uids(session, account_id, data.folder, data.uids)
     except Exception:  # noqa: BLE001
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": data.folder})
@@ -743,7 +743,7 @@ def move_messages_batch(
         logger.warning("Batch-Verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Verschieben fehlgeschlagen")
     try:
-        cache_mod.remove_uids(session, account_id, data.folder, data.uids)
+        cache_mod.hide_uids(session, account_id, data.folder, data.uids)
     except Exception:  # noqa: BLE001
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": data.folder})
@@ -765,7 +765,7 @@ def delete_message(
         logger.warning("Nachricht löschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Löschen fehlgeschlagen")
     try:
-        cache_mod.remove_uids(session, account_id, folder, [uid])
+        cache_mod.hide_uids(session, account_id, folder, [uid])
     except Exception:  # noqa: BLE001
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})

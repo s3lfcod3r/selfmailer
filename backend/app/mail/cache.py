@@ -109,7 +109,10 @@ def read_messages(
         order.insert(0, CachedMessage.flagged.desc())
     rows = session.exec(
         select(CachedMessage)
-        .where(CachedMessage.account_id == account_id, CachedMessage.folder == folder)
+        .where(
+            CachedMessage.account_id == account_id, CachedMessage.folder == folder,
+            CachedMessage.hidden == False,  # noqa: E712 - ausgeblendete (gelöschte) nicht zeigen
+        )
         .order_by(*order)
         .offset(offset).limit(limit)
     ).all()
@@ -176,6 +179,7 @@ def recent_unseen(session: Session, account_id: int, folder: str = "INBOX", limi
             CachedMessage.account_id == account_id,
             CachedMessage.folder == folder,
             CachedMessage.seen == False,  # noqa: E712 - SQL-Vergleich, nicht `is False`
+            CachedMessage.hidden == False,  # noqa: E712
         )
         .order_by(CachedMessage.sort_date.desc(), CachedMessage.id.desc())
         .limit(limit)
@@ -197,7 +201,10 @@ def folder_uids(session: Session, account_id: int, folder: str) -> list[str]:
     """
     rows = session.exec(
         select(CachedMessage.uid)
-        .where(CachedMessage.account_id == account_id, CachedMessage.folder == folder)
+        .where(
+            CachedMessage.account_id == account_id, CachedMessage.folder == folder,
+            CachedMessage.hidden == False,  # noqa: E712
+        )
         .order_by(CachedMessage.sort_date.desc(), CachedMessage.id.desc())
     ).all()
     return [u for u in rows if u]
@@ -212,7 +219,11 @@ def unseen_by_folder(session: Session, account_id: int) -> dict[str, int]:
     """
     rows = session.exec(
         select(CachedMessage.folder, func.count())
-        .where(CachedMessage.account_id == account_id, CachedMessage.seen == False)  # noqa: E712
+        .where(
+            CachedMessage.account_id == account_id,
+            CachedMessage.seen == False,  # noqa: E712
+            CachedMessage.hidden == False,  # noqa: E712 - ausgeblendete zählen nicht
+        )
         .group_by(CachedMessage.folder)
     ).all()
     return {folder: int(cnt) for folder, cnt in rows}
@@ -450,7 +461,8 @@ def set_flags_bulk(
 
 
 def remove_uids(session: Session, account_id: int, folder: str, uids: list[str]) -> None:
-    """Entfernt Cache-Zeilen (nach Löschen/Verschieben durch den Nutzer)."""
+    """Entfernt Cache-Zeilen HART (nur für serverseitig wirklich verschwundene Mails,
+    z. B. 404-Selbstheilung). Für Nutzer-Löschungen/-Verschiebungen siehe hide_uids."""
     if not uids:
         return
     rows = session.exec(
@@ -460,6 +472,26 @@ def remove_uids(session: Session, account_id: int, folder: str, uids: list[str])
     ).all()
     for r in rows:
         session.delete(r)
+    session.commit()
+
+
+def hide_uids(session: Session, account_id: int, folder: str, uids: list[str]) -> None:
+    """Blendet Cache-Zeilen aus, statt sie zu entfernen (Nutzer-Löschen/-Verschieben).
+
+    So bleibt die Message-ID/UID im Cache bekannt: ein flatternder Server (web.de),
+    der die Mail noch listet, führt NICHT dazu, dass der Sync sie als „neu" wieder
+    einfügt (Anti-„gelöschte Mail kommt wieder"). Endgültig entfernt wird die Zeile
+    erst über den miss_count, sobald der Server die UID nicht mehr liefert."""
+    if not uids:
+        return
+    rows = session.exec(
+        select(CachedMessage).where(
+            CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid.in_(uids)
+        )
+    ).all()
+    for r in rows:
+        r.hidden = True
+        session.add(r)
     session.commit()
 
 
