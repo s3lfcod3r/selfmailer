@@ -129,7 +129,6 @@ export function avatarFor(nameOrEmail: string): { initials: string; color: strin
 // "-----Original…", Outlook-Kopf "Von:/From:"). Kurz gehalten, damit ein normaler
 // Satz, der zufällig so anfängt, nicht fälschlich als Zitat gilt.
 const _ATTR_LINE = /^\s*(Am\s.+\sschrieb.*:|On\s.+\swrote:|Le\s.+\sécrit\s*:|El\s.+\sescribió:|-{3,}\s*(Original|Ursprüngliche|Weitergeleitete).*|_{5,}|Von:\s.+|From:\s.+|Gesendet:\s.+|Sent:\s.+)\s*$/i;
-const _ATTR_SHORT = /^(Am\s.+\sschrieb.*:|On\s.+\swrote:|Le\s.+\sécrit\s*:|El\s.+\sescribió:)$/i;
 // Zitat-Kopfzeile MITTEN im Text (Verlauf ohne Zeilenumbrüche, ">" inline) — z. B.
 // "Am Thu, 23 Jul 2026 15:00:41 +0200 schrieb x@y.de:> …". Verlangt Jahr (4 Ziffern)
 // vor "schrieb/wrote", damit ein normaler Satz ("Am Montag schrieb ich …") NICHT greift.
@@ -159,79 +158,55 @@ export function trimQuotedText(text: string): { text: string; trimmed: boolean }
   return { text, trimmed: false };
 }
 
-// Schneidet ein DOM so ab, dass nur die ersten `offset` Text-Zeichen (in Dokument-
-// reihenfolge) übrig bleiben — alles danach wird entfernt. Für den Fall, dass der
-// zitierte Verlauf als nackter Textknoten (ohne blockquote) hinter den Absätzen hängt.
-function _truncateToOffset(root: Node, offset: number): void {
-  let remaining = offset;
-  for (const child of Array.from(root.childNodes)) {
-    if (remaining <= 0) { child.parentNode?.removeChild(child); continue; }
-    const len = (child.textContent || "").length;
-    if (len <= remaining) { remaining -= len; continue; }
-    if (child.nodeType === 3) {
-      child.textContent = (child.textContent || "").slice(0, remaining);
-      remaining = 0;
-    } else if (child.nodeType === 1) {
-      _truncateToOffset(child, remaining);
-      remaining = 0;
-    } else {
-      child.parentNode?.removeChild(child);
-      remaining = 0;
-    }
-  }
-}
+// Zitat-Kopfzeile, die einen (Text-)Knoten EINLEITET ("Am … 2026 … schrieb …").
+// Am Knoten-Anfang verankert (^) — daher kein Wortgrenzen-Problem (im HTML-textContent
+// kleben Block-Enden zusammen, z. B. "SvenAm Thu"; ein `\b` würde da versagen). Verlangt
+// Jahr (4 Ziffern), damit ein normaler Satz nicht fälschlich als Zitat gilt.
+const _ATTR_START = /^\s*(?:-{3,}\s*)?(?:Am|On|Le|El)\s.{0,80}?\d{4}.{0,80}?\s(?:schrieb|wrote|écrit|escribió)\b/i;
 
 /**
- * Trennt bei einer HTML-Mail den NEUEN Teil vom zitierten Verlauf ab. Erkennt die
- * gängigen Zitat-Container (blockquote, Gmail/Thunderbird/Outlook) sowie eine
- * vorangestellte "Am … schrieb:"-Zeile und entfernt sie samt allem, was danach
- * folgt. Läuft rein im Browser (DOMParser). Bei Fehlern/leerem Rest: nicht kürzen.
+ * Trennt bei einer HTML-Mail den NEUEN Teil vom zitierten Verlauf ab.
+ *
+ * WICHTIG: Ein nacktes ``<blockquote>`` ist KEIN verlässlicher Marker — man zitiert auch
+ * IM eigenen Text (z. B. eine fremde Aussage). Der zuverlässige Marker ist die Kopfzeile
+ * "Am … schrieb …:" bzw. ein client-spezifischer Antwort-Container (Gmail/Thunderbird/
+ * Outlook). Geschnitten wird am ERSTEN dieser Marker: dem Textknoten, der mit der
+ * Kopfzeile beginnt, ODER dem Container-Element. Läuft rein im Browser (DOMParser).
  */
 export function trimQuotedHtml(html: string): { html: string; trimmed: boolean } {
   try {
     const doc = new DOMParser().parseFromString(html, "text/html");
     const body = doc.body;
     if (!body) return { html, trimmed: false };
-    const sel = "blockquote, .gmail_quote, [class*='gmail_quote'], .gmail_extra, div.moz-cite-prefix, #divRplyFwdMsg, [id*='divRplyFwdMsg']";
-    let cut: Element | null = body.querySelector(sel);
+    // 1) Client-spezifischer Antwort-Container (KEIN nacktes blockquote).
+    let cut: Node | null = body.querySelector(
+      ".gmail_quote, [class*='gmail_quote'], .gmail_extra, div.moz-cite-prefix, #divRplyFwdMsg, [id*='divRplyFwdMsg']",
+    );
+    // 2) Sonst: erster Textknoten, der MIT der Attributions-Kopfzeile beginnt.
     if (!cut) {
-      // Fallback: kurzer Element-Knoten, dessen Text wie eine Zitat-Einleitung aussieht.
-      const walker = doc.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
-      let node = walker.nextNode() as Element | null;
+      const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
       while (node) {
-        const txt = (node.textContent || "").trim();
-        if (txt.length < 200 && _ATTR_SHORT.test(txt)) { cut = node; break; }
-        node = walker.nextNode() as Element | null;
-      }
-    }
-    if (!cut) {
-      // Fallback: Inline-Kopfzeile ("Am … 2026 … schrieb …") im reinen Text finden
-      // und das HTML exakt dort abschneiden — greift auch, wenn der Verlauf ohne
-      // blockquote als nackter Textknoten hinter den Absätzen steht (verschachtelte
-      // Wand ohne Zeilenumbrüche).
-      const full = body.textContent || "";
-      const im = _ATTR_INLINE.exec(full);
-      if (im && im.index > 0) {
-        _truncateToOffset(body, im.index);
-        const t = body.innerHTML.trim();
-        if (t) return { html: t, trimmed: true };
+        if (_ATTR_START.test(node.nodeValue || "")) { cut = node; break; }
+        node = walker.nextNode();
       }
     }
     if (!cut) return { html, trimmed: false };
-    // Auf das direkte body-Kind hochklettern.
-    let top: Element = cut;
-    while (top.parentElement && top.parentElement !== body) top = top.parentElement;
-    // Eine unmittelbar davor stehende "Am … schrieb:"-Zeile mit entfernen.
-    const prev = top.previousElementSibling;
-    if (prev) {
-      const ptxt = (prev.textContent || "").trim();
-      if (ptxt.length < 200 && _ATTR_SHORT.test(ptxt)) top = prev;
+    // Auf das direkte body-Kind hochklettern und dieses + alle folgenden Geschwister löschen.
+    let top: Node = cut;
+    while (top.parentNode && top.parentNode !== body) top = top.parentNode;
+    let n: Node | null = top;
+    const rm: Node[] = [];
+    while (n) { rm.push(n); n = n.nextSibling; }
+    rm.forEach((el) => el.parentNode?.removeChild(el));
+    // Übrig gebliebene <br>/Leer-Textknoten am Ende (vor dem Schnitt) wegräumen.
+    while (
+      body.lastChild &&
+      (body.lastChild.nodeName === "BR" ||
+        (body.lastChild.nodeType === 3 && !(body.lastChild.nodeValue || "").trim()))
+    ) {
+      body.removeChild(body.lastChild);
     }
-    // top + alle folgenden Geschwister löschen.
-    let n: Element | null = top;
-    const rm: Element[] = [];
-    while (n) { rm.push(n); n = n.nextElementSibling; }
-    rm.forEach((el) => el.remove());
     const trimmed = body.innerHTML.trim();
     if (!trimmed) return { html, trimmed: false };
     return { html: trimmed, trimmed: true };
