@@ -37,12 +37,18 @@ export function hasRemoteContent(html: string): boolean {
 
 // "Lese-Dunkelmodus": dunkler Hintergrund + Schrift IMMER hell erzwingen
 // (!important schlägt die Mail-eigenen Farben), eigene Hintergründe neutralisieren.
+//  - background-image:none — dekorative HELLE Hintergrundbilder (Newsletter-Hero-
+//    Kacheln) raus, sonst liegt die erzwungene helle Schrift auf hellem Bild = unlesbar.
+//  - img{background:#fff} — helle "Sicherheitsplatte" hinter Bildern, damit dunkle/
+//    transparente Logos (schwarzes PNG) auf dem dunklen Grund sichtbar/erkennbar bleiben.
+//    Wirkt nur durch transparente Stellen; deckende Fotos bleiben unberührt.
 const _DARK_STYLE =
   `<style>:root{color-scheme:dark}` +
   `html,body{background:#0d1117 !important;color:#e6edf3 !important;}` +
-  `*{background-color:transparent !important;border-color:#30363d !important;}` +
+  `*{background-color:transparent !important;background-image:none !important;border-color:#30363d !important;}` +
   `*:not(a){color:#e6edf3 !important;}` +
   `a{color:#6cb6ff !important;}` +
+  `img{background:#ffffff !important;}` +
   `img,picture,video,svg,canvas{filter:none !important;}` +
   `</style>`;
 
