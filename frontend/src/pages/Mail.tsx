@@ -234,6 +234,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
   const [labelFilterMenu, setLabelFilterMenu] = useState(false);
   const [labelMenu, setLabelMenu] = useState(false);
+  // Inline-Bearbeitung eines Labels (Umbenennen/Umfärben) im Label-Menü.
+  const [labelEdit, setLabelEdit] = useState<{ id: number; name: string; color: string } | null>(null);
   // Geplante Mails (Später senden) — Liste + Modal-Sichtbarkeit.
   const [scheduled, setScheduled] = useState<ScheduledMail[]>([]);
   const [schedOpen, setSchedOpen] = useState(false);
@@ -924,6 +926,16 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   async function deleteLabel(id: number) {
     try { await api.del(`/labels/${id}`); setLabels((ls) => ls.filter((x) => x.id !== id)); }
     catch (e) { setErr((e as Error).message); }
+  }
+  async function saveLabelEdit() {
+    if (!labelEdit) return;
+    const name = labelEdit.name.trim();
+    if (!name) return;
+    try {
+      const upd = await api.patch<MailLabel>(`/labels/${labelEdit.id}`, { name, color: labelEdit.color });
+      setLabels((ls) => ls.map((x) => (x.id === upd.id ? upd : x)).sort((a, b) => a.name.localeCompare(b.name)));
+      setLabelEdit(null);
+    } catch (e) { setErr((e as Error).message); }
   }
 
   // --- Geplante Mails (Später senden) ---
@@ -2010,6 +2022,27 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                         {labels.length === 0 && <div className="muted" style={{ fontSize: "0.8rem", padding: "0.2rem 0.4rem" }}>{t("label.none")}</div>}
                         {labels.map((l) => {
                           const applied = (open.labels ?? []).includes(l.keyword);
+                          if (labelEdit?.id === l.id) {
+                            return (
+                              <div key={l.keyword} className="label-menu-row" style={{ flexDirection: "column", alignItems: "stretch", gap: "0.35rem" }}>
+                                <input value={labelEdit.name} autoFocus
+                                  onChange={(e) => setLabelEdit({ ...labelEdit, name: e.target.value })}
+                                  onKeyDown={(e) => { if (e.key === "Enter") saveLabelEdit(); if (e.key === "Escape") setLabelEdit(null); }}
+                                  style={{ width: "100%" }} />
+                                <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap" }}>
+                                  {LABEL_COLORS.map((c) => (
+                                    <button key={c} onClick={() => setLabelEdit({ ...labelEdit, color: c })} title={c}
+                                      style={{ width: 18, height: 18, borderRadius: "50%", background: c, padding: 0, cursor: "pointer",
+                                        border: labelEdit.color === c ? "2px solid var(--self-text)" : "1px solid var(--self-line)" }} />
+                                  ))}
+                                </div>
+                                <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
+                                  <button className="link-btn" onClick={() => setLabelEdit(null)}>{de ? "Abbrechen" : "Cancel"}</button>
+                                  <button className="link-btn" onClick={saveLabelEdit}>{de ? "Speichern" : "Save"}</button>
+                                </div>
+                              </div>
+                            );
+                          }
                           return (
                             <div key={l.keyword} className="label-menu-row">
                               <button className="label-menu-toggle" onClick={() => setLabel(open.uid, open.folder, l.keyword, !applied)}>
@@ -2017,6 +2050,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                                 <span className="grow">{l.name}</span>
                                 {applied && <span>✓</span>}
                               </button>
+                              <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => setLabelEdit({ id: l.id, name: l.name, color: l.color })} title={de ? "Umbenennen / Farbe" : "Rename / color"}>✎</button>
                               <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => deleteLabel(l.id)} title={t("common.delete")}>🗑</button>
                             </div>
                           );

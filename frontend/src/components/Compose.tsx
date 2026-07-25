@@ -121,6 +121,7 @@ export function Compose({
   const editorRef = useRef<HTMLDivElement>(null);
   // Vorlagen/Textbausteine.
   const [templates, setTemplates] = useState<MailTemplate[]>([]);
+  const [tplEdit, setTplEdit] = useState<MailTemplate | null>(null);   // Vorlage bearbeiten
   const [tplOpen, setTplOpen] = useState(false);
   // „Senden rückgängig": nach Klick auf Senden läuft ein kurzer Countdown, in dem
   // sich der Versand noch abbrechen lässt (wie Gmail). null = kein Versand geplant.
@@ -179,6 +180,16 @@ export function Compose({
   async function deleteTemplate(id: number) {
     try { await api.del(`/templates/${id}`); setTemplates((ts) => ts.filter((x) => x.id !== id)); }
     catch (e) { setErr((e as Error).message); }
+  }
+  async function saveTplEdit() {
+    if (!tplEdit) return;
+    const name = tplEdit.name.trim();
+    if (!name) return;
+    try {
+      const upd = await api.patch<MailTemplate>(`/templates/${tplEdit.id}`, { name, subject: tplEdit.subject, body: tplEdit.body });
+      setTemplates((ts) => ts.map((x) => (x.id === upd.id ? upd : x)).sort((a, b) => a.name.localeCompare(b.name)));
+      setTplEdit(null);
+    } catch (e) { setErr((e as Error).message); }
   }
 
   // Senden mit „Rückgängig"-Countdown: erst nach Ablauf wird wirklich gesendet.
@@ -358,10 +369,28 @@ export function Compose({
                 {templates.map((tpl) => (
                   <div key={tpl.id} className="compose-tpl-row">
                     <button className="compose-tpl-ins" onClick={() => insertTemplate(tpl)} title={tpl.subject}>{tpl.name}</button>
+                    <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => { setTplOpen(false); setTplEdit(tpl); }} title={t("common.edit")}>✎</button>
                     <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => deleteTemplate(tpl.id)} title={t("common.delete")}>🗑</button>
                   </div>
                 ))}
                 <button className="link-btn" style={{ marginTop: "0.3rem" }} onClick={saveAsTemplate}>＋ {t("tpl.saveCurrent")}</button>
+              </div>
+            )}
+            {tplEdit && (
+              <div className="modal-backdrop" onClick={() => setTplEdit(null)}>
+                <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                  <h2 style={{ margin: 0 }}>{t("common.edit")}: {tplEdit.name}</h2>
+                  <input value={tplEdit.name} placeholder={t("tpl.namePrompt")}
+                    onChange={(e) => setTplEdit({ ...tplEdit, name: e.target.value })} />
+                  <input value={tplEdit.subject} placeholder={t("compose.subject")}
+                    onChange={(e) => setTplEdit({ ...tplEdit, subject: e.target.value })} />
+                  <textarea value={tplEdit.body} rows={6} placeholder={t("compose.body")}
+                    onChange={(e) => setTplEdit({ ...tplEdit, body: e.target.value })} />
+                  <div className="row" style={{ gap: "0.5rem", justifyContent: "flex-end" }}>
+                    <button className="ghost" onClick={() => setTplEdit(null)}>{t("common.cancel")}</button>
+                    <button className="primary" onClick={saveTplEdit}>{t("common.save")}</button>
+                  </div>
+                </div>
               </div>
             )}
             <button className="ghost" title={t("sched.later")} onClick={() => setSchedMenu((o) => !o)}>🕒</button>
