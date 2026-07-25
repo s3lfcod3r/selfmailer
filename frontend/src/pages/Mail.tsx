@@ -1809,12 +1809,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               </div>
             </div>
           )}
-          {visible.length > 0 && (
+          {(visible.length > 0 || labels.length > 0) && (
             <div className="mail-selbar">
-              <label className="row" style={{ gap: "0.5rem", cursor: "pointer", margin: 0 }}>
-                <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ width: "auto" }} />
-                <span className="muted" style={{ fontSize: "0.78rem" }}>{t("mail.selectAll")}</span>
-              </label>
+              {visible.length > 0 && (
+                <label className="row" style={{ gap: "0.5rem", cursor: "pointer", margin: 0 }}>
+                  <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ width: "auto" }} />
+                  <span className="muted" style={{ fontSize: "0.78rem" }}>{t("mail.selectAll")}</span>
+                </label>
+              )}
               {/* Ordnerweites "Alle auswählen" NUR ohne Suche — bei Suche soll
                   "Alle auswählen" ausschließlich die sichtbaren Treffer markieren. */}
               {!searchActive && (selectAllFolder ? (
@@ -1827,6 +1829,38 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                   <button className="link-btn" onClick={selectWholeFolder}>{t("mail.selectAllFolder", { n: folderTotal })}</button>
                 )
               ))}
+              {labels.length > 0 && (
+                <div style={{ marginLeft: "auto", position: "relative" }}>
+                  <button
+                    className={`label-filter ${labelFilter ? "on" : ""}`}
+                    style={labelFilter
+                      ? { background: labelMap[labelFilter]?.color, borderColor: labelMap[labelFilter]?.color, color: "#fff" }
+                      : undefined}
+                    onClick={() => setLabelFilterMenu((v) => !v)}
+                    title={de ? "Nach Label filtern" : "Filter by label"}>
+                    🏷 {labelFilter ? (labelMap[labelFilter]?.name ?? labelFilter) : "Label"} ▾
+                  </button>
+                  {labelFilterMenu && (
+                    <>
+                      <div className="menu-backdrop" onClick={() => setLabelFilterMenu(false)} />
+                      <div className="read-menu label-menu" style={{ right: 0 }}>
+                        <button className="label-menu-toggle" onClick={() => { setLabelFilter(null); setLabelFilterMenu(false); }}>
+                          <span className="grow">{de ? "Alle anzeigen" : "Show all"}</span>
+                          {!labelFilter && <span>✓</span>}
+                        </button>
+                        {labels.map((l) => (
+                          <button key={l.keyword} className="label-menu-toggle"
+                            onClick={() => { setLabelFilter((c) => (c === l.keyword ? null : l.keyword)); setLabelFilterMenu(false); }}>
+                            <span className="label-dot" style={{ background: l.color }} />
+                            <span className="grow">{l.name}</span>
+                            {labelFilter === l.keyword && <span>✓</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {searchActive && searchTruncated && ftResults === null && (
@@ -1867,40 +1901,6 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               <button className="link-btn" onClick={clearFullText}>
                 {de ? "✕ zurück zum Ordner" : "✕ back to folder"}
               </button>
-            </div>
-          )}
-          {labels.length > 0 && (
-            <div className="mail-labelbar">
-              <div style={{ position: "relative", display: "inline-block" }}>
-                <button
-                  className={`label-filter ${labelFilter ? "on" : ""}`}
-                  style={labelFilter
-                    ? { background: labelMap[labelFilter]?.color, borderColor: labelMap[labelFilter]?.color, color: "#fff" }
-                    : undefined}
-                  onClick={() => setLabelFilterMenu((v) => !v)}
-                  title={de ? "Nach Label filtern" : "Filter by label"}>
-                  🏷 {labelFilter ? (labelMap[labelFilter]?.name ?? labelFilter) : (de ? "Label" : "Label")} ▾
-                </button>
-                {labelFilterMenu && (
-                  <>
-                    <div className="menu-backdrop" onClick={() => setLabelFilterMenu(false)} />
-                    <div className="read-menu label-menu">
-                      <button className="label-menu-toggle" onClick={() => { setLabelFilter(null); setLabelFilterMenu(false); }}>
-                        <span className="grow">{de ? "Alle anzeigen" : "Show all"}</span>
-                        {!labelFilter && <span>✓</span>}
-                      </button>
-                      {labels.map((l) => (
-                        <button key={l.keyword} className="label-menu-toggle"
-                          onClick={() => { setLabelFilter((c) => (c === l.keyword ? null : l.keyword)); setLabelFilterMenu(false); }}>
-                          <span className="label-dot" style={{ background: l.color }} />
-                          <span className="grow">{l.name}</span>
-                          {labelFilter === l.keyword && <span>✓</span>}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
             </div>
           )}
           <div className="mail-list">
