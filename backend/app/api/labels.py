@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 
 from ..core.db import get_session
 from ..models import MailLabel, User
-from ..schemas import LabelCreate, LabelOut, LabelUpdate
+from ..schemas import LabelCreate, LabelOut
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/labels", tags=["labels"])
@@ -60,23 +60,6 @@ def create_label(
 ) -> MailLabel:
     keyword = _unique_keyword(_slug(data.name), user.id, session)
     lbl = MailLabel(user_id=user.id, name=data.name, color=data.color, keyword=keyword)
-    session.add(lbl)
-    session.commit()
-    session.refresh(lbl)
-    return lbl
-
-
-@router.patch("/{label_id}", response_model=LabelOut)
-def update_label(
-    label_id: int,
-    data: LabelUpdate,
-    user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
-) -> MailLabel:
-    lbl = _owned(label_id, user, session)
-    # keyword bleibt STABIL (schon an Mails vergeben) — nur name/color änderbar.
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(lbl, field, value)
     session.add(lbl)
     session.commit()
     session.refresh(lbl)

@@ -336,12 +336,6 @@ class TemplateCreate(BaseModel):
     body: str = ""
 
 
-class TemplateUpdate(BaseModel):
-    name: str | None = None
-    subject: str | None = None
-    body: str | None = None
-
-
 class TemplateOut(BaseModel):
     id: int
     name: str
@@ -355,11 +349,6 @@ class TemplateOut(BaseModel):
 class LabelCreate(BaseModel):
     name: str = ""
     color: str = ""
-
-
-class LabelUpdate(BaseModel):
-    name: str | None = None
-    color: str | None = None
 
 
 class LabelOut(BaseModel):

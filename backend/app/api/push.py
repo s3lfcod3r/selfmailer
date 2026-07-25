@@ -60,16 +60,6 @@ def set_push(
     return PushConfigOut(enabled=cfg.enabled, ntfy_url=cfg.ntfy_url, topic=cfg.topic)
 
 
-@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
-def delete_push(
-    user: User = Depends(get_current_user), session: Session = Depends(get_session)
-) -> None:
-    cfg = session.exec(select(PushConfig).where(PushConfig.user_id == user.id)).first()
-    if cfg is not None:
-        session.delete(cfg)
-        session.commit()
-
-
 # ---- Pro-Ordner-Benachrichtigung je Konto -------------------------------
 @router.get("/folders", response_model=list[str])
 def get_notify_folders(

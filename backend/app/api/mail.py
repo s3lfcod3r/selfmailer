@@ -85,20 +85,6 @@ def _account_secret(acc: MailAccount) -> str:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zugangsdaten nicht entschlüsselbar")
 
 
-@router.get("/jobs/{job_id}")
-def job_status(
-    job_id: str,
-    user: User = Depends(get_current_user),
-) -> dict:
-    """Status eines Hintergrund-Jobs (schwere IMAP-Operation). Nur der Eigentümer
-    sieht seinen Job. Liefert ``{status, result, error}`` — status ist ``pending``/
-    ``running``/``done``/``error``; bei ``done`` steht das Ergebnis in ``result``."""
-    job = jobs.get_job(job_id, user.id)
-    if job is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job nicht gefunden")
-    return job
-
-
 @router.get("/{account_id}/folders")
 def folders(
     account_id: int,
@@ -391,8 +377,8 @@ def migrate_account(
     dry_run=True (Default) zeigt nur die Vorschau, schreibt nichts.
 
     ``background=true`` führt die (u. U. minutenlange) Migration in einem
-    Hintergrund-Job aus und liefert sofort ``{job_id}`` — Status via
-    ``GET /mail/jobs/{job_id}``. Ohne den Parameter bleibt es synchron (Alt-
+    Hintergrund-Job aus und liefert sofort ``{job_id}`` (fire-and-forget; der
+    Job läuft serverseitig weiter). Ohne den Parameter bleibt es synchron (Alt-
     Verhalten, damit bestehende Clients unverändert weiterlaufen)."""
     source = _account(account_id, user, session)
     dest = _account(data.dest_account_id, user, session)  # prüft Eigentümer
@@ -432,8 +418,8 @@ def transfer(
     in den Ordner eines ANDEREN Kontos des Users.
 
     ``background=true`` führt einen ganzen Ordner-Transfer als Hintergrund-Job aus
-    und liefert sofort ``{job_id}`` (Status via ``GET /mail/jobs/{job_id}``); ohne
-    den Parameter bleibt es synchron (Alt-Verhalten)."""
+    und liefert sofort ``{job_id}`` (fire-and-forget); ohne den Parameter bleibt es
+    synchron (Alt-Verhalten)."""
     source = _account(account_id, user, session)
     dest = _account(data.dest_account_id, user, session)
     src_pw = _account_secret(source)

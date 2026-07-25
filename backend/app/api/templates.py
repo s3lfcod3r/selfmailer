@@ -1,14 +1,12 @@
 """Vorlagen/Textbausteine fürs Schreiben: einfache CRUD-Funktion pro User."""
 from __future__ import annotations
 
-import datetime as dt
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from ..core.db import get_session
 from ..models import MailTemplate, User
-from ..schemas import TemplateCreate, TemplateOut, TemplateUpdate
+from ..schemas import TemplateCreate, TemplateOut
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/templates", tags=["templates"])
@@ -44,23 +42,6 @@ def create_template(
     session: Session = Depends(get_session),
 ) -> MailTemplate:
     tpl = MailTemplate(user_id=user.id, **data.model_dump())
-    session.add(tpl)
-    session.commit()
-    session.refresh(tpl)
-    return tpl
-
-
-@router.patch("/{template_id}", response_model=TemplateOut)
-def update_template(
-    template_id: int,
-    data: TemplateUpdate,
-    user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
-) -> MailTemplate:
-    tpl = _owned(template_id, user, session)
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(tpl, field, value)
-    tpl.updated_at = dt.datetime.now(dt.timezone.utc)
     session.add(tpl)
     session.commit()
     session.refresh(tpl)
