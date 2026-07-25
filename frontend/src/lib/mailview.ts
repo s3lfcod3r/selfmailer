@@ -130,6 +130,10 @@ export function avatarFor(nameOrEmail: string): { initials: string; color: strin
 // Satz, der zufällig so anfängt, nicht fälschlich als Zitat gilt.
 const _ATTR_LINE = /^\s*(Am\s.+\sschrieb.*:|On\s.+\swrote:|Le\s.+\sécrit\s*:|El\s.+\sescribió:|-{3,}\s*(Original|Ursprüngliche|Weitergeleitete).*|_{5,}|Von:\s.+|From:\s.+|Gesendet:\s.+|Sent:\s.+)\s*$/i;
 const _ATTR_SHORT = /^(Am\s.+\sschrieb.*:|On\s.+\swrote:|Le\s.+\sécrit\s*:|El\s.+\sescribió:)$/i;
+// Zitat-Kopfzeile MITTEN im Text (Verlauf ohne Zeilenumbrüche, ">" inline) — z. B.
+// "Am Thu, 23 Jul 2026 15:00:41 +0200 schrieb x@y.de:> …". Verlangt Jahr (4 Ziffern)
+// vor "schrieb/wrote", damit ein normaler Satz ("Am Montag schrieb ich …") NICHT greift.
+const _ATTR_INLINE = /(?:-{3,}\s*)?(?:Am|On|Le|El)\s.{0,80}?\d{4}.{0,80}?\s(?:schrieb|wrote|écrit|escribió)\b/i;
 
 /**
  * Trennt bei einer Text-Mail den NEUEN Teil vom zitierten Verlauf ab.
@@ -144,6 +148,13 @@ export function trimQuotedText(text: string): { text: string; trimmed: boolean }
       if (head.trim()) return { text: head, trimmed: true };
       return { text, trimmed: false };
     }
+  }
+  // Fallback: verschachtelter Verlauf ohne Zeilenumbrüche → an der Inline-Kopfzeile
+  // ("Am … 2026 … schrieb …") abschneiden, wenn davor echter neuer Text steht.
+  const m = _ATTR_INLINE.exec(text);
+  if (m && m.index > 0) {
+    const head = text.slice(0, m.index).replace(/\s+$/, "");
+    if (head.trim()) return { text: head, trimmed: true };
   }
   return { text, trimmed: false };
 }
