@@ -4,6 +4,7 @@ import { api, type Account, type MailTemplate } from "../lib/api";
 import { useLang, type TFunc } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { safeLinkUrl } from "../lib/url";
+import { trimQuotedText } from "../lib/mailview";
 import { RecipientField } from "./RecipientField";
 
 export type Draft = {
@@ -15,7 +16,11 @@ export function emptyDraft(): Draft {
 }
 
 function quoteText(text: string, html: string): string {
-  const src = text || html.replace(/<[^>]+>/g, "");
+  const raw = text || html.replace(/<[^>]+>/g, "");
+  // Nur den NEUESTEN Teil der Mail zitieren (nicht den ganzen verschachtelten
+  // Verlauf) — sonst wächst mit jeder Antwort eine "> > > >"-Wand. trimQuotedText
+  // schneidet an der ersten Zitat-Einleitung / dem ersten ">"-Block ab.
+  const src = trimQuotedText(raw).text;
   return src.split("\n").map((l) => "> " + l).join("\n");
 }
 
