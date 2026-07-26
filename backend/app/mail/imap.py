@@ -255,6 +255,12 @@ def folder_counts(account: MailAccount, password: str) -> list[dict]:
                     unseen = int(st.get("UNSEEN", 0) or 0)
                 except Exception:  # noqa: BLE001 - einzelner STATUS darf scheitern
                     pass
+            # Virtuelle Gmail-Label-Ordner ("Alle Nachrichten"=all/"Wichtig"=important/
+            # "Markiert"=flagged) sind nur Sichten auf Mails, die schon in echten Ordnern
+            # (INBOX etc.) gezählt sind → KEIN Ungelesen-Badge (sonst Doppel-/Geister-
+            # zählung). Ordner bleibt gelistet und über die Liste selbst öffenbar.
+            if special in _VIRTUAL_GMAIL_KINDS:
+                unseen = 0
             out.append({"name": name, "unseen": unseen, "total": total, "special": special})
     return out
 
@@ -1008,6 +1014,10 @@ def _special_kind(last_part: str) -> str | None:
 # insensitiv und OHNE führenden Backslash (siehe _folder_special).
 _FLAG_KIND = {"sent": "sent", "drafts": "drafts", "junk": "spam", "trash": "trash", "archive": "archive",
               "all": "all", "flagged": "flagged", "important": "important"}
+
+# Virtuelle Gmail-Label-Ordner: reine Sichten (Kopien) auf Mails, die schon in echten
+# Ordnern gezählt sind → bei Ungelesen-Badges/Rollups ausschließen (Doppel-/Geisterzählung).
+_VIRTUAL_GMAIL_KINDS = {"all", "important", "flagged"}
 
 
 def _folder_special(name: str, flags) -> str:

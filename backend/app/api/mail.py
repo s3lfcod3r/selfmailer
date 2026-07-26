@@ -135,6 +135,14 @@ def _override_unseen_from_cache(session: Session, account_id: int, folders: list
         name = f.get("name")
         if name in cached_names:
             f["unseen"] = unseen_map.get(name, 0)
+        # Virtuelle Gmail-Label-Ordner (Alle Nachrichten/Wichtig/Markiert) NIE mit einem
+        # Ungelesen-Badge zeigen — sie doppeln nur echte Ordner. Auch nach dem Cache-
+        # Override zwingend 0 (der Cache könnte hier sonst wieder Kopien einrechnen).
+        kind = (f.get("special") or "") or imap_mod._special_kind(
+            (name or "").replace("/", ".").rsplit(".", 1)[-1]
+        ) or ""
+        if kind in imap_mod._VIRTUAL_GMAIL_KINDS:
+            f["unseen"] = 0
     return folders
 
 
