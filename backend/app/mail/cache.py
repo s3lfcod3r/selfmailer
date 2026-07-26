@@ -364,6 +364,16 @@ def _adjust_cached_unseen(session: Session, account_id: int, folder: str, delta:
         session.add(cf)
 
 
+def _set_row_seen(session: Session, account_id: int, row: CachedMessage, seen: bool) -> None:
+    """seen an EINER Cache-Zeile setzen: Ordner-Ungelesen-Zähler nur bei echtem
+    Wechsel mitziehen und gegen Sync-Überschreibung sperren (seen_sticky)."""
+    if bool(row.seen) != bool(seen):
+        _adjust_cached_unseen(session, account_id, row.folder, -1 if seen else 1)
+        row.seen = seen
+    row.seen_sticky = True
+    session.add(row)
+
+
 def update_flags(session: Session, account_id: int, folder: str, uid: str, *, seen: bool | None = None, flagged: bool | None = None) -> None:
     """Hält den Cache konsistent, wenn der Nutzer selbst Flags ändert.
 
@@ -378,11 +388,22 @@ def update_flags(session: Session, account_id: int, folder: str, uid: str, *, se
     if not row:
         return
     if seen is not None:
-        if bool(row.seen) != bool(seen):
-            _adjust_cached_unseen(session, account_id, folder, -1 if seen else 1)
-            row.seen = seen
-        # Nutzer-Entscheidung ist authoritativ → gegen spätere Sync-Überschreibung sperren.
-        row.seen_sticky = True
+        _set_row_seen(session, account_id, row, seen)
+        # Gmail & Co.: dieselbe Mail liegt als KOPIE in weiteren Ordnern (Gmail-
+        # Label-Ordner "Alle Nachrichten"/"Wichtig"/"Markiert" enthalten Kopien der
+        # INBOX-Mails). Liest man in der INBOX, blieb die Kopie sonst ungelesen und
+        # die Mail "kam wieder" bzw. verfälschte den Zähler. Über die Message-ID ALLE
+        # Kopien im Konto mitziehen (auch gegen Sync-Überschreibung gesperrt).
+        if row.message_id:
+            twins = session.exec(
+                select(CachedMessage).where(
+                    CachedMessage.account_id == account_id,
+                    CachedMessage.message_id == row.message_id,
+                    CachedMessage.id != row.id,
+                )
+            ).all()
+            for t in twins:
+                _set_row_seen(session, account_id, t, seen)
     if flagged is not None:
         row.flagged = flagged
     session.add(row)
@@ -452,7 +473,44 @@ def set_flags_bulk(
             )
             .values(**vals)
         )
+    # Gmail & Co.: Kopien derselben Mails in weiteren Ordnern (Label-Ordner) über die
+    # Message-ID mitziehen — sonst bleiben sie ungelesen und der Zähler stimmt nicht.
+    if seen is not None:
+        _propagate_seen_by_message(session, account_id, folder, uids, seen)
     session.commit()
+
+
+def _propagate_seen_by_message(
+    session: Session, account_id: int, src_folder: str, uids: list[str], seen: bool,
+) -> None:
+    """Zieht den seen-Status auf alle KOPIEN (gleiche Message-ID) in ANDEREN Ordnern
+    des Kontos mit — für Gmail-Label-Ordner ("Alle Nachrichten" usw.). Ohne Commit;
+    der Aufrufer committet."""
+    mids: set[str] = set()
+    for i in range(0, len(uids), 500):
+        chunk = uids[i:i + 500]
+        rows = session.exec(
+            select(CachedMessage.message_id).where(
+                CachedMessage.account_id == account_id,
+                CachedMessage.folder == src_folder,
+                CachedMessage.uid.in_(chunk),
+            )
+        ).all()
+        mids.update(m for m in rows if m)
+    if not mids:
+        return
+    mid_list = list(mids)
+    for i in range(0, len(mid_list), 500):
+        chunk = mid_list[i:i + 500]
+        twins = session.exec(
+            select(CachedMessage).where(
+                CachedMessage.account_id == account_id,
+                CachedMessage.message_id.in_(chunk),
+                CachedMessage.folder != src_folder,
+            )
+        ).all()
+        for t in twins:
+            _set_row_seen(session, account_id, t, seen)
 
 
 def remove_uids(session: Session, account_id: int, folder: str, uids: list[str]) -> None:
