@@ -143,7 +143,9 @@ def _ensure_box(entry: _PooledBox, account: MailAccount, login: str, password: s
 
 
 @contextmanager
-def _mailbox(account: MailAccount, password: str, folder: str = "INBOX") -> Iterator[MailBox]:
+def _mailbox(
+    account: MailAccount, password: str, folder: str = "INBOX", *, read_fallback: bool = False
+) -> Iterator[MailBox]:
     login = account.auth_user or account.email
 
     # Pool aus (oder Konto ohne id) -> altes Verhalten: öffnen, nutzen, schließen.
@@ -161,9 +163,22 @@ def _mailbox(account: MailAccount, password: str, folder: str = "INBOX") -> Iter
         if entry is None:
             entry = _POOL[key] = _PooledBox()
 
-    # Gebundene Wartezeit: hält eine schwere Operation das Lock, brechen wir nach
-    # _LOCK_TIMEOUT mit 503 ab, statt den Worker-Thread endlos zu blockieren.
-    if not entry.lock.acquire(timeout=_LOCK_TIMEOUT):
+    # Ist die (eine) Konto-Verbindung gerade belegt (z. B. langsamer Gmail-Hintergrund-
+    # Sync)? Bei einem LESEzugriff (read_fallback, z. B. Mail öffnen) NICHT bis zu
+    # _LOCK_TIMEOUT warten und dann 503 — das fühlte sich als „Konto beschäftigt / lädt
+    # ewig" an —, sondern SOFORT eine frische Kurzverbindung öffnen (Pool umgehen,
+    # danach schließen). So bleibt die Oberfläche flüssig, auch während im Hintergrund
+    # synchronisiert wird. Für schreibende/serialisierungspflichtige Operationen bleibt
+    # es beim serialisierten Pool-Lock.
+    if read_fallback:
+        if not entry.lock.acquire(blocking=False):
+            box = _connect(account, login, password, folder)
+            try:
+                yield box
+            finally:
+                _close(box)
+            return
+    elif not entry.lock.acquire(timeout=_LOCK_TIMEOUT):
         raise ImapBusyError()
     try:
         # _ensure_box MUSS im try stehen: scheitert es, nachdem entry.box gesetzt
@@ -246,21 +261,20 @@ def folder_counts(account: MailAccount, password: str) -> list[dict]:
             flags = flags_by_name.get(name, ())
             special = _folder_special(name, flags)
             unseen = total = 0
-            # \Noselect-Ordner (z. B. Gmail-Container "[Gmail]") sind nicht
-            # selektierbar -> STATUS scheitert; daher überspringen, Zähler 0.
-            if special != "noselect":
+            # KEIN teures STATUS für:
+            #  - \Noselect-Container (z. B. Gmail "[Gmail]") — nicht selektierbar.
+            #  - virtuelle Gmail-Label-Ordner (Alle Nachrichten/Wichtig/Markiert): reine
+            #    Sichten auf schon gezählte Mails → kein Badge nötig; ihr STATUS ist bei
+            #    Gmail zudem langsam/riesig und hielt die (eine) Konto-Verbindung lange
+            #    besetzt → Mail-Öffnen wurde träge ("Konto beschäftigt"). Ordner bleibt
+            #    gelistet und über die Liste selbst öffenbar (dann Live-Load).
+            if special != "noselect" and special not in _VIRTUAL_GMAIL_KINDS:
                 try:
                     st = box.folder.status(name, ["MESSAGES", "UNSEEN"])
                     total = int(st.get("MESSAGES", 0) or 0)
                     unseen = int(st.get("UNSEEN", 0) or 0)
                 except Exception:  # noqa: BLE001 - einzelner STATUS darf scheitern
                     pass
-            # Virtuelle Gmail-Label-Ordner ("Alle Nachrichten"=all/"Wichtig"=important/
-            # "Markiert"=flagged) sind nur Sichten auf Mails, die schon in echten Ordnern
-            # (INBOX etc.) gezählt sind → KEIN Ungelesen-Badge (sonst Doppel-/Geister-
-            # zählung). Ordner bleibt gelistet und über die Liste selbst öffenbar.
-            if special in _VIRTUAL_GMAIL_KINDS:
-                unseen = 0
             out.append({"name": name, "unseen": unseen, "total": total, "special": special})
     return out
 
@@ -615,7 +629,8 @@ def get_raw(account: MailAccount, password: str, uid: str, folder: str = "INBOX"
 
 
 def get_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> dict | None:
-    with _mailbox(account, password, folder=folder) as box:
+    # Lesezugriff: bei belegter Verbindung frische Kurzverbindung statt warten/503.
+    with _mailbox(account, password, folder=folder, read_fallback=True) as box:
         for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
             return _detail_dict(msg, account)
     return None
@@ -641,7 +656,7 @@ def get_attachment(
     account: MailAccount, password: str, uid: str, index: int, folder: str = "INBOX"
 ) -> tuple[str, str, bytes] | None:
     """Liefert (filename, content_type, bytes) des Anhangs mit gegebenem Index."""
-    with _mailbox(account, password, folder=folder) as box:
+    with _mailbox(account, password, folder=folder, read_fallback=True) as box:
         for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
             atts = list(msg.attachments)
             if 0 <= index < len(atts):
