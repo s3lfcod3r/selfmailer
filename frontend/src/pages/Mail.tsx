@@ -7,8 +7,64 @@ import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../co
 import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, avatarFor, trimQuotedHtml, trimQuotedText } from "../lib/mailview";
 import { ThreadReader } from "../components/ThreadReader";
 import { groupThreads, normalizeSubject, type Conversation } from "../lib/threads";
+import DOMPurify from "dompurify";
 
 type Sel = { acc: number; folder: string };
+
+function _esc(s: string): string {
+  return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// Mail sauber drucken: baut ein eigenständiges Druck-Dokument (Kopf + Inhalt) in einem
+// versteckten iframe und ruft den nativen Browser-Druck. Kein Ausdruck der App-Oberfläche.
+function printMessage(
+  msg: { subject: string; from: string; to?: string[]; date: string; html: string; text: string },
+  de: boolean,
+): void {
+  const L = de
+    ? { from: "Von", to: "An", date: "Datum", nosubj: "(kein Betreff)" }
+    : { from: "From", to: "To", date: "Date", nosubj: "(no subject)" };
+  const body = msg.html
+    ? DOMPurify.sanitize(msg.html, { FORBID_TAGS: ["script"] })
+    : `<pre style="white-space:pre-wrap;font-family:inherit;margin:0">${_esc(msg.text || "")}</pre>`;
+  const toLine = msg.to && msg.to.length
+    ? `<div class="r"><b>${L.to}:</b> ${_esc(msg.to.join(", "))}</div>` : "";
+  const docHtml =
+    `<!doctype html><html><head><meta charset="utf-8"><title>${_esc(msg.subject || L.nosubj)}</title>` +
+    `<style>*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;` +
+    `margin:0;padding:24px;font-size:13px;line-height:1.5}.h{border-bottom:2px solid #333;padding-bottom:10px;` +
+    `margin-bottom:16px}.h .s{font-size:19px;font-weight:700;margin-bottom:8px}.h .r{font-size:12px;color:#333;` +
+    `margin-top:2px}img{max-width:100%!important;height:auto}table{max-width:100%}@page{margin:14mm}</style>` +
+    `</head><body><div class="h"><div class="s">${_esc(msg.subject || L.nosubj)}</div>` +
+    `<div class="r"><b>${L.from}:</b> ${_esc(msg.from)}</div>${toLine}` +
+    `<div class="r"><b>${L.date}:</b> ${_esc(msg.date)}</div></div><div class="b">${body}</div></body></html>`;
+
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+  document.body.appendChild(iframe);
+  const win = iframe.contentWindow;
+  const cdoc = win?.document;
+  if (!win || !cdoc) { iframe.remove(); return; }
+  cdoc.open(); cdoc.write(docHtml); cdoc.close();
+  let done = false;
+  const fire = () => {
+    if (done) return;
+    done = true;
+    try { win.focus(); win.print(); } catch { /* Druck abgebrochen — egal */ }
+    setTimeout(() => iframe.remove(), 1500);
+  };
+  // Bilder abwarten, sonst druckt es evtl. ohne Grafiken; harte Obergrenze gegen Hänger.
+  const pending = Array.from(cdoc.images || []).filter((im) => !im.complete);
+  if (pending.length === 0) {
+    setTimeout(fire, 250);
+  } else {
+    let left = pending.length;
+    const dec = () => { left -= 1; if (left <= 0) fire(); };
+    pending.forEach((im) => { im.addEventListener("load", dec); im.addEventListener("error", dec); });
+    setTimeout(fire, 3000);
+  }
+}
 
 // Farbauswahl für neue Labels.
 const LABEL_COLORS = [
@@ -2052,6 +2108,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                 <div className="mail-head-actions">
                   <button className="icon-btn" onClick={() => setDraft(replyDraft(open, t))} title={t("mail.reply")}>↩</button>
                   <button className="icon-btn" onClick={() => setDraft(forwardDraft(open, t))} title={t("mail.forward")}>↪</button>
+                  <button className="icon-btn" onClick={() => printMessage(open, de)} title={de ? "Drucken" : "Print"}>🖨</button>
                   {spamFolder && folder !== spamFolder && (
                     <button className="icon-btn" onClick={() => moveMsg(open.uid, spamFolder)} title={t("mail.spam")}>🚫</button>
                   )}
@@ -2356,6 +2413,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               <div style={{ display: "flex", gap: 6, flex: "0 0 auto" }}>
                 <button className="icon-btn" onClick={() => { setDraft(replyDraft(open, t)); setPopup(false); }} title={t("mail.reply")}>↩</button>
                 <button className="icon-btn" onClick={() => { setDraft(forwardDraft(open, t)); setPopup(false); }} title={t("mail.forward")}>↪</button>
+                <button className="icon-btn" onClick={() => printMessage(open, de)} title={de ? "Drucken" : "Print"}>🖨</button>
                 <button className="icon-btn" onClick={() => setPopup(false)} title={t("mail.back")}>✕</button>
               </div>
             </div>
