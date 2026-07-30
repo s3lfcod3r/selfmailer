@@ -418,6 +418,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Suche aktiv? Dann den ganzen Ordner laden und Treffer in EINER Liste zeigen
   // (kein Seiten-Pager, der sich auf alle Ordner-Mails bezieht).
   const searchActive = (search ?? "").trim().length > 0;
+  // „Ganze-Liste"-Modus: Suche ODER Label-Filter → ganzen Ordner laden, keinen Pager.
+  // Der Label-Filter soll über ALLE Seiten gelten, nicht nur die geladene.
+  const listAll = searchActive || !!labelFilter;
 
   // --- Konten + Ordner (mit Zählern) laden ---
   // Live-Auffrischung der Ordnerzähler — NIE awaiten, damit die UI nie auf IMAP
@@ -623,6 +626,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const pageRef = useRef(1);
   useEffect(() => { pageRef.current = page; }, [page]);
   useEffect(() => { searchActiveRef.current = searchActive; }, [searchActive]);
+  useEffect(() => { listAllRef.current = listAll; }, [listAll]);
+  useEffect(() => { labelFilterRef.current = labelFilter; }, [labelFilter]);
   // Versionszähler für loadAllForSearch: verwirft veraltete Antworten,
   // wenn während des Ladens erneut (anderer Ordner/Suche) geladen wurde.
   const searchLoadRef = useRef(0);
@@ -631,6 +636,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // EINE Seite (PAGE_SIZE) und überschrieb damit die vollständige Trefferliste —
   // die Suche "verlor" nach ~20 s alle Treffer außerhalb der neuesten Seite.
   const searchActiveRef = useRef(false);
+  // „Ganze-Liste"-Modus (Suche ODER Label) als Ref — bgSync/Intervalle sähen den
+  // State sonst veraltet und holten nur EINE Seite statt der vollen (Label-)Liste.
+  const listAllRef = useRef(false);
+  // Aktives Label als Ref, damit auch der Hintergrund-Refresh (stale Closure) mit
+  // dem richtigen Label lädt und nicht plötzlich ungefiltert.
+  const labelFilterRef = useRef<string | null>(null);
   // Versionszähler für openMsg: ein langsamer erster Klick darf einen
   // schnelleren zweiten (andere Mail) nicht überschreiben. Nur die JÜNGSTE
   // Öffnung darf ihren Zustand setzen (siehe isLatest() in openMsg).
@@ -673,10 +684,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function fetchPage(acc: number, fol: string, p: number) {
     return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${PAGE_SIZE}&offset=${(p - 1) * PAGE_SIZE}${pinParam}`);
   }
-  // Holt den ganzen Ordner (bis Cache-Tiefe) für die Suche — von loadAllForSearch
-  // und von bgSync im Suchmodus genutzt, damit beide dieselbe Menge liefern.
+  // Holt den ganzen Ordner (bis Cache-Tiefe) für Suche ODER Label-Filter — von
+  // loadAllForSearch und von bgSync genutzt, damit beide dieselbe Menge liefern.
+  // Bei aktivem Label filtert schon der Server (über ALLE Seiten, nicht nur die
+  // geladene) → der Label-Filter greift jetzt im ganzen Ordner.
   function fetchAllForSearch(acc: number, fol: string) {
-    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${SEARCH_LIMIT}${pinParam}`);
+    const lf = labelFilterRef.current;
+    const lbl = lf ? `&label=${encodeURIComponent(lf)}` : "";
+    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${SEARCH_LIMIT}${pinParam}${lbl}`);
   }
   // Ordnerwechsel/Neuladen: immer auf Seite 1, Auswahl zurücksetzen.
   function reload() {
@@ -702,7 +717,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       // Bei aktiver Suche den GANZEN Ordner nachladen (wie loadAllForSearch),
       // sonst nur die sichtbare Seite. Andernfalls ersetzt eine 50er-Seite die
       // vollständige Trefferliste und die Suche wirkt "leergelaufen".
-      .then(() => searchActiveRef.current ? fetchAllForSearch(acc, fol) : fetchPage(acc, fol, p))
+      .then(() => listAllRef.current ? fetchAllForSearch(acc, fol) : fetchPage(acc, fol, p))
       .then((ms) => {
         bgSyncFailRef.current.delete(key);  // Erfolg -> Backoff zurücksetzen
         if (!isLatest()) return;  // veraltete Antwort: verwerfen
@@ -785,12 +800,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     // Vorlade-Merker beim Ordner-/Kontowechsel leeren — sonst wächst das Set in
     // langen Sitzungen unbegrenzt (Keys enthalten ohnehin Konto+Ordner).
     prefetchedRef.current.clear();
-    if (searchActive) loadAllForSearch(); else reload();
+    if (listAll) loadAllForSearch(); else reload();
     // pinFlagged mit in den Deps: der Schalter ändert die SERVER-Sortierung,
     // die Liste muss also neu geholt werden (Umsortieren im Client reicht nicht,
     // weil dabei Mails von anderen Seiten nach vorn rutschen können).
+    // labelFilter mit in den Deps: an/aus lädt die (gefilterte) Ganzliste bzw. Seite 1.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sel?.acc, sel?.folder, searchActive, pinFlagged]);
+  }, [sel?.acc, sel?.folder, searchActive, pinFlagged, labelFilter]);
 
   // Beim Wechsel auf ein Konto dessen Ordnerzähler EINMAL live auffrischen.
   // Inaktive Konten bleiben bis dahin auf dem Cache -> kein 8-fach-IMAP-Sturm.
@@ -1881,7 +1897,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               }}
             >⟳ {t("mail.syncing")}</div>
           )}
-          {!searchActive && totalPages > 1 && (
+          {!listAll && totalPages > 1 && (
             <div className="mail-pager">
               <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(1)} title={t("mail.firstPage")}>«</button>
               <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(page - 1)} title={t("mail.prevPage")}>‹</button>
@@ -1929,7 +1945,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               )}
               {/* Ordnerweites "Alle auswählen" NUR ohne Suche — bei Suche soll
                   "Alle auswählen" ausschließlich die sichtbaren Treffer markieren. */}
-              {!searchActive && (selectAllFolder ? (
+              {!listAll && (selectAllFolder ? (
                 <span className="sel-all-note">
                   {t("mail.allFolderSelected", { n: folderTotal })}
                   <button className="link-btn" onClick={() => { setSelected(new Set()); setSelectAllFolder(false); }}>{t("mail.clearSelection")}</button>
@@ -2055,7 +2071,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                   />
                 ))}
             {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
-            {!searchActive && totalPages > 1 && !loading && (
+            {!listAll && totalPages > 1 && !loading && (
               <div className="mail-pager mail-pager-bottom">
                 <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(page - 1)} title={t("mail.prevPage")}>‹</button>
                 <span className="pg-info">{t("mail.pageOf", { p: page, n: totalPages })}</span>

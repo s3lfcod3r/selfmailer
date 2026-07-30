@@ -13,7 +13,7 @@ import re
 from email.utils import parsedate_to_datetime
 
 from imap_tools import AND
-from sqlalchemy import func, update
+from sqlalchemy import func, literal, update
 from sqlmodel import Session, select
 
 from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
@@ -96,26 +96,33 @@ def has_cache(session: Session, account_id: int, folder: str) -> bool:
 
 def read_messages(
     session: Session, account_id: int, folder: str, limit: int = 50, offset: int = 0,
-    *, pin_flagged: bool = False,
+    *, pin_flagged: bool = False, keyword: str = "",
 ) -> list[dict]:
     """Kopfzeilen eines Ordners, neueste zuerst.
 
     ``pin_flagged``: markierte Mails (Stern) zuerst. Bewusst SERVERSEITIG sortiert
     und nicht im Frontend — nur so stehen auch markierte Mails von Seite 12 oben
     auf Seite 1. Eine Frontend-Sortierung könnte immer nur die geladene Seite
-    umsortieren."""
+    umsortieren.
+    ``keyword``: nur Mails mit diesem Label (IMAP-Keyword) — über den GANZEN Ordner-
+    Cache (alle Seiten), damit der Label-Filter nicht nur die geladene Seite trifft."""
     order = [CachedMessage.sort_date.desc(), CachedMessage.id.desc()]
     if pin_flagged:
         order.insert(0, CachedMessage.flagged.desc())
-    rows = session.exec(
+    stmt = (
         select(CachedMessage)
         .where(
             CachedMessage.account_id == account_id, CachedMessage.folder == folder,
             CachedMessage.hidden == False,  # noqa: E712 - ausgeblendete (gelöschte) nicht zeigen
         )
-        .order_by(*order)
-        .offset(offset).limit(limit)
-    ).all()
+    )
+    if keyword:
+        # Wort-genau gegen die leerzeichen-getrennten Keywords matchen (kein Teilstring:
+        # "Shelly" darf nicht "ShellyPro" treffen) → mit Leerzeichen umrahmt vergleichen.
+        stmt = stmt.where(
+            (literal(" ") + CachedMessage.keywords + literal(" ")).like(f"% {keyword} %")
+        )
+    rows = session.exec(stmt.order_by(*order).offset(offset).limit(limit)).all()
     return [_to_dict(r) for r in rows]
 
 

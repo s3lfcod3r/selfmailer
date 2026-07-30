@@ -250,27 +250,40 @@ def messages(
     limit: int = Query(default=50, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     pin_flagged: bool = Query(default=False),
+    label: str = Query(default="", max_length=64),
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[dict]:
     acc = _account(account_id, user, session)
+    kw = label.strip()
+    if kw:
+        _valid_keyword(kw)  # gegen Injektion/CRLF absichern
     # Cache-first: ist der Ordner schon gecacht, kommt die Liste SOFORT aus der DB.
     # Beim ersten Mal wird nur die erste Seite live nachgeladen (schnell), den Rest
     # holt der Hintergrund-Sync (/sync). Fällt der Cache aus → ganz normal live.
+    # Label-Filter (kw): über den GANZEN Ordner-Cache (alle Seiten), damit der Filter
+    # nicht nur die geladene Seite trifft. Ist der Ordner noch nicht gecacht, wird er
+    # dafür einmalig live nachgeladen (cap = Anfrage-Limit, i. d. R. groß).
     try:
         pw = _account_secret(acc)
         if not cache_mod.has_cache(session, account_id, folder):
             cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
-        msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged)
+        msgs = cache_mod.read_messages(
+            session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged, keyword=kw
+        )
         # Self-heal: 1. Seite leer, obwohl der Ordner Mails hat (z. B. nach dem
         # Löschen der einzigen gecachten Seite) -> live nachsyncen und erneut lesen.
-        if not msgs and offset == 0:
+        # Nur OHNE Label-Filter — ein leeres Label-Ergebnis ist ein legitimer Zustand.
+        if not msgs and offset == 0 and not kw:
             cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
             msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged)
             if not msgs:
                 msgs = _pin_flagged_first(imap_mod.list_messages(acc, pw, folder=folder, limit=limit, offset=offset), pin_flagged)
         return msgs
     except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
+        # Live-Liste kann NICHT nach Label filtern → bei aktivem Label lieber leer als falsch.
+        if kw:
+            return []
         return _pin_flagged_first(
             imap_mod.list_messages(acc, _account_secret(acc), folder=folder, limit=limit, offset=offset), pin_flagged
         )
