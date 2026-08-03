@@ -58,6 +58,7 @@ def create_rule(
     session: Session = Depends(get_session),
 ) -> MailRule:
     _account(account_id, user, session)
+    imap_mod._reject_folder_ctrl(data.target_folder)  # CRLF-Schutz für den Zielordner
     existing = _rules(account_id, session)
     pos = (existing[-1].position + 1) if existing else 0
     rule = MailRule(
@@ -88,6 +89,8 @@ def update_rule(
     rule = session.get(MailRule, rule_id)
     if rule is None or rule.account_id != account_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Regel nicht gefunden")
+    if data.target_folder is not None:
+        imap_mod._reject_folder_ctrl(data.target_folder)  # CRLF-Schutz
     for key, val in data.model_dump(exclude_unset=True).items():
         setattr(rule, key, val)
     session.add(rule)

@@ -44,7 +44,9 @@ async def send_message(
     msg["To"] = ", ".join(to)
     if cc:
         msg["Cc"] = ", ".join(cc)
-    msg["Subject"] = subject
+    # Betreff defensiv von CR/LF befreien (Header-Injection-Schutz; EmailMessage faltet
+    # ohnehin robust, aber ein explizites Strippen ist billig und eindeutig).
+    msg["Subject"] = (subject or "").replace("\r", " ").replace("\n", " ")
     # Date + Message-ID explizit setzen: sonst fehlt der Kopie im Gesendet-Ordner
     # das Datum (Liste zeigt sonst keine Uhrzeit) und eine eindeutige ID.
     msg["Date"] = formatdate(localtime=True)

@@ -283,6 +283,8 @@ def messages(
     except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
         # Live-Liste kann NICHT nach Label filtern → bei aktivem Label lieber leer als falsch.
         if kw:
+            # NICHT still schlucken: sonst sieht ein echter Cache-Bug aus wie „kein Treffer".
+            logger.warning("Label-Filter fehlgeschlagen (account_id=%s, folder=%s)", account_id, folder, exc_info=True)
             return []
         return _pin_flagged_first(
             imap_mod.list_messages(acc, _account_secret(acc), folder=folder, limit=limit, offset=offset), pin_flagged
@@ -403,6 +405,7 @@ def migrate_account(
     Verhalten, damit bestehende Clients unverändert weiterlaufen)."""
     source = _account(account_id, user, session)
     dest = _account(data.dest_account_id, user, session)  # prüft Eigentümer
+    _reject_ctrl(data.target_prefix)  # CRLF-Schutz für den Ziel-Ordnerpräfix
     if dest.id == source.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Quelle und Ziel sind identisch")
     src_pw = _account_secret(source)
@@ -443,6 +446,7 @@ def transfer(
     synchron (Alt-Verhalten)."""
     source = _account(account_id, user, session)
     dest = _account(data.dest_account_id, user, session)
+    _reject_ctrl(data.source_folder, data.dest_folder)  # CRLF-Schutz für Quell-/Zielordner
     src_pw = _account_secret(source)
     dst_pw = _account_secret(dest)
 

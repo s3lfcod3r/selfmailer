@@ -158,6 +158,10 @@ _INDEXES: list[str] = [
     # Einzelmail (Detail/Flags/Löschen): WHERE account_id, folder, uid
     "CREATE INDEX IF NOT EXISTS ix_cm_acc_folder_uid "
     "ON cachedmessage (account_id, folder, uid)",
+    # Cross-Folder-Gelesen-Propagation (Gmail-Kopien) + Dublettencheck: WHERE account_id, message_id.
+    # Läuft bei JEDEM Gelesen-Markieren → ohne Index Full-Scan über alle gecachten Zeilen.
+    "CREATE INDEX IF NOT EXISTS ix_cm_acc_mid "
+    "ON cachedmessage (account_id, message_id)",
     # FolderSync-Zähler: WHERE account_id (+ folder)
     "CREATE INDEX IF NOT EXISTS ix_fs_acc_folder "
     "ON foldersync (account_id, folder)",

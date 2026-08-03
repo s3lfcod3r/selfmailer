@@ -36,6 +36,19 @@ class ImapBusyError(HTTPException):
 SEEN = r"\Seen"
 FLAGGED = r"\Flagged"
 
+# Steuerzeichen (inkl. CR/LF) in Ordnernamen/Zielordnern ablehnen — die imap_tools-
+# Quoting-Funktion escaped nur \ und ", NICHT CR/LF. Ein Ordnername mit \r\n könnte
+# sonst die IMAP-Quoted-String-Syntax brechen und eine zweite Befehlszeile in die
+# (eigene) Verbindung einschleusen. Zentrale Absicherung an den Chokepoints (_mailbox
+# für Ordnerauswahl, move/append für Ziele), damit KEIN Endpunkt sie vergessen kann.
+_FOLDER_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _reject_folder_ctrl(*names: str | None) -> None:
+    for n in names:
+        if n and _FOLDER_CTRL_RE.search(n):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ordnername enthält ungültige Zeichen")
+
 # --- Verbindungs-Pool -------------------------------------------------------
 # IMAP-LOGIN (TCP+TLS+AUTH) kostet je Provider 0,5-3 s. Früher wurde pro
 # Aktion neu eingeloggt -> Ordnerwechsel/Mail-Öffnen fühlten sich zäh an.
@@ -154,6 +167,7 @@ def _mailbox(
     account: MailAccount, password: str, folder: str = "INBOX", *, read_fallback: bool = False
 ) -> Iterator[MailBox]:
     login = account.auth_user or account.email
+    _reject_folder_ctrl(folder)  # CRLF-/Steuerzeichen-Schutz für JEDE Ordnerauswahl
 
     # Pool aus (oder Konto ohne id) -> altes Verhalten: öffnen, nutzen, schließen.
     if not _POOL_ENABLED or account.id is None:
@@ -852,6 +866,7 @@ def delete_message(account: MailAccount, password: str, uid: str, folder: str = 
 
 
 def move_message(account: MailAccount, password: str, uid: str, dest: str, folder: str = "INBOX") -> None:
+    _reject_folder_ctrl(dest)
     with _mailbox(account, password, folder=folder) as box:
         box.move(uid, dest)
 
@@ -878,6 +893,7 @@ def move_messages(account: MailAccount, password: str, uids: list[str], dest: st
     """Mehrere Mails in EINER IMAP-Session verschieben (ein Login + EIN MOVE)."""
     if not uids:
         return {"count": 0}
+    _reject_folder_ctrl(dest)
     with _mailbox(account, password, folder=folder) as box:
         box.move(uids, dest)
         return {"count": len(uids)}
