@@ -225,6 +225,30 @@ def _mailbox(
         _reap_idle()
 
 
+def quota(account: MailAccount, password: str) -> dict | None:
+    """Speicherbelegung des Kontos (IMAP QUOTA, RFC 2087) — {used, limit} in Bytes.
+    None, wenn der Server keine QUOTA-Extension anbietet (z. B. web.de/Courier)."""
+    try:
+        with _mailbox(account, password, folder="INBOX", read_fallback=True) as box:
+            client = box.client
+            caps = tuple(str(c).upper() for c in (getattr(client, "capabilities", ()) or ()))
+            if "QUOTA" not in caps:
+                return None
+            typ, data = client.getquotaroot("INBOX")
+            if typ != "OK":
+                return None
+            # data enthält u. a. eine Zeile wie: b'"" (STORAGE 512000 1024000)'
+            # STORAGE ist in 1024-Byte-Einheiten (RFC 2087).
+            for line in data or []:
+                s = line.decode("utf-8", "replace") if isinstance(line, (bytes, bytearray)) else str(line)
+                m = re.search(r"STORAGE\s+(\d+)\s+(\d+)", s)
+                if m:
+                    return {"used": int(m.group(1)) * 1024, "limit": int(m.group(2)) * 1024}
+    except Exception:  # noqa: BLE001 - Quota ist Komfort, nie hart scheitern
+        return None
+    return None
+
+
 def list_folders(account: MailAccount, password: str) -> list[str]:
     """Listet Ordner robust: viele Server (z. B. web.de/Courier) zeigen INBOX-
     Unterordner nicht beim einfachen LIST "" "*". Daher mehrere Strategien

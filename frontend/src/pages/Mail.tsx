@@ -350,6 +350,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Zitierten Verlauf in der Einzelmail standardmaessig einklappen (wie im ThreadReader);
   // per „Verlauf anzeigen" ausklappbar. Pro geoeffneter Mail zurueckgesetzt.
   const [showFullQuote, setShowFullQuote] = useState(false);
+  // Speicherbelegung des aktiven Kontos (IMAP QUOTA), null = nicht verfügbar/kein Support.
+  const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dragUids, setDragUids] = useState<string[]>([]);
@@ -812,6 +814,17 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     // labelFilter mit in den Deps: an/aus lädt die (gefilterte) Ganzliste bzw. Seite 1.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel?.acc, sel?.folder, searchActive, pinFlagged, labelFilter]);
+
+  // Speicherbelegung (Quota) des aktiven Kontos laden — nur Anzeige, nie blockierend.
+  useEffect(() => {
+    setQuota(null);
+    if (activeId == null) return;
+    let cancelled = false;
+    api.get<{ supported: boolean; used?: number; limit?: number }>(`/mail/${activeId}/quota`)
+      .then((q) => { if (!cancelled && q.supported && q.limit) setQuota({ used: q.used ?? 0, limit: q.limit }); })
+      .catch(() => { /* Quota ist optional */ });
+    return () => { cancelled = true; };
+  }, [activeId]);
 
   // Beim Wechsel auf ein Konto dessen Ordnerzähler EINMAL live auffrischen.
   // Inaktive Konten bleiben bis dahin auf dem Cache -> kein 8-fach-IMAP-Sturm.
@@ -1857,6 +1870,21 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             <button className="primary" style={{ flex: 1 }} onClick={() => activeId != null && setDraft(emptyDraft())}>{t("mail.newMail")}</button>
             <button className="ghost" title={t("sched.title")} onClick={() => { setSchedOpen(true); loadScheduled(); }}>🕒</button>
           </div>
+
+          {quota && quota.limit > 0 && (() => {
+            const pct = Math.min(100, (quota.used / quota.limit) * 100);
+            return (
+              <div title={`${fmtSize(quota.used)} / ${fmtSize(quota.limit)}`} style={{ marginBottom: "0.6rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--self-text-3)", marginBottom: 3 }}>
+                  <span>{de ? "Speicher" : "Storage"}</span>
+                  <span>{Math.round(pct)}%</span>
+                </div>
+                <div style={{ height: 5, borderRadius: 3, background: "var(--self-bg-3)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${pct}%`, background: pct > 90 ? "#e05a5a" : "var(--self-teal, #33a78c)" }} />
+                </div>
+              </div>
+            );
+          })()}
 
           {orderedAccounts.map((a) => {
             const collapsed = collapsedAcc.has(a.id);

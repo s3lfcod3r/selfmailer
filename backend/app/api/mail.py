@@ -95,6 +95,21 @@ def folders(
     return imap_mod.list_folders(acc, _account_secret(acc))
 
 
+@router.get("/{account_id}/quota")
+def quota(
+    account_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Speicherbelegung des Kontos (IMAP QUOTA) — {used, limit} in Bytes oder
+    {supported:false}, wenn der Server keine Quota meldet."""
+    acc = _account(account_id, user, session)
+    q = imap_mod.quota(acc, _account_secret(acc))
+    if not q:
+        return {"supported": False}
+    return {"supported": True, **q}
+
+
 @router.get("/{account_id}/folders/counts")
 def folder_counts(
     account_id: int,
