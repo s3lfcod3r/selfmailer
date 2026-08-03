@@ -327,10 +327,15 @@ def counterparts(
 @router.get("/{account_id}/search")
 def search(
     account_id: int,
-    q: str = Query(min_length=2, max_length=200),
+    q: str = Query(default="", max_length=200),
     folder: str = "INBOX",
     all_folders: bool = Query(default=False),
     limit: int = Query(default=200, ge=1, le=500),
+    from_: str = Query(default="", max_length=200, alias="from"),
+    to: str = Query(default="", max_length=200),
+    subject: str = Query(default="", max_length=200),
+    since: str = Query(default="", max_length=10),
+    before: str = Query(default="", max_length=10),
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
@@ -342,10 +347,13 @@ def search(
     Backend eine Zeitgrenze und meldet dem Client, wenn sie abbrechen musste.
     """
     acc = _account(account_id, user, session)
-    _reject_ctrl(q, folder)
+    _reject_ctrl(q, folder, from_, to, subject)
     query = q.strip()
-    if not query:
+    # Mindestens EIN Kriterium (Freitext ODER strukturiert) muss gesetzt sein.
+    if not (query or from_.strip() or to.strip() or subject.strip() or since.strip() or before.strip()):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Suchbegriff fehlt")
+    if query and len(query) < 2:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Suchbegriff zu kurz")
     pw = _account_secret(acc)
     if all_folders:
         try:
@@ -356,7 +364,11 @@ def search(
     else:
         folders = [folder]
     try:
-        return imap_mod.search_messages(acc, pw, query, folders, total_limit=limit)
+        return imap_mod.search_messages(
+            acc, pw, query, folders, total_limit=limit,
+            from_addr=from_.strip(), to_addr=to.strip(), subject=subject.strip(),
+            since=since.strip(), before=before.strip(),
+        )
     except imap_mod.ImapBusyError:
         raise
     except Exception:  # noqa: BLE001

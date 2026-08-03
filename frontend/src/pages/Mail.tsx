@@ -428,6 +428,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // „Ganze-Liste"-Modus: Suche ODER Label-Filter → ganzen Ordner laden, keinen Pager.
   // Der Label-Filter soll über ALLE Seiten gelten, nicht nur die geladene.
   const listAll = searchActive || !!labelFilter;
+  // Strukturierter Filter (von/Betreff/Datum) aktiv? Dann darf die IMAP-Volltextsuche
+  // auch OHNE Freitext angeboten werden (z. B. „alle Mails von X seit Datum").
+  const structuredFilterActive = !!(filter?.from || filter?.subject || filter?.dateFrom || filter?.dateTo);
 
   // --- Konten + Ordner (mit Zählern) laden ---
   // Live-Auffrischung der Ordnerzähler — NIE awaiten, damit die UI nie auf IMAP
@@ -774,12 +777,21 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function runFullText() {
     if (!sel) return;
     const q = (search ?? "").trim();
-    if (q.length < 2) return;
+    const f = filter ?? { from: "", subject: "", dateFrom: "", dateTo: "" };
+    const hasStructured = !!(f.from || f.subject || f.dateFrom || f.dateTo);
+    if (q.length < 2 && !hasStructured) return;
     const acc = sel.acc;
     const ver = ++ftSeqRef.current;
     setFtLoading(true); setErr(""); setOpen(null);
     setSelected(new Set()); setSelectAllFolder(false);
-    api.get<SearchResult>(`/mail/${acc}/search?q=${encodeURIComponent(q)}&folder=${encodeURIComponent(sel.folder)}&all_folders=1`)
+    const params = new URLSearchParams({ folder: sel.folder, all_folders: "1" });
+    if (q) params.set("q", q);
+    if (f.from) params.set("from", f.from);
+    if (f.subject) params.set("subject", f.subject);
+    if (f.dateFrom) params.set("since", f.dateFrom);
+    // „bis X" inklusiv → IMAP BEFORE ist exklusiv, daher +1 Tag.
+    if (f.dateTo) params.set("before", new Date(new Date(f.dateTo).getTime() + 86400000).toISOString().slice(0, 10));
+    api.get<SearchResult>(`/mail/${acc}/search?${params.toString()}`)
       .then((r) => {
         if (ver !== ftSeqRef.current) return;  // überholte Suche: verwerfen
         setFtResults(r.items); setFtInfo(r); setFtQuery(q);
@@ -797,7 +809,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // stünden Treffer zu einem alten Begriff über einer neuen Eingabe.
   useEffect(() => {
     if (ftResults === null) return;
-    if (!searchActive || (search ?? "").trim() !== ftQuery) clearFullText();
+    if ((!searchActive && !structuredFilterActive) || (search ?? "").trim() !== ftQuery) clearFullText();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, searchActive, sel?.acc, sel?.folder]);
 
@@ -2062,7 +2074,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
           {/* Volltextsuche: die Sofort-Filterung oben sieht nur Betreff, Absender und
               160 Zeichen Vorschau des GELADENEN Ordners. Der Knopf startet die echte
               Suche über IMAP — in allen Ordnern und im vollen Mailtext. */}
-          {searchActive && ftResults === null && (
+          {(searchActive || structuredFilterActive) && ftResults === null && (
             <div className="mail-ft-bar">
               <span className="muted" style={{ fontSize: "0.75rem", flex: 1, minWidth: 0 }}>
                 {de ? "Nur dieser Ordner, ohne Mailtext." : "This folder only, no message body."}

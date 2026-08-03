@@ -10,7 +10,7 @@ import threading
 import time
 from contextlib import contextmanager
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 
 from fastapi import HTTPException, status
@@ -519,9 +519,17 @@ def list_messages(
 _AUTH_RE = r"{m}\s*=\s*(pass|fail|softfail|hardfail|neutral|none|temperror|permerror|bestguesspass)"
 
 
+def _ymd(s: str) -> date | None:
+    try:
+        return date.fromisoformat((s or "").strip()[:10])
+    except (ValueError, TypeError):
+        return None
+
+
 def search_messages(
     account: MailAccount, password: str, query: str, folders: list[str],
     per_folder: int = 50, total_limit: int = 200, deadline_s: float = 25.0,
+    *, from_addr: str = "", to_addr: str = "", subject: str = "", since: str = "", before: str = "",
 ) -> dict:
     """VOLLTEXT-Suche direkt auf dem Mailserver (IMAP SEARCH TEXT).
 
@@ -540,6 +548,25 @@ def search_messages(
     ``timed_out``/``folders_searched``, ob abgeschnitten wurde — stilles Abschneiden
     würde wie ein vollständiges Ergebnis aussehen.
     """
+    # Such-Kriterien aus Freitext + strukturierten Feldern bauen (IMAP SEARCH).
+    crit: dict = {}
+    if query:
+        crit["text"] = query
+    if from_addr:
+        crit["from_"] = from_addr
+    if to_addr:
+        crit["to"] = to_addr
+    if subject:
+        crit["subject"] = subject
+    d_since, d_before = _ymd(since), _ymd(before)
+    if d_since:
+        crit["date_gte"] = d_since   # IMAP SINCE
+    if d_before:
+        crit["date_lt"] = d_before   # IMAP BEFORE
+    if not crit:
+        return {"items": [], "folders_searched": 0, "folders_total": len(folders), "timed_out": False, "truncated": False}
+    search_q = AND(**crit)
+
     out: list[dict] = []
     started = time.monotonic()
     searched = 0
@@ -550,7 +577,7 @@ def search_messages(
             break
         try:
             with _mailbox(account, password, folder=folder) as box:
-                uids = box.uids(AND(text=query))
+                uids = box.uids(search_q)
                 searched += 1
                 if not uids:
                     continue
