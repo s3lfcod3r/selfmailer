@@ -440,4 +440,6 @@ export const en = {
   "identities.email": "Sender address",
   "identities.setDefault": "Set as default for this account",
   "identities.add": "Add identity",
+  "mail.unifiedInbox": "All inboxes",
+  "mail.unifiedHint": "Show every account’s inbox together",
 };

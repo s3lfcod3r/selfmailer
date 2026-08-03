@@ -438,4 +438,6 @@ export const es: Dict = {
   "identities.email": "Dirección de remitente",
   "identities.setDefault": "Predeterminada para esta cuenta",
   "identities.add": "Añadir identidad",
+  "mail.unifiedInbox": "Todas las bandejas",
+  "mail.unifiedHint": "Mostrar juntas las bandejas de entrada de todas las cuentas",
 };

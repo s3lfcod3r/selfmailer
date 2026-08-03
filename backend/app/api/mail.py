@@ -28,6 +28,7 @@ from ..schemas import (
     MAX_ATTACHMENTS_B64_BYTES,
     MessageDetail,
     MessageHeader,
+    UnifiedHeader,
     MigrateRequest,
     ScheduleCreate,
     SendRequest,
@@ -257,6 +258,32 @@ def _pin_flagged_first(msgs: list[dict], pin_flagged: bool) -> list[dict]:
     if not pin_flagged:
         return msgs
     return sorted(msgs, key=lambda m: not m.get("flagged"))
+
+
+@router.get("/unified/messages", response_model=list[UnifiedHeader])
+def unified_messages(
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """Aggregierte INBOX aller Konten des Users (nur Cache), neueste zuerst.
+
+    Bewusst cache-basiert: der Hintergrund-Sync hält die Konto-Postfächer aktuell.
+    Ist eine INBOX noch nie gecacht (frisches Konto), wird sie einmalig live
+    nachgeladen — best effort, ein fehlerhaftes Konto blockiert das Aggregat nicht."""
+    accs = list(session.exec(select(MailAccount).where(MailAccount.user_id == user.id)).all())
+    for acc in accs:
+        if not cache_mod.has_cache(session, acc.id, "INBOX"):
+            try:
+                cache_mod.sync_folder(session, acc, _account_secret(acc), "INBOX", cap=max(limit, 50))
+            except Exception:  # noqa: BLE001 - einzelnes Konto darf das Aggregat nicht kippen
+                logger.warning("Unified: Erst-Sync fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+    labels = {acc.id: (acc.label or acc.email) for acc in accs}
+    rows = cache_mod.read_unified(session, [acc.id for acc in accs], limit=limit, offset=offset)
+    for r in rows:
+        r["account_label"] = labels.get(r.get("account_id"), "")
+    return rows
 
 
 @router.get("/{account_id}/messages", response_model=list[MessageHeader])

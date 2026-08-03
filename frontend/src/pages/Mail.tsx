@@ -265,12 +265,47 @@ const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, onOpen, onTo
   );
 });
 
+// Unified-Inbox-Zeile: eine INBOX-Mail eines beliebigen Kontos, mit Konto-Plakette.
+// Bewusst schlicht (Überblick über ALLE Postfächer); ein Klick springt ins Konto und
+// öffnet die Mail. Keine Auswahl/Threads hier — das bleibt der Konto-Ansicht vorbehalten.
+type UMsg = MsgHeader & { account_id: number; account_label: string };
+const UnifiedRow = memo(function UnifiedRow({ m, onOpen }: { m: UMsg; onOpen: (m: UMsg) => void }) {
+  return (
+    <div className={`mail-row ${m.seen ? "" : "unseen"}`}
+      role="button" tabIndex={0}
+      style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", cursor: "pointer" }}
+      onClick={() => onOpen(m)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(m); } }}>
+      <span style={{ flex: "0 0 auto", marginTop: "0.15rem", fontSize: "0.9rem", color: m.seen ? "var(--self-muted)" : "var(--self-unread)" }}>{m.seen ? "○" : "●"}</span>
+      <div className="grow" style={{ overflow: "hidden", minWidth: 0 }}>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
+          <span style={{ flex: 1, minWidth: 0, fontWeight: m.seen ? 400 : 700, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{m.from}</span>
+          <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(m.date)}</span>
+        </div>
+        <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || "(kein Betreff)"}</span>
+          {m.has_attachments && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
+          <span className="mail-folder-tag" title={m.account_label} style={{ flex: "0 0 auto" }}>{m.account_label}</span>
+        </div>
+        {m.snippet && <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.snippet}</div>}
+      </div>
+    </div>
+  );
+});
+
 export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true, pinFlagged = false, conversationView = false, onUnseenChange }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; pinFlagged?: boolean; conversationView?: boolean; onUnseenChange?: (total: number) => void }) {
   const { t, lang } = useLang();
   const de = lang === "de";
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [foldersByAcc, setFoldersByAcc] = useState<Record<number, FolderCount[]>>({});
   const [sel, setSel] = useState<Sel | null>(null);
+  // Unified Inbox: alle Konten-INBOXen zusammengeführt (Umschalter oben). Standardmäßig
+  // aus; ein Klick auf eine Zeile springt ins jeweilige Konto und öffnet die Mail.
+  const [unified, setUnified] = useState(false);
+  const [uRows, setURows] = useState<UMsg[]>([]);
+  const [uLoading, setULoading] = useState(false);
+  const [uErr, setUErr] = useState("");
+  const [pendingOpen, setPendingOpen] = useState<{ acc: number; uid: string } | null>(null);
   const [collapsedAcc, setCollapsedAcc] = useState<Set<number>>(() => loadSet("selfmailer.collapsedAcc"));
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<MsgHeader[]>([]);
@@ -1669,6 +1704,34 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // kann unveränderte Zeilen überspringen.
   const handlersRef = useRef({ openMsg, prefetchMsg, toggleFlag, toggleSeen, toggleSelect, del, startDrag, setDragUids });
   handlersRef.current = { openMsg, prefetchMsg, toggleFlag, toggleSeen, toggleSelect, del, startDrag, setDragUids };
+
+  // ---- Unified Inbox ---------------------------------------------------
+  async function loadUnified() {
+    setULoading(true); setUErr("");
+    try {
+      setURows(await api.get<UMsg[]>("/mail/unified/messages?limit=200&offset=0"));
+    } catch (e) { setUErr((e as Error).message); }
+    finally { setULoading(false); }
+  }
+  // Beim Einschalten (und danach) laden.
+  useEffect(() => { if (unified) loadUnified(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [unified]);
+  // Zeile angeklickt: Umschalter aus, ins Konto springen, Mail vormerken; ein Effekt
+  // öffnet sie, sobald der Kontowechsel gegriffen hat.
+  function openUnifiedRow(m: UMsg) {
+    setUnified(false);
+    setSel({ acc: m.account_id, folder: "INBOX" });
+    setPendingOpen({ acc: m.account_id, uid: m.uid });
+  }
+  useEffect(() => {
+    if (!pendingOpen || activeId !== pendingOpen.acc) return;
+    const uid = pendingOpen.uid;
+    setPendingOpen(null);
+    // Nach dem Neuladen der Konto-Liste öffnen (Timeout 0 → nach reloads setOpen(null)).
+    const id = setTimeout(() => handlersRef.current.openMsg(uid, false, "INBOX"), 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOpen, activeId]);
+
   const rowHandlers = useMemo<RowHandlers>(() => ({
     onOpen: (uid, fol) => handlersRef.current.openMsg(uid, false, fol),
     onOpenPopup: (uid, fol) => handlersRef.current.openMsg(uid, true, fol),
@@ -1969,6 +2032,31 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               {activeId != null ? (accountById(activeId)?.label || accountById(activeId)?.email) : ""}
             </span>
           </div>
+          {/* Unified-Inbox-Umschalter: nur sinnvoll ab 2 Konten. */}
+          {accounts.length > 1 && (
+            <div className="row" style={{ alignItems: "center", gap: "0.4rem", padding: "0.25rem 0.1rem" }}>
+              <button
+                className={unified ? "primary" : "ghost"}
+                style={{ padding: "0.15rem 0.6rem", fontSize: "0.82rem" }}
+                onClick={() => setUnified((v) => !v)}
+                title={t("mail.unifiedHint")}
+              >📥 {t("mail.unifiedInbox")}</button>
+              {unified && (
+                <button className="ghost" style={{ padding: "0.15rem 0.5rem", fontSize: "0.82rem" }} onClick={loadUnified} disabled={uLoading}>⟳</button>
+              )}
+            </div>
+          )}
+          {unified ? (
+            <div className="mail-list">
+              {uLoading && <p className="muted">{t("mail.loadingMessages")}</p>}
+              {uErr && <div className="err">{uErr}</div>}
+              {!uLoading && uRows.length === 0 && !uErr && <p className="muted">{t("mail.noMessages")}</p>}
+              {uRows.map((m) => (
+                <UnifiedRow key={`${m.account_id}:${m.uid}`} m={m} onOpen={openUnifiedRow} />
+              ))}
+            </div>
+          ) : (
+          <>
           {loading && <p className="muted">{t("mail.loadingMessages")}</p>}
           {!loading && syncing && (
             <div
@@ -2168,6 +2256,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
 
         <div className="resize-handle" onPointerDown={startResize} title={t("mail.resizeHint")} />

@@ -438,4 +438,6 @@ export const nl: Dict = {
   "identities.email": "Afzenderadres",
   "identities.setDefault": "Als standaard voor dit account",
   "identities.add": "Identiteit toevoegen",
+  "mail.unifiedInbox": "Alle postvakken",
+  "mail.unifiedHint": "Toon de inbox van alle accounts samen",
 };

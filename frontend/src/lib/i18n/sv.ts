@@ -438,4 +438,6 @@ export const sv: Dict = {
   "identities.email": "Avsändaradress",
   "identities.setDefault": "Ange som standard för detta konto",
   "identities.add": "Lägg till identitet",
+  "mail.unifiedInbox": "Alla inkorgar",
+  "mail.unifiedHint": "Visa alla kontons inkorgar tillsammans",
 };

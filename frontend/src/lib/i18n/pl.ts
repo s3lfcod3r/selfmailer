@@ -438,4 +438,6 @@ export const pl: Dict = {
   "identities.email": "Adres nadawcy",
   "identities.setDefault": "Ustaw jako domyślną dla tego konta",
   "identities.add": "Dodaj tożsamość",
+  "mail.unifiedInbox": "Wszystkie skrzynki",
+  "mail.unifiedHint": "Pokaż skrzynki odbiorcze wszystkich kont razem",
 };

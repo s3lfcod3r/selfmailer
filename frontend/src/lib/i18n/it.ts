@@ -438,4 +438,6 @@ export const it: Dict = {
   "identities.email": "Indirizzo mittente",
   "identities.setDefault": "Predefinita per questo account",
   "identities.add": "Aggiungi identità",
+  "mail.unifiedInbox": "Tutte le caselle",
+  "mail.unifiedHint": "Mostra insieme le inbox di tutti gli account",
 };

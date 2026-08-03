@@ -438,4 +438,6 @@ export const el: Dict = {
   "identities.email": "Διεύθυνση αποστολέα",
   "identities.setDefault": "Ορισμός ως προεπιλογή για αυτόν τον λογαριασμό",
   "identities.add": "Προσθήκη ταυτότητας",
+  "mail.unifiedInbox": "Όλα τα εισερχόμενα",
+  "mail.unifiedHint": "Εμφάνιση των εισερχομένων όλων των λογαριασμών μαζί",
 };

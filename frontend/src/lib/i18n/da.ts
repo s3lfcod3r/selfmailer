@@ -438,4 +438,6 @@ export const da: Dict = {
   "identities.email": "Afsenderadresse",
   "identities.setDefault": "Angiv som standard for denne konto",
   "identities.add": "Tilføj identitet",
+  "mail.unifiedInbox": "Alle indbakker",
+  "mail.unifiedHint": "Vis alle kontoers indbakke samlet",
 };

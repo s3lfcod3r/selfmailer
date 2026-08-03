@@ -173,6 +173,13 @@ class MessageHeader(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class UnifiedHeader(MessageHeader):
+    """Kopfzeile im Unified-Inbox-Aggregat: wie MessageHeader, aber mit Konto-Zuordnung,
+    damit das Frontend die Mail dem richtigen Konto zum Öffnen/Antworten zuweisen kann."""
+    account_id: int
+    account_label: str = ""
+
+
 class AttachmentMeta(BaseModel):
     """Metadaten eines empfangenen Anhangs (ohne Bytes; Download separat)."""
     index: int

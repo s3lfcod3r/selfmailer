@@ -129,6 +129,34 @@ def read_messages(
     return [_to_dict(r) for r in rows]
 
 
+def read_unified(
+    session: Session, account_ids: list[int], limit: int = 50, offset: int = 0,
+) -> list[dict]:
+    """Aggregierte INBOX-Kopfzeilen ÜBER MEHRERE Konten (nur Cache), neueste zuerst.
+
+    Eine einzige Abfrage über alle Konten → korrekte globale Paginierung. Jede Zeile
+    trägt zusätzlich ``account_id`` zur Zuordnung im Frontend (Öffnen/Antworten)."""
+    if not account_ids:
+        return []
+    stmt = (
+        select(CachedMessage)
+        .where(
+            CachedMessage.account_id.in_(account_ids),
+            CachedMessage.folder == "INBOX",
+            CachedMessage.hidden == False,  # noqa: E712 - Ausgeblendete (gelöschte) nicht zeigen
+        )
+        .order_by(CachedMessage.sort_date.desc(), CachedMessage.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    out: list[dict] = []
+    for r in session.exec(stmt).all():
+        d = _to_dict(r)
+        d["account_id"] = r.account_id
+        out.append(d)
+    return out
+
+
 # Betreff-Normalisierung — MUSS 1:1 zum Frontend (lib/threads.ts normalizeSubject)
 # passen, damit die Schlüssel der Counterpart-Map dort greifen: Re/AW/Fwd/…-Präfixe
 # (auch CJK) wiederholt abschneiden, Whitespace glätten, kleinschreiben.

@@ -438,4 +438,6 @@ export const cs: Dict = {
   "identities.email": "Adresa odesílatele",
   "identities.setDefault": "Nastavit jako výchozí pro tento účet",
   "identities.add": "Přidat identitu",
+  "mail.unifiedInbox": "Všechny schránky",
+  "mail.unifiedHint": "Zobrazit doručené všech účtů dohromady",
 };

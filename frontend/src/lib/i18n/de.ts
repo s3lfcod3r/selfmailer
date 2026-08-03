@@ -438,4 +438,6 @@ export const de: Dict = {
   "identities.email": "Absenderadresse",
   "identities.setDefault": "Als Standard für dieses Konto",
   "identities.add": "Identität hinzufügen",
+  "mail.unifiedInbox": "Alle Postfächer",
+  "mail.unifiedHint": "Eingänge aller Konten zusammen anzeigen",
 };
