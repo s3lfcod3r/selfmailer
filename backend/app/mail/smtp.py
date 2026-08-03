@@ -6,7 +6,7 @@ import binascii
 from email.message import EmailMessage, Message
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.utils import formatdate, make_msgid, parseaddr
+from email.utils import formataddr, formatdate, make_msgid, parseaddr
 
 import aiosmtplib
 
@@ -36,11 +36,21 @@ async def send_message(
     html: str = "",
     read_receipt: bool = False,
     delivery_receipt: bool = False,
+    from_addr: str = "",
+    from_name: str = "",
 ) -> bytes:
     """Versendet die Mail und gibt die ROHE Nachricht (Bytes) zurück — damit der
-    Aufrufer eine Kopie in den Gesendet-Ordner legen kann (IMAP APPEND)."""
+    Aufrufer eine Kopie in den Gesendet-Ordner legen kann (IMAP APPEND).
+
+    ``from_addr``/``from_name``: optionale Absender-Identität/Alias. Der Aufrufer
+    (send-Endpoint) MUSS vorher prüfen, dass die Adresse zu einer konfigurierten
+    Identität des Kontos gehört — hier keine Spoofing-Prüfung mehr."""
+    # Absenderadresse: Alias falls gesetzt, sonst die Konto-Adresse. CR/LF strippen
+    # (Header-Injection-Schutz), Anzeigename optional.
+    _from_email = (from_addr or account.email).replace("\r", " ").replace("\n", " ").strip()
+    _from_disp = (from_name or "").replace("\r", " ").replace("\n", " ").strip()
     msg = EmailMessage()
-    msg["From"] = account.email
+    msg["From"] = formataddr((_from_disp, _from_email)) if _from_disp else _from_email
     msg["To"] = ", ".join(to)
     if cc:
         msg["Cc"] = ", ".join(cc)
@@ -50,7 +60,7 @@ async def send_message(
     # Date + Message-ID explizit setzen: sonst fehlt der Kopie im Gesendet-Ordner
     # das Datum (Liste zeigt sonst keine Uhrzeit) und eine eindeutige ID.
     msg["Date"] = formatdate(localtime=True)
-    _domain = account.email.rsplit("@", 1)[-1] if "@" in account.email else "selfmailer"
+    _domain = _from_email.rsplit("@", 1)[-1] if "@" in _from_email else "selfmailer"
     msg["Message-ID"] = make_msgid(domain=_domain)
     if in_reply_to:
         # Verknüpft die Antwort mit dem Originalthread (Threading in Clients).
@@ -58,11 +68,11 @@ async def send_message(
         msg["References"] = in_reply_to
     if read_receipt:
         # Bittet den Empfänger-Client, beim Öffnen eine Lesebestätigung zu schicken.
-        msg["Disposition-Notification-To"] = account.email
+        msg["Disposition-Notification-To"] = _from_email
     if delivery_receipt:
         # Alt-Header (kaum ein Server wertet ihn aus) — die echte Zustellbestätigung
         # läuft über SMTP-DSN (NOTIFY), siehe _send unten. Header bleibt als Fallback.
-        msg["Return-Receipt-To"] = account.email
+        msg["Return-Receipt-To"] = _from_email
     msg.set_content(body)
     if html:
         # HTML-Variante als Alternative (Clients zeigen bevorzugt HTML).

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import DOMPurify from "dompurify";
-import { api, type Account, type MailTemplate } from "../lib/api";
+import { api, type Account, type Identity, type MailTemplate } from "../lib/api";
 import { useLang, type TFunc } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { safeLinkUrl } from "../lib/url";
@@ -115,7 +115,12 @@ export function Compose({
   const [d, setD] = useState<Draft>(draft);
   const [files, setFiles] = useState<File[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [fromId, setFromId] = useState<number>(accountId);
+  const [identities, setIdentities] = useState<Identity[]>([]);
+  // Absenderauswahl als String kodiert: "a{Konto-ID}" = Konto-Adresse selbst,
+  // "i{Identitäts-ID}" = konfigurierter Alias. Konto + Alias + Signatur werden daraus
+  // abgeleitet (siehe unten), damit es nur EINE Quelle der Wahrheit gibt.
+  const [fromKey, setFromKey] = useState<string>("a" + accountId);
+  const defaultPicked = useRef(false);
   const [showCc, setShowCc] = useState<boolean>(!!draft.cc);
   const [showBcc, setShowBcc] = useState<boolean>(!!draft.bcc);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -139,9 +144,27 @@ export function Compose({
 
   useEffect(() => { api.get<Account[]>("/accounts").then(setAccounts).catch(() => {}); }, []);
   useEffect(() => { api.get<MailTemplate[]>("/templates").then(setTemplates).catch(() => {}); }, []);
+  useEffect(() => { api.get<Identity[]>("/identities").then(setIdentities).catch(() => {}); }, []);
+  // Beim ersten Laden der Identitäten die Standard-Identität des Start-Kontos wählen
+  // (einmalig, damit eine spätere manuelle Auswahl nicht überschrieben wird).
+  useEffect(() => {
+    if (defaultPicked.current || identities.length === 0) return;
+    defaultPicked.current = true;
+    const def = identities.find((i) => i.account_id === accountId && i.is_default);
+    if (def) setFromKey("i" + def.id);
+  }, [identities, accountId]);
   useEffect(() => () => { if (sendTimer.current) clearInterval(sendTimer.current); }, []);
   // Editor einmalig mit dem Entwurfstext füllen (Zeilenumbrüche bleiben erhalten).
   useEffect(() => { if (editorRef.current) editorRef.current.innerText = draft.body; }, [draft.body]);
+
+  // Aus fromKey abgeleitet: aktive Identität (falls Alias gewählt), das Konto, über
+  // das gesendet wird (fromId), und die passende Signatur.
+  const activeIdentity =
+    fromKey[0] === "i" ? identities.find((i) => i.id === Number(fromKey.slice(1))) : undefined;
+  const fromId = activeIdentity ? activeIdentity.account_id : Number(fromKey.slice(1)) || accountId;
+  const currentSig = activeIdentity
+    ? activeIdentity.signature
+    : (accounts.find((a) => a.id === fromId)?.signature ?? "");
 
   function set<K extends keyof Draft>(k: K, v: Draft[K]) { setD((p) => ({ ...p, [k]: v })); }
   function exec(cmd: string, arg?: string) {
@@ -244,7 +267,7 @@ export function Compose({
         content_b64: await fileToB64(f),
       })),
     );
-    const sig = accounts.find((a) => a.id === fromId)?.signature ?? "";
+    const sig = currentSig;
     const html = (editorRef.current?.innerHTML ?? "") + sigHtml(sig);
     const body = (editorRef.current?.innerText ?? d.body) + sigText(sig);
     return {
@@ -252,6 +275,8 @@ export function Compose({
       subject: d.subject, body, html,
       in_reply_to: d.in_reply_to, attachments,
       read_receipt: readReceipt, delivery_receipt: deliveryReceipt,
+      from_addr: activeIdentity?.email ?? "",
+      from_name: activeIdentity?.name ?? "",
     };
   }
 
@@ -281,7 +306,7 @@ export function Compose({
   // ✕ schließt und speichert ungesendete Eingaben als Entwurf (nicht verwerfen).
   async function closeAsDraft() {
     if (busy) return;
-    const sig = accounts.find((a) => a.id === fromId)?.signature ?? "";
+    const sig = currentSig;
     const html = editorRef.current?.innerHTML ?? "";
     const body = editorRef.current?.innerText ?? "";
     const hasContent = !!(d.to || d.cc || d.bcc || d.subject || body.trim());
@@ -316,10 +341,29 @@ export function Compose({
           {accounts.length > 0 && (
             <div className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
               <span className="label" style={{ minWidth: 44 }}>{t("compose.from")}</span>
-              <select value={fromId} onChange={(e) => setFromId(Number(e.target.value))} style={{ flex: 1 }} disabled={accounts.length === 1}>
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>{a.label && a.label !== a.email ? `${a.label} — ${a.email}` : a.email}</option>
-                ))}
+              <select
+                value={fromKey}
+                onChange={(e) => setFromKey(e.target.value)}
+                style={{ flex: 1 }}
+                disabled={accounts.length === 1 && identities.length === 0}
+              >
+                {accounts.map((a) => {
+                  const aliases = identities.filter((i) => i.account_id === a.id);
+                  const accLabel = a.label && a.label !== a.email ? `${a.label} — ${a.email}` : a.email;
+                  // Ohne Aliase: schlichte Option. Mit Aliassen: Gruppe (Konto + Aliase).
+                  return aliases.length === 0 ? (
+                    <option key={a.id} value={"a" + a.id}>{accLabel}</option>
+                  ) : (
+                    <optgroup key={a.id} label={accLabel}>
+                      <option value={"a" + a.id}>{accLabel}</option>
+                      {aliases.map((i) => (
+                        <option key={i.id} value={"i" + i.id}>
+                          {i.name ? `${i.name} — ${i.email}` : i.email}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
               </select>
             </div>
           )}
@@ -348,7 +392,7 @@ export function Compose({
             onPaste={onPasteEditor}
           />
           {(() => {
-            const sig = accounts.find((a) => a.id === fromId)?.signature;
+            const sig = currentSig;
             return sig ? (
               <div className="compose-sig">
                 <span className="label">{t("accounts.signature")}</span>

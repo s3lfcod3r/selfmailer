@@ -288,6 +288,8 @@ def _send_due_scheduled() -> None:
                         html=p.get("html", ""),
                         read_receipt=p.get("read_receipt", False),
                         delivery_receipt=p.get("delivery_receipt", False),
+                        from_addr=p.get("from_addr", ""),
+                        from_name=p.get("from_name", ""),
                     ))
                     try:
                         imap_mod.save_to_sent(acc, pw, raw)

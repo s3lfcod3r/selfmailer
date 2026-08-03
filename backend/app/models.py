@@ -130,6 +130,21 @@ class MailTemplate(SQLModel, table=True):
     updated_at: dt.datetime = Field(default_factory=_now)
 
 
+class MailIdentity(SQLModel, table=True):
+    """Absender-Identität/Alias für ein Konto (z. B. „Sven privat" <sven@…> mit
+    eigener Signatur). Beim Schreiben wählbar; setzt From-Header + Signatur.
+    Tabelle via create_all (keine Migration nötig)."""
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    account_id: int = Field(index=True, foreign_key="mailaccount.id")
+    name: str = ""          # Anzeigename im From ("Sven Schmidt")
+    email: str = ""         # Absenderadresse (darf ein Alias des Kontos sein)
+    signature: str = ""     # HTML-Signatur, wird im Compose angehängt
+    is_default: bool = False
+    created_at: dt.datetime = Field(default_factory=_now)
+    updated_at: dt.datetime = Field(default_factory=_now)
+
+
 class ScheduledMail(SQLModel, table=True):
     """Zum späteren Versand geparkte Mail (Schedule Send). Der Scheduler versendet
     fällige Einträge per SMTP. ``payload_json`` = vollständige SendRequest als JSON.

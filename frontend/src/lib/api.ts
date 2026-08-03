@@ -172,6 +172,10 @@ export type MailTemplate = {
 export type MailLabel = {
   id: number; name: string; color: string; keyword: string; created_at: string;
 };
+export type Identity = {
+  id: number; account_id: number; name: string; email: string;
+  signature: string; is_default: boolean;
+};
 export type ScheduledMail = {
   id: number; account_id: number; subject: string; to: string[];
   send_at: string; status: string; error: string; created_at: string;

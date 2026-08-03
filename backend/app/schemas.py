@@ -226,6 +226,8 @@ class SendRequest(BaseModel):
     in_reply_to: str = ""
     read_receipt: bool = False     # Lesebestätigung anfordern
     delivery_receipt: bool = False  # Empfangsbestätigung anfordern
+    from_addr: str = ""            # optional: Absender-Alias (muss zu einer Identität passen)
+    from_name: str = ""            # optional: Anzeigename für den From-Header
     attachments: list[AttachmentIn] = []
 
 
@@ -349,6 +351,31 @@ class TemplateOut(BaseModel):
     body: str
     created_at: dt.datetime
     updated_at: dt.datetime
+
+
+# ---- Absender-Identitäten / Aliase --------------------------------------
+class IdentityCreate(BaseModel):
+    account_id: int
+    name: str = ""
+    email: EmailStr
+    signature: str = ""
+    is_default: bool = False
+
+
+class IdentityUpdate(BaseModel):
+    name: str | None = None
+    email: EmailStr | None = None
+    signature: str | None = None
+    is_default: bool | None = None
+
+
+class IdentityOut(BaseModel):
+    id: int
+    account_id: int
+    name: str
+    email: str
+    signature: str
+    is_default: bool
 
 
 # ---- Labels / Schlagworte -----------------------------------------------

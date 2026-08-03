@@ -3,6 +3,7 @@ import { api, type Account } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { confirmDialog } from "../lib/dialog";
 import { RichEditor } from "../components/RichEditor";
+import { IdentityManager } from "../components/IdentityManager";
 
 type Form = {
   label: string; email: string; password: string;
@@ -174,6 +175,7 @@ export function Accounts() {
                   <RichEditor value={editForm.signature} onChange={(html) => setEditForm((f) => ({ ...f, signature: html }))}
                     placeholder={t("accounts.signaturePlaceholder")} />
                 </div>
+                <IdentityManager accountId={a.id} />
                 <fieldset className="acc-fieldset">
                   <legend>🗑 {t("accounts.spamSection")}</legend>
                   <label className="stack" style={{ gap: "0.35rem" }}>

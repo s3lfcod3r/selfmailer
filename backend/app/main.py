@@ -25,6 +25,7 @@ from .api import (
     dav,
     events,
     feeds,
+    identities,
     mail,
     notes,
     labels,
@@ -173,6 +174,7 @@ app.include_router(mail.router)
 app.include_router(rules.router)
 app.include_router(notes.router)
 app.include_router(templates.router)
+app.include_router(identities.router)
 app.include_router(labels.router)
 app.include_router(schedule.router)
 app.include_router(tasks.router)

@@ -22,7 +22,7 @@ from ..mail import imap as imap_mod
 from ..mail import migrate as migrate_mod
 from ..mail import smtp as smtp_mod
 from ..core import jobs
-from ..models import MailAccount, ScheduledMail, User
+from ..models import MailAccount, MailIdentity, ScheduledMail, User
 from ..schemas import (
     BatchRequest,
     MAX_ATTACHMENTS_B64_BYTES,
@@ -856,6 +856,31 @@ def save_draft(
     return {"ok": ok}
 
 
+def _resolve_from(acc: MailAccount, data: SendRequest, user: User, session: Session) -> tuple[str, str]:
+    """Prüft den gewünschten Absender-Alias gegen die konfigurierten Identitäten.
+
+    Ohne Alias → ("", "") (smtp nutzt dann die Konto-Adresse). Ist ``from_addr``
+    gesetzt, MUSS er entweder die Konto-Adresse selbst sein oder zu einer Identität
+    dieses Kontos gehören — sonst 400 (verhindert beliebiges From-Spoofing)."""
+    want = (data.from_addr or "").strip().lower()
+    if not want:
+        return "", ""
+    if want == (acc.email or "").strip().lower():
+        return acc.email, (data.from_name or "").strip()
+    stmt = select(MailIdentity).where(
+        MailIdentity.user_id == user.id,
+        MailIdentity.account_id == acc.id,
+    )
+    for ident in session.exec(stmt).all():
+        if (ident.email or "").strip().lower() == want:
+            # Anzeigename: expliziter Wunsch, sonst der der Identität.
+            return ident.email, (data.from_name or ident.name or "").strip()
+    raise HTTPException(
+        status.HTTP_400_BAD_REQUEST,
+        "Absenderadresse gehört zu keiner konfigurierten Identität dieses Kontos.",
+    )
+
+
 @router.post("/{account_id}/send", status_code=status.HTTP_202_ACCEPTED)
 async def send(
     account_id: int,
@@ -867,6 +892,7 @@ async def send(
     # Sync-DB-Zugriff (session.get) in einer async-Route -> Threadpool, damit der
     # Event-Loop nicht blockiert.
     acc = await run_in_threadpool(_account, account_id, user, session)
+    from_addr, from_name = await run_in_threadpool(_resolve_from, acc, data, user, session)
     pw = _account_secret(acc)
     try:
         raw = await smtp_mod.send_message(
@@ -882,6 +908,8 @@ async def send(
             html=data.html,
             read_receipt=data.read_receipt,
             delivery_receipt=data.delivery_receipt,
+            from_addr=from_addr,
+            from_name=from_name,
         )
     except SMTPRecipientsRefused as exc:
         # Zielserver hat Empfänger abgelehnt (z. B. Tippfehler / unbekannte Domain).
@@ -916,8 +944,11 @@ async def schedule_send(
     ``send_at`` (Granularität ~1-2 Min). Body/Anhänge liegen bis dahin verschlüsselt-
     frei als JSON in der DB und werden nach dem Versand gelöscht."""
     _reject_if_too_large(data)
-    # Konto-Zugriff prüfen (wirft bei fremdem/fehlendem Konto); Rückgabe nicht nötig.
-    await run_in_threadpool(_account, account_id, user, session)
+    # Konto-Zugriff prüfen (wirft bei fremdem/fehlendem Konto).
+    acc = await run_in_threadpool(_account, account_id, user, session)
+    # Absender-Alias schon jetzt gegen die Identitäten prüfen, damit der Scheduler
+    # später nur geprüfte Werte durchreicht (kein Spoofing über die geparkte Payload).
+    from_addr, from_name = await run_in_threadpool(_resolve_from, acc, data, user, session)
     # Zeitpunkt auf naive UTC bringen (aware -> umrechnen; naiv -> als UTC deuten).
     sa = data.send_at
     send_at = sa.astimezone(_dt.timezone.utc).replace(tzinfo=None) if sa.tzinfo else sa
@@ -925,6 +956,7 @@ async def schedule_send(
     if send_at <= now:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Zeitpunkt liegt in der Vergangenheit")
     payload = data.model_dump(mode="json", exclude={"send_at"})
+    payload["from_addr"], payload["from_name"] = from_addr, from_name
     row = ScheduledMail(
         user_id=user.id, account_id=account_id,
         subject=data.subject, to_addrs=", ".join(str(x) for x in data.to),
