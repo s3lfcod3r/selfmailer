@@ -1386,6 +1386,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     return () => window.removeEventListener("keydown", h);
   }, []);
 
+  // Aktuellen Ordner als mbox-Datei herunterladen (Datenhoheit).
+  function exportMbox() {
+    if (!sel) return;
+    download(`/mail/${sel.acc}/export.mbox?folder=${encodeURIComponent(sel.folder)}`)
+      .catch((e) => setErr((e as Error).message));
+  }
+
   async function blockSender() {
     if (activeId == null || !open) return;
     const addr = parseAddr(open.from).email.trim();
@@ -2032,8 +2039,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                   <button className="link-btn" onClick={selectWholeFolder}>{t("mail.selectAllFolder", { n: folderTotal })}</button>
                 )
               ))}
+              {sel && (
+                <button className="link-btn" style={{ marginLeft: "auto" }}
+                  title={de ? "Diesen Ordner als mbox-Datei exportieren" : "Export this folder as mbox"}
+                  onClick={exportMbox}>⤓ mbox</button>
+              )}
               {labels.length > 0 && (
-                <div style={{ marginLeft: "auto", position: "relative" }}>
+                <div style={{ marginLeft: labels.length > 0 && sel ? "0.4rem" : "auto", position: "relative" }}>
                   <button
                     className={`label-filter ${labelFilter ? "on" : ""}`}
                     style={labelFilter

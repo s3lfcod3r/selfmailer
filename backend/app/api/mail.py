@@ -10,6 +10,7 @@ from urllib.parse import quote
 from aiosmtplib.errors import SMTPRecipientsRefused
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from sqlmodel import Session, select
 
@@ -615,6 +616,26 @@ def attachment(
     filename, content_type, data = result
     disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
     return Response(content=data, media_type=content_type, headers={"Content-Disposition": disposition})
+
+
+@router.get("/{account_id}/export.mbox")
+def export_mbox(
+    account_id: int,
+    folder: str = "INBOX",
+    limit: int = Query(default=5000, ge=1, le=50000),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
+    """Exportiert einen Ordner als mbox-Datei (Datenhoheit) — gestreamt, gedeckelt."""
+    acc = _account(account_id, user, session)
+    _reject_ctrl(folder)
+    pw = _account_secret(acc)
+    fname = quote(f"{folder.replace('/', '_')}.mbox")
+    return StreamingResponse(
+        imap_mod.iter_mbox(acc, pw, folder=folder, limit=limit),
+        media_type="application/mbox",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"},
+    )
 
 
 @router.post("/{account_id}/messages/{uid}/flags")

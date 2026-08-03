@@ -708,6 +708,29 @@ def get_raw(account: MailAccount, password: str, uid: str, folder: str = "INBOX"
     return None
 
 
+def iter_mbox(account: MailAccount, password: str, folder: str = "INBOX", limit: int = 5000):
+    """Streamt alle Mails eines Ordners im mbox-Format (mboxrd) als Bytes-Chunks —
+    für den Ordner-Export (Datenhoheit). Gedeckelt gegen Endlos-Exporte. Chunked-Fetch,
+    damit nicht der ganze Ordner auf einmal in den Speicher geladen wird."""
+    _reject_folder_ctrl(folder)
+    with _mailbox(account, password, folder=folder, read_fallback=True) as box:
+        uids = box.uids()
+        if limit and len(uids) > limit:
+            uids = uids[-limit:]  # neueste `limit` Mails
+        if not uids:
+            return
+        for msg in box.fetch(AND(uid=",".join(uids)), mark_seen=False, bulk=25):
+            try:
+                raw = msg.obj.as_bytes() or b""
+            except Exception:  # noqa: BLE001
+                continue
+            # mboxrd: Zeilen, die mit (>*)From beginnen, um ein '>' ergänzen.
+            raw = re.sub(rb"(?m)^(>*From )", rb">\1", raw)
+            d = msg.date
+            ts = d.strftime("%a %b %d %H:%M:%S %Y") if d else "Thu Jan  1 00:00:00 1970"
+            yield f"From MAILER-DAEMON@selfmailer {ts}\n".encode() + raw + b"\n"
+
+
 def get_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> dict | None:
     # Lesezugriff: bei belegter Verbindung frische Kurzverbindung statt warten/503.
     with _mailbox(account, password, folder=folder, read_fallback=True) as box:
