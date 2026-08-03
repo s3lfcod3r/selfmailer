@@ -55,18 +55,25 @@ _IMAP_TIMEOUT = float(os.getenv("SELFMAILER_IMAP_TIMEOUT", "15") or 15)
 # lange, sollen konkurrierende Anfragen nicht ewig hängen, sondern nach dieser
 # Zeit mit 503 abbrechen (ImapBusyError).
 _LOCK_TIMEOUT = float(os.getenv("SELFMAILER_IMAP_LOCK_TIMEOUT", "20") or 20)
+# Obergrenze gleichzeitiger „Ausweich"-Kurzverbindungen je Konto (read_fallback), wenn
+# die Pool-Verbindung belegt ist. Ohne Deckel könnten bei vielen parallelen Öffnungen
+# (Gmail-Konversation mit vielen Ungelesenen) zu viele IMAP-Logins entstehen → der
+# Provider (Gmail ~15) lehnt mit „too many simultaneous connections" ab.
+_MAX_FALLBACK = max(1, int(os.getenv("SELFMAILER_IMAP_MAX_FALLBACK", "3") or 3))
 _POOL: dict[str, "_PooledBox"] = {}
 _POOL_LOCK = threading.Lock()
 
 
 class _PooledBox:
-    __slots__ = ("box", "lock", "last_used", "folder")
+    __slots__ = ("box", "lock", "last_used", "folder", "fallback_sem")
 
     def __init__(self) -> None:
         self.box: MailBox | None = None
         self.lock = threading.RLock()
         self.last_used = 0.0
         self.folder: str | None = None
+        # Begrenzt parallele Kurzverbindungen bei belegtem Pool-Lock (read_fallback).
+        self.fallback_sem = threading.BoundedSemaphore(_MAX_FALLBACK)
 
 
 def _pool_key(account: MailAccount, login: str) -> str:
@@ -172,12 +179,19 @@ def _mailbox(
     # es beim serialisierten Pool-Lock.
     if read_fallback:
         if not entry.lock.acquire(blocking=False):
-            box = _connect(account, login, password, folder)
-            try:
-                yield box
-            finally:
-                _close(box)
-            return
+            # Pool belegt → BEGRENZTE frische Kurzverbindung (Semaphore gegen "too many
+            # connections"). Ist auch das Kontingent erschöpft, doch auf den Pool-Lock
+            # warten (bis _LOCK_TIMEOUT, dann 503) statt endlos neue Verbindungen zu öffnen.
+            if entry.fallback_sem.acquire(blocking=False):
+                box = _connect(account, login, password, folder)
+                try:
+                    yield box
+                finally:
+                    _close(box)
+                    entry.fallback_sem.release()
+                return
+            if not entry.lock.acquire(timeout=_LOCK_TIMEOUT):
+                raise ImapBusyError()
     elif not entry.lock.acquire(timeout=_LOCK_TIMEOUT):
         raise ImapBusyError()
     try:

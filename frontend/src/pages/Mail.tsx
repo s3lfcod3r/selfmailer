@@ -41,6 +41,11 @@ function printMessage(
 
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
+  // Sicherheit: fremdes Mail-HTML NIE skriptfähig rendern. `allow-same-origin` erlaubt
+  // dem Eltern-Fenster das Beschreiben + `print()`, `allow-modals` den Druckdialog —
+  // aber OHNE `allow-scripts` führt die Mail selbst bei einem DOMPurify-Bypass keinen
+  // Code aus (gleiche Härtung wie die Lese-iframes).
+  iframe.setAttribute("sandbox", "allow-same-origin allow-modals");
   iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
   document.body.appendChild(iframe);
   const win = iframe.contentWindow;

@@ -119,8 +119,11 @@ def read_messages(
     if keyword:
         # Wort-genau gegen die leerzeichen-getrennten Keywords matchen (kein Teilstring:
         # "Shelly" darf nicht "ShellyPro" treffen) → mit Leerzeichen umrahmt vergleichen.
+        # LIKE-Sonderzeichen im Keyword escapen (v. a. "_" = Einzelzeichen-Wildcard, sonst
+        # würde "test_pro" auch "testXpro" matchen), mit expliziter ESCAPE-Klausel.
+        esc = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         stmt = stmt.where(
-            (literal(" ") + CachedMessage.keywords + literal(" ")).like(f"% {keyword} %")
+            (literal(" ") + CachedMessage.keywords + literal(" ")).like(f"% {esc} %", escape="\\")
         )
     rows = session.exec(stmt.order_by(*order).offset(offset).limit(limit)).all()
     return [_to_dict(r) for r in rows]
