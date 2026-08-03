@@ -23,6 +23,7 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 
 from sqlmodel import Session, select
@@ -46,6 +47,13 @@ _TICK = min(_INTERVAL, _DAV_INTERVAL)   # Basis-Takt des Loops (kleinstes Interv
 _WARM_FOLDERS = ["INBOX"]          # Ordner, deren NACHRICHTEN warmgehalten werden
 _STARTUP_DELAY = 15.0              # nicht direkt beim Boot loslegen
 _BACKUP_HOUR = 3                   # nächtliches DB-Backup ~03:00 Ortszeit
+
+# Konten pro Tick PARALLEL warmhalten (statt seriell) — ein langsames/hängendes Konto
+# (z. B. gedrosseltes Gmail, das mehrere 15s-Timeouts kassiert) blockierte sonst Push +
+# Cache-Frische für ALLE anderen Konten. Jedes _sync_account nutzt eigene DB-Session +
+# eigenen (kontospezifischen) IMAP-Lock → keine geteilten Ressourcen zwischen den Threads.
+_SYNC_WORKERS = max(1, int(os.getenv("SELFMAILER_SYNC_WORKERS", "4") or 4))
+_SYNC_POOL = ThreadPoolExecutor(max_workers=_SYNC_WORKERS, thread_name_prefix="mail-sync")
 
 _started = False
 _thread: threading.Thread | None = None
@@ -177,10 +185,17 @@ def _sync_once() -> None:
     except Exception:  # noqa: BLE001
         logger.warning("Konten für Hintergrund-Sync laden fehlgeschlagen", exc_info=True)
         return
-    for acc in accounts:
-        if _stop.is_set():
-            return
-        _sync_account(acc)
+    if _stop.is_set() or not accounts:
+        return
+    # Parallel absetzen; jedes _sync_account isoliert sich selbst (eigene Session +
+    # try/except). Ergebnisse einsammeln, damit ein Fehler geloggt wird statt still zu
+    # verschwinden. Der Pool ist auf _SYNC_WORKERS begrenzt → kein Thread-Sturm.
+    futures = [_SYNC_POOL.submit(_sync_account, acc) for acc in accounts]
+    for fut in futures:
+        try:
+            fut.result()
+        except Exception:  # noqa: BLE001 - ein Konto darf den Lauf nie kippen
+            logger.warning("Hintergrund-Sync eines Kontos fehlgeschlagen", exc_info=True)
 
 
 def _sync_dav() -> None:
@@ -331,3 +346,5 @@ def start_scheduler() -> None:
 
 def stop_scheduler() -> None:
     _stop.set()
+    # Laufende Konto-Syncs nicht mehr abwarten (daemon-Threads), aber keine neuen annehmen.
+    _SYNC_POOL.shutdown(wait=False, cancel_futures=True)

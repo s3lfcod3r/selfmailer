@@ -1136,30 +1136,47 @@ def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
             if rule is not None:
                 matches.append((msg.uid, rule))
         to_delete: list[str] = []
+        star_uids: list[str] = []
+        read_uids: list[str] = []
+        move_groups: dict[str, list[str]] = {}
+        nondelete: list[str] = []
         for uid, rule in matches:
-            # "Löschen" hat Vorrang vor allen anderen Aktionen: getroffene Mail
-            # wandert in den Papierkorb (als gelesen) — kein Verschieben/Markieren mehr.
+            # "Löschen" hat Vorrang: Mail wandert (gebündelt) in den Papierkorb.
             if getattr(rule, "delete_msg", False):
                 to_delete.append(uid)
-                affected += 1
                 continue
+            nondelete.append(uid)
+            if getattr(rule, "star", False):
+                star_uids.append(uid)
+            if getattr(rule, "mark_read", False):
+                read_uids.append(uid)
+            if rule.target_folder:
+                move_groups.setdefault(rule.target_folder, []).append(uid)
+        # Flags ZUERST setzen (Mails liegen noch in INBOX; Move erst danach) — gebündelt:
+        # ein STORE je Flag-Art statt eines pro Mail.
+        for tagged, flag in ((star_uids, FLAGGED), (read_uids, SEEN)):
+            if tagged:
+                try:
+                    box.flag(tagged, flag, True)
+                except Exception as exc:  # noqa: BLE001
+                    if len(errors) < 3:
+                        errors.append(f"flag: {type(exc).__name__}: {exc}")
+        # Verschieben gebündelt je Zielordner (ein MOVE je Ordner statt N Round-Trips).
+        failed_move: set[str] = set()
+        for target, uids in move_groups.items():
             try:
-                if getattr(rule, "star", False):
-                    box.flag(uid, FLAGGED, True)
-                if getattr(rule, "mark_read", False):
-                    box.flag(uid, SEEN, True)
-                if rule.target_folder:
-                    box.move(uid, rule.target_folder)
-                affected += 1
-            except Exception as exc:  # noqa: BLE001 - einzelne Aktion darf scheitern
+                box.move(uids, target)
+            except Exception as exc:  # noqa: BLE001 - ein Zielordner darf scheitern
+                failed_move.update(uids)
                 if len(errors) < 3:
-                    errors.append(f"{getattr(rule, 'target_folder', '')}: {type(exc).__name__}: {exc}")
+                    errors.append(f"{target}: {type(exc).__name__}: {exc}")
+        affected += sum(1 for uid in nondelete if uid not in failed_move)
         # Löschungen gebündelt in den Papierkorb (ein MOVE statt N Round-Trips).
         if to_delete:
             try:
                 _soft_delete(box, to_delete, "INBOX")
+                affected += len(to_delete)
             except Exception as exc:  # noqa: BLE001
-                affected -= len(to_delete)
                 if len(errors) < 3:
                     errors.append(f"delete: {type(exc).__name__}: {exc}")
     return {"affected": affected, "matched": len(matches), "errors": errors}

@@ -681,6 +681,9 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
         fs.unseen = unseen
         fs.last_sync = now
         session.add(fs)
-        session.commit()
 
+    # Commit ERST NACH dem Verlassen des _mailbox-Blocks → der (kontospezifische) IMAP-
+    # Lock wird nicht mehr während eines evtl. langsamen SQLite-Writes gehalten (kürzere
+    # Sperre für parallele Nutzeraktionen auf demselben Konto).
+    session.commit()
     return {"total": total, "unseen": unseen, "new": len(fetch_uids), "ok": True}
