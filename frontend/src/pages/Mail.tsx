@@ -1331,6 +1331,36 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     } catch (e) { setErr((e as Error).message); }
   }
 
+  // ---- Tastaturkürzel (wie Thunderbird): /, c, r, f, u, e/Entf, Esc ----------
+  // Ref-Muster: der Listener wird EINMAL registriert, ruft aber immer die frische
+  // Fassung (mit aktuellem open/activeId/…), damit keine veralteten Closures greifen.
+  const hotkeyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  hotkeyRef.current = (e: KeyboardEvent) => {
+    if (draft !== null || popup) return;                 // Schreibfenster/Popup offen → aus
+    const el = e.target as HTMLElement | null;
+    const tag = el?.tagName;
+    if (el?.isContentEditable || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+      if (e.key === "Escape") el?.blur();                // Esc verlässt Suchfeld
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key;
+    if (k === "/") { e.preventDefault(); document.getElementById("global-search")?.focus(); return; }
+    if (k === "c" && activeId != null) { e.preventDefault(); setDraft(emptyDraft()); return; }
+    if (open) {
+      if (k === "Escape") { setOpen(null); setMobilePane("list"); return; }
+      if (k === "r") { e.preventDefault(); setDraft(replyDraft(open, t)); return; }
+      if (k === "f") { e.preventDefault(); setDraft(forwardDraft(open, t)); return; }
+      if (k === "u") { e.preventDefault(); toggleSeen(open); return; }
+      if (k === "e" || k === "Delete") { e.preventDefault(); del(open); return; }
+    }
+  };
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => hotkeyRef.current(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
   async function blockSender() {
     if (activeId == null || !open) return;
     const addr = parseAddr(open.from).email.trim();

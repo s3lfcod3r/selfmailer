@@ -263,6 +263,7 @@ export function App() {
         <div className="topbar-search">
           <span aria-hidden>🔍</span>
           <input
+            id="global-search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("search.placeholder")}
