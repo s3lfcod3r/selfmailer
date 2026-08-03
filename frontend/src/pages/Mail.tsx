@@ -1955,14 +1955,19 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
 
           {quota && quota.limit > 0 && (() => {
             const pct = Math.min(100, (quota.used / quota.limit) * 100);
+            // Prozent lesbar: „< 1 %" statt eines irreführenden „0 %", wenn belegt > 0.
+            const pctLabel = pct === 0 ? "0 %" : pct < 1 ? "< 1 %" : `${Math.round(pct)} %`;
+            // Balken: bei belegt>0 mindestens ein sichtbarer Streifen, sonst wirkt er leer/kaputt.
+            const barW = quota.used > 0 ? Math.max(pct, 2) : 0;
             return (
-              <div title={`${fmtSize(quota.used)} / ${fmtSize(quota.limit)}`} style={{ marginBottom: "0.6rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--self-text-3)", marginBottom: 3 }}>
+              <div title={`${fmtSize(quota.used)} / ${fmtSize(quota.limit)} (${pctLabel})`} style={{ marginBottom: "0.6rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", fontSize: "0.7rem", color: "var(--self-text-3)", marginBottom: 3 }}>
                   <span>{de ? "Speicher" : "Storage"}</span>
-                  <span>{Math.round(pct)}%</span>
+                  {/* Echte Größen statt nur Prozent — sonst sieht ein fast leeres Postfach wie „0 %" kaputt aus. */}
+                  <span style={{ whiteSpace: "nowrap" }}>{fmtSize(quota.used)} / {fmtSize(quota.limit)}</span>
                 </div>
                 <div style={{ height: 5, borderRadius: 3, background: "var(--self-bg-3)", overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${pct}%`, background: pct > 90 ? "#e05a5a" : "var(--self-teal, #33a78c)" }} />
+                  <div style={{ height: "100%", width: `${barW}%`, background: pct > 90 ? "#e05a5a" : "var(--self-teal, #33a78c)" }} />
                 </div>
               </div>
             );
