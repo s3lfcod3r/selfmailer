@@ -442,4 +442,6 @@ export const en = {
   "identities.add": "Add identity",
   "mail.unifiedInbox": "All inboxes",
   "mail.unifiedHint": "Show every account’s inbox together",
+  "shell.showQuota": "Storage bar",
+  "shell.showMbox": "mbox export button",
 };

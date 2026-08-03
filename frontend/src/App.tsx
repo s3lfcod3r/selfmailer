@@ -125,6 +125,12 @@ export function App() {
   // Default AN: der früher unlesbare Fall (hell-auf-hell) lag an einem Bug im Dunkel-Stil
   // (Hintergrund wurde mitinvertiert) — behoben. Pro Mail per 🌙/☀️ umschaltbar.
   const [darkMail, setDarkMail] = useState<boolean>(() => localStorage.getItem("selfmailer.darkMail") !== "0");
+  // Speicheranzeige (Quota-Balken) in der Postfachliste. Default AN; wer sie nicht
+  // braucht, blendet sie hier aus (rein lokale Anzeige-Einstellung).
+  const [showQuota, setShowQuota] = useState<boolean>(() => localStorage.getItem("selfmailer.showQuota") !== "0");
+  // „⤓ mbox"-Knopf (Ordner als .mbox exportieren) in der Listen-Leiste. Default AN;
+  // wer ihn nicht braucht, blendet ihn hier aus (rein lokale Anzeige-Einstellung).
+  const [showMbox, setShowMbox] = useState<boolean>(() => localStorage.getItem("selfmailer.showMbox") !== "0");
   // Markierte (Stern-)Mails oben anheften. Default AUS — die gewohnte rein
   // chronologische Liste bleibt damit die Voreinstellung.
   // GETEILTE Einstellung: der Server ist die Wahrheit (damit die Android-App
@@ -156,6 +162,8 @@ export function App() {
   useEffect(() => { localStorage.setItem("selfmailer.pollMin", String(pollMin)); }, [pollMin]);
   useEffect(() => { localStorage.setItem("selfmailer.blockImages", blockImages ? "1" : "0"); }, [blockImages]);
   useEffect(() => { localStorage.setItem("selfmailer.darkMail", darkMail ? "1" : "0"); }, [darkMail]);
+  useEffect(() => { localStorage.setItem("selfmailer.showQuota", showQuota ? "1" : "0"); }, [showQuota]);
+  useEffect(() => { localStorage.setItem("selfmailer.showMbox", showMbox ? "1" : "0"); }, [showMbox]);
   // Version einmalig holen. Scheitert das, bleibt die Anzeige leer statt eine
   // Fehlermeldung zu zeigen — die Versionsnummer ist Information, kein Feature.
   useEffect(() => {
@@ -384,6 +392,16 @@ export function App() {
             <span className="user-menu-label">{t("shell.conversationView")}</span>
             <span className={conversationView ? "um-switch on" : "um-switch"} />
           </button>
+          <button onClick={() => setShowQuota((b) => !b)}>
+            <span className="user-menu-ico">💾</span>
+            <span className="user-menu-label">{t("shell.showQuota")}</span>
+            <span className={showQuota ? "um-switch on" : "um-switch"} />
+          </button>
+          <button onClick={() => setShowMbox((b) => !b)}>
+            <span className="user-menu-ico">⤓</span>
+            <span className="user-menu-label">{t("shell.showMbox")}</span>
+            <span className={showMbox ? "um-switch on" : "um-switch"} />
+          </button>
 
           <div className="user-menu-section">{t("menu.appearance")}</div>
           <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
@@ -449,7 +467,7 @@ export function App() {
           {/* Mail bleibt gemountet (nur versteckt), damit beim Zurückwechseln
               nicht neu geladen wird – kein sichtbares Nachladen. */}
           <div style={{ display: view === "mail" ? "contents" : "none" }}>
-            <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} pinFlagged={pinFlagged} conversationView={conversationView} onUnseenChange={setMailUnseen} />
+            <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} pinFlagged={pinFlagged} conversationView={conversationView} showQuota={showQuota} showMbox={showMbox} onUnseenChange={setMailUnseen} />
           </div>
           <Suspense fallback={<div className="muted">{t("common.loading")}</div>}>
             {view === "calendar" && <Calendar />}

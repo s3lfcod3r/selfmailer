@@ -440,4 +440,6 @@ export const fr: Dict = {
   "identities.add": "Ajouter une identité",
   "mail.unifiedInbox": "Toutes les boîtes",
   "mail.unifiedHint": "Afficher les boîtes de réception de tous les comptes",
+  "shell.showQuota": "Barre de stockage",
+  "shell.showMbox": "Bouton export mbox",
 };

@@ -293,7 +293,7 @@ const UnifiedRow = memo(function UnifiedRow({ m, onOpen }: { m: UMsg; onOpen: (m
   );
 });
 
-export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true, pinFlagged = false, conversationView = false, onUnseenChange }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; pinFlagged?: boolean; conversationView?: boolean; onUnseenChange?: (total: number) => void }) {
+export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true, pinFlagged = false, conversationView = false, showQuota = true, showMbox = true, onUnseenChange }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; pinFlagged?: boolean; conversationView?: boolean; showQuota?: boolean; showMbox?: boolean; onUnseenChange?: (total: number) => void }) {
   const { t, lang } = useLang();
   const de = lang === "de";
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -863,15 +863,16 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   }, [sel?.acc, sel?.folder, searchActive, pinFlagged, labelFilter]);
 
   // Speicherbelegung (Quota) des aktiven Kontos laden — nur Anzeige, nie blockierend.
+  // Ist die Anzeige in den Einstellungen aus, wird gar nicht erst abgefragt.
   useEffect(() => {
     setQuota(null);
-    if (activeId == null) return;
+    if (activeId == null || !showQuota) return;
     let cancelled = false;
     api.get<{ supported: boolean; used?: number; limit?: number }>(`/mail/${activeId}/quota`)
       .then((q) => { if (!cancelled && q.supported && q.limit) setQuota({ used: q.used ?? 0, limit: q.limit }); })
       .catch(() => { /* Quota ist optional */ });
     return () => { cancelled = true; };
-  }, [activeId]);
+  }, [activeId, showQuota]);
 
   // Beim Wechsel auf ein Konto dessen Ordnerzähler EINMAL live auffrischen.
   // Inaktive Konten bleiben bis dahin auf dem Cache -> kein 8-fach-IMAP-Sturm.
@@ -1953,7 +1954,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             <button className="ghost" title={t("sched.title")} onClick={() => { setSchedOpen(true); loadScheduled(); }}>🕒</button>
           </div>
 
-          {quota && quota.limit > 0 && (() => {
+          {showQuota && quota && quota.limit > 0 && (() => {
             const pct = Math.min(100, (quota.used / quota.limit) * 100);
             // Prozent lesbar: „< 1 %" statt eines irreführenden „0 %", wenn belegt > 0.
             const pctLabel = pct === 0 ? "0 %" : pct < 1 ? "< 1 %" : `${Math.round(pct)} %`;
@@ -2132,7 +2133,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                   <button className="link-btn" onClick={selectWholeFolder}>{t("mail.selectAllFolder", { n: folderTotal })}</button>
                 )
               ))}
-              {sel && (
+              {sel && showMbox && (
                 <button className="link-btn" style={{ marginLeft: "auto" }}
                   title={de ? "Diesen Ordner als mbox-Datei exportieren" : "Export this folder as mbox"}
                   onClick={exportMbox}>⤓ mbox</button>

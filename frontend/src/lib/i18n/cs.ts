@@ -440,4 +440,6 @@ export const cs: Dict = {
   "identities.add": "Přidat identitu",
   "mail.unifiedInbox": "Všechny schránky",
   "mail.unifiedHint": "Zobrazit doručené všech účtů dohromady",
+  "shell.showQuota": "Ukazatel úložiště",
+  "shell.showMbox": "Tlačítko exportu mbox",
 };

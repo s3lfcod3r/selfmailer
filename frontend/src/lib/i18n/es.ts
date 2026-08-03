@@ -440,4 +440,6 @@ export const es: Dict = {
   "identities.add": "Añadir identidad",
   "mail.unifiedInbox": "Todas las bandejas",
   "mail.unifiedHint": "Mostrar juntas las bandejas de entrada de todas las cuentas",
+  "shell.showQuota": "Barra de almacenamiento",
+  "shell.showMbox": "Botón de exportación mbox",
 };

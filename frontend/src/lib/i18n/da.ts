@@ -440,4 +440,6 @@ export const da: Dict = {
   "identities.add": "Tilføj identitet",
   "mail.unifiedInbox": "Alle indbakker",
   "mail.unifiedHint": "Vis alle kontoers indbakke samlet",
+  "shell.showQuota": "Lagerlinje",
+  "shell.showMbox": "mbox-eksportknap",
 };

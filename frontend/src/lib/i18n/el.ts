@@ -440,4 +440,6 @@ export const el: Dict = {
   "identities.add": "Προσθήκη ταυτότητας",
   "mail.unifiedInbox": "Όλα τα εισερχόμενα",
   "mail.unifiedHint": "Εμφάνιση των εισερχομένων όλων των λογαριασμών μαζί",
+  "shell.showQuota": "Γραμμή αποθήκευσης",
+  "shell.showMbox": "Κουμπί εξαγωγής mbox",
 };

@@ -440,4 +440,6 @@ export const nl: Dict = {
   "identities.add": "Identiteit toevoegen",
   "mail.unifiedInbox": "Alle postvakken",
   "mail.unifiedHint": "Toon de inbox van alle accounts samen",
+  "shell.showQuota": "Opslagbalk",
+  "shell.showMbox": "mbox-exportknop",
 };
