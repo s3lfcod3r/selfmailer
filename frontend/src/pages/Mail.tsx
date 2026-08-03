@@ -397,6 +397,18 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     catch { return []; }
   });
   const [dragAcc, setDragAcc] = useState<number | null>(null);
+  // Serverseitig gespeicherte Postfach-Reihenfolge übernehmen (geräteübergreifend).
+  // Der lokale Speicher zeigt sofort etwas, der Server korrigiert danach.
+  useEffect(() => {
+    api.get<{ account_order?: number[] }>("/settings/ui")
+      .then((s) => {
+        if (Array.isArray(s.account_order) && s.account_order.length) {
+          setAccOrder(s.account_order);
+          localStorage.setItem("selfmailer.accOrder", JSON.stringify(s.account_order));
+        }
+      })
+      .catch(() => { /* Einstellungen sind Komfort */ });
+  }, []);
   const [ctxMenu, setCtxMenu] = useState<{ acc: number; node: FolderNode; x: number; y: number } | null>(null);
   const [listW, setListW] = useState<number>(() => {
     const v = Number(localStorage.getItem("selfmailer.listW"));
@@ -531,6 +543,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     ids.splice(to, 0, ids.splice(from, 1)[0]);
     setAccOrder(ids);
     localStorage.setItem("selfmailer.accOrder", JSON.stringify(ids));
+    // Geräteübergreifend merken (Server ist die Wahrheit; App & andere Browser ziehen nach).
+    api.put("/settings/ui", { account_order: ids }).catch(() => {});
   }
 
   function unseenOf(accId: number, path: string): number {
@@ -1991,6 +2005,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                   onDrop={(e) => { e.preventDefault(); if (dragAcc != null) reorderAccounts(dragAcc, a.id); setDragAcc(null); }}
                   title={t("mail.accDragHint")}
                 >
+                  {/* Sichtbarer Zieh-Griff: macht das Umsortieren auffindbar (die ganze
+                      Kopfzeile ist ziehbar, der Griff ist nur der visuelle Hinweis). */}
+                  <span className="mail-acc-grip" aria-hidden style={{ cursor: "grab", opacity: 0.45, flex: "0 0 auto", fontSize: "0.8rem", paddingRight: "0.1rem" }}>⠿</span>
                   <button className="mail-folder-toggle">{collapsed ? "▶" : "▼"}</button>
                   <span className="mail-acc-name" title={a.email}>{a.label || a.email}</span>
                   {collapsed && roll > 0 && <span className="mail-badge">{roll}</span>}
