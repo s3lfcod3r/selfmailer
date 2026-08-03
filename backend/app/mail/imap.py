@@ -299,7 +299,8 @@ def set_flags_many(
     uids = [u for u in uids if u]
     if not uids or (seen is None and flagged is None):
         return 0
-    with _mailbox(account, password, folder=folder) as box:
+    # read_fallback: bei belegtem Konto frische Kurzverbindung statt 503 (s. set_flags).
+    with _mailbox(account, password, folder=folder, read_fallback=True) as box:
         for i in range(0, len(uids), 200):
             chunk = uids[i:i + 200]
             if seen is not None:
@@ -678,8 +679,14 @@ def set_flags(
     seen: bool | None = None,
     flagged: bool | None = None,
 ) -> None:
-    """Setzt/entfernt \\Seen bzw. \\Flagged für eine Nachricht (nur übergebene Flags)."""
-    with _mailbox(account, password, folder=folder) as box:
+    """Setzt/entfernt \\Seen bzw. \\Flagged für eine Nachricht (nur übergebene Flags).
+
+    read_fallback=True: Gelesen-/Stern-Setzen darf NICHT an einer belegten Konto-
+    Verbindung hängen bleiben (503 „Konto beschäftigt") — das passierte beim Öffnen
+    einer Gmail-Konversation mit MEHREREN ungelesenen Mails (viele gleichzeitige
+    Flag-Requests) → die Mails wurden nicht als gelesen markiert. STORE \\Seen/\\Flagged
+    ist idempotent und über eine frische Kurzverbindung genauso sicher."""
+    with _mailbox(account, password, folder=folder, read_fallback=True) as box:
         if seen is not None:
             box.flag(uid, SEEN, seen)
         if flagged is not None:
