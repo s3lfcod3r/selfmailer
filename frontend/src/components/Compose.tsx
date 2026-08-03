@@ -152,6 +152,18 @@ export function Compose({
     const url = safeLinkUrl(await promptDialog(t("compose.linkPrompt")));
     if (url) exec("createLink", url);
   }
+  // Eingefügtes HTML säubern, bevor es ins Live-DOM des Editors gelangt — sonst könnten
+  // Inline-Handler (onerror/onmouseover) aus einer bösartigen Quelle sofort feuern und
+  // landeten zudem im gesendeten HTML-Teil.
+  function onPasteEditor(e: React.ClipboardEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const html = e.clipboardData.getData("text/html");
+    if (html) {
+      document.execCommand("insertHTML", false, DOMPurify.sanitize(html));
+    } else {
+      document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+    }
+  }
 
   function addFiles(list: FileList | null) {
     if (!list) return;
@@ -333,6 +345,7 @@ export function Compose({
             contentEditable
             suppressContentEditableWarning
             data-placeholder={t("compose.body")}
+            onPaste={onPasteEditor}
           />
           {(() => {
             const sig = accounts.find((a) => a.id === fromId)?.signature;

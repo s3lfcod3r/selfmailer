@@ -169,6 +169,10 @@ def login_totp(
     payload = decode_token(data.mfa_token)
     if not payload or payload.get("stage") != "mfa":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA-Sitzung ungültig oder abgelaufen")
+    # Zusätzlich pro KONTO begrenzen (nicht nur pro IP): sonst könnte ein verteilter
+    # Angreifer den 6-stelligen Code eines bekannten mfa_token über viele IPs schneller
+    # durchprobieren, als das IP-Limit vorsieht.
+    check_rate_limit(f"totp-user:{payload.get('sub')}", limit=8, window_s=60)
     user = session.exec(select(User).where(User.username == payload.get("sub"))).first()
     if user is None or not user.is_active or not user.totp_enabled:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA-Sitzung ungültig")

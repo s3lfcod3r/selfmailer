@@ -1096,9 +1096,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function markThreadSeen(m: MsgHeader) {
     if (activeId == null || m.seen) return;
     const fol = m.folder || folder;
-    api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&seen=true`).catch(() => {});
     patchThreadMsg(m, { seen: true });
     bumpUnseen(activeId, fol, -1);
+    api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&seen=true`)
+      .catch(() => { patchThreadMsg(m, { seen: false }); bumpUnseen(activeId, fol, 1); });
   }
 
   // Stern einer Thread-Nachricht umschalten (ordner-bewusst).
@@ -1232,9 +1233,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       setTranslated(null);
       setDarkBody(darkMail);
       if (!msg.seen) {
-        api.post(`/mail/${acc}/messages/${uid}/flags?folder=${encodeURIComponent(fol)}&seen=true`).catch(() => {});
         patchHeader(uid, { seen: true });
         bumpUnseen(acc, fol, -1);
+        api.post(`/mail/${acc}/messages/${uid}/flags?folder=${encodeURIComponent(fol)}&seen=true`)
+          .catch(() => { patchHeader(uid, { seen: false }); bumpUnseen(acc, fol, 1); });
       }
     } catch (e) {
       // Mail serverseitig weg (Cache war kurz veraltet): Zeile entfernen, klare

@@ -49,6 +49,18 @@ export function RichEditor({
     const url = safeLinkUrl(await promptDialog(t("compose.linkPrompt")));
     if (url) { document.execCommand("createLink", false, url); onChange(ref.current?.innerHTML ?? ""); }
   }
+  // Eingefügtes HTML NIE roh ins DOM lassen (könnte onerror/onmouseover-Handler aus einer
+  // bösartigen Quelle enthalten) — abfangen, mit DOMPurify säubern, dann einfügen.
+  function onPaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const html = e.clipboardData.getData("text/html");
+    if (html) {
+      document.execCommand("insertHTML", false, DOMPurify.sanitize(html));
+    } else {
+      document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+    }
+    onChange(ref.current?.innerHTML ?? "");
+  }
 
   return (
     <div className="rich-editor">
@@ -67,6 +79,7 @@ export function RichEditor({
         contentEditable
         suppressContentEditableWarning
         data-placeholder={placeholder}
+        onPaste={onPaste}
         onInput={() => onChange(ref.current?.innerHTML ?? "")}
       />
     </div>
