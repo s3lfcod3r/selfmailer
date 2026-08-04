@@ -39,12 +39,16 @@ export function quoteToHtml(fullText: string): { html: string; hasQuote: boolean
   const hasIntro = introIdx >= 0 && !lines[introIdx].trimStart().startsWith(">");
   const replyEnd = hasIntro ? introIdx : qStart;
   const replyHtml = lines.slice(0, replyEnd).map(esc).join("<br>");
-  const introHtml = hasIntro ? esc(lines[introIdx]) + "<br>" : "";
   // Eine Zitatebene ("> ") abziehen; tiefere Ebenen bleiben als Text im Balken.
   const quoted = lines.slice(qStart).map((l) => esc(l.replace(/^\s*>\s?/, ""))).join("<br>");
-  const bq = introHtml
-    + '<blockquote style="margin:0;padding-left:12px;border-left:3px solid #c8c8c8;color:#777">'
-    + quoted + "</blockquote>";
+  // Struktur 1:1 wie Gmail: gmail_attr-Einleitung ÜBER dem Zitat, Zitat als
+  // blockquote.gmail_quote mit dünner 1px-Linie links, Textfarbe bleibt normal.
+  // Die Klassen sorgen dafür, dass andere Clients das Zitat erkennen/einklappen.
+  const attr = hasIntro
+    ? `<div class="gmail_attr" style="color:#5f6368">${esc(lines[introIdx])}</div>` : "";
+  const bq = '<div class="gmail_quote">' + attr
+    + '<blockquote class="gmail_quote" style="margin:0 0 0 0.8ex;border-left:1px solid #ccc;padding-left:1ex">'
+    + quoted + "</blockquote></div>";
   return { html: (replyHtml ? replyHtml + "<br><br>" : "") + bq, hasQuote: true };
 }
 
