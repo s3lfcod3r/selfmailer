@@ -100,6 +100,7 @@ export function Calendar() {
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<CalEvent | null>(null);
   const [dayOpen, setDayOpen] = useState<string | null>(null);   // Tag-Popup (ymd-Key)
+  const [selectedDay, setSelectedDay] = useState<string | null>(null); // zuletzt angeklickter Tag (ymd) → „+" oben nutzt ihn
   const [newTask, setNewTask] = useState("");
   const [newTaskDue, setNewTaskDue] = useState("");
   const [err, setErr] = useState("");
@@ -386,7 +387,7 @@ export function Calendar() {
             <button className={mode === "agenda" ? "on" : ""} onClick={() => setMode("agenda")}>{t("cal.agenda")}</button>
             <button className={mode === "tasks" ? "on" : ""} onClick={() => setMode("tasks")}>✓ {t("cal.tasks")}</button>
           </div>
-          {mode !== "tasks" && <button className="primary" onClick={() => openCreate()}>＋ {t("cal.newEvent")}</button>}
+          {mode !== "tasks" && <button className="primary" onClick={() => openCreate(selectedDay ? new Date(selectedDay + "T12:00:00") : undefined)}>＋ {t("cal.newEvent")}</button>}
         </div>
       </div>
 
@@ -427,7 +428,10 @@ export function Calendar() {
                   const bds = birthdaysByDay[key] ?? [];
                   const outside = d.getMonth() !== cursor.month;
                   return (
-                    <div key={key} className={`cal-cell ${outside ? "outside" : ""} ${key === todayKey ? "today" : ""}`} onClick={() => setDayOpen(key)}>
+                    <div key={key}
+                      className={`cal-cell ${outside ? "outside" : ""} ${key === todayKey ? "today" : ""}`}
+                      style={key === selectedDay ? { outline: "2px solid var(--self-teal)", outlineOffset: "-2px" } : undefined}
+                      onClick={() => { setSelectedDay(key); setDayOpen(key); }}>
                       <div className="cal-daynum">
                         {d.getDay() === 1 && <span className="cal-kw" title="Kalenderwoche">KW {isoWeek(d)}</span>}
                         {d.getDate()}
