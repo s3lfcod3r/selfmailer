@@ -24,6 +24,30 @@ function quoteText(text: string, html: string): string {
   return src.split("\n").map((l) => "> " + l).join("\n");
 }
 
+// Wandelt den Klartext des Editors in einen HTML-Teil um, in dem der zitierte
+// Verlauf (Zeilen mit "> ") als grauer Balken (<blockquote>) erscheint statt
+// sichtbarer ">"-Zeichen. hasQuote=false, wenn kein Zitat da ist — dann bleibt
+// der (evtl. formatierte) Editor-HTML unangetastet (neue Mails verlieren nichts).
+export function quoteToHtml(fullText: string): { html: string; hasQuote: boolean } {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const lines = fullText.split("\n");
+  const qStart = lines.findIndex((l) => l.trimStart().startsWith(">"));
+  if (qStart < 0) return { html: "", hasQuote: false };
+  // Einleitungszeile ("Am … schrieb …:") direkt über dem Zitat mit einbeziehen.
+  let introIdx = qStart - 1;
+  while (introIdx >= 0 && lines[introIdx].trim() === "") introIdx--;
+  const hasIntro = introIdx >= 0 && !lines[introIdx].trimStart().startsWith(">");
+  const replyEnd = hasIntro ? introIdx : qStart;
+  const replyHtml = lines.slice(0, replyEnd).map(esc).join("<br>");
+  const introHtml = hasIntro ? esc(lines[introIdx]) + "<br>" : "";
+  // Eine Zitatebene ("> ") abziehen; tiefere Ebenen bleiben als Text im Balken.
+  const quoted = lines.slice(qStart).map((l) => esc(l.replace(/^\s*>\s?/, ""))).join("<br>");
+  const bq = introHtml
+    + '<blockquote style="margin:0;padding-left:12px;border-left:3px solid #c8c8c8;color:#777">'
+    + quoted + "</blockquote>";
+  return { html: (replyHtml ? replyHtml + "<br><br>" : "") + bq, hasQuote: true };
+}
+
 // Antwort-Entwurf aus einer geöffneten Nachricht. t für lokalisierte Zitat-Zeile.
 export function replyDraft(d: {
   from: string; subject: string; date: string; text: string; html: string; message_id: string;
@@ -268,8 +292,13 @@ export function Compose({
       })),
     );
     const sig = currentSig;
-    const html = (editorRef.current?.innerHTML ?? "") + sigHtml(sig);
-    const body = (editorRef.current?.innerText ?? d.body) + sigText(sig);
+    const editorText = editorRef.current?.innerText ?? d.body;
+    // Bei Antworten mit Zitat: HTML-Teil bekommt den grauen Zitat-Balken statt ">".
+    // Ohne Zitat bleibt der (formatierbare) Editor-HTML erhalten. Der Text-Teil
+    // behält "> " für maximale Kompatibilität mit einfachen Mailclients.
+    const q = quoteToHtml(editorText);
+    const html = (q.hasQuote ? q.html : (editorRef.current?.innerHTML ?? "")) + sigHtml(sig);
+    const body = editorText + sigText(sig);
     return {
       to: split(d.to), cc: split(d.cc), bcc: split(d.bcc),
       subject: d.subject, body, html,
