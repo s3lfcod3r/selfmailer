@@ -444,4 +444,6 @@ export const en = {
   "mail.unifiedHint": "Show every account’s inbox together",
   "shell.showQuota": "Storage bar",
   "shell.showMbox": "mbox export button",
+  "compose.quotedHistory": "Quoted text",
+  "compose.quotedToggle": "Show/hide quoted text",
 };

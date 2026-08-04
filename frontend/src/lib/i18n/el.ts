@@ -442,4 +442,6 @@ export const el: Dict = {
   "mail.unifiedHint": "Εμφάνιση των εισερχομένων όλων των λογαριασμών μαζί",
   "shell.showQuota": "Γραμμή αποθήκευσης",
   "shell.showMbox": "Κουμπί εξαγωγής mbox",
+  "compose.quotedHistory": "Παρατιθέμενο κείμενο",
+  "compose.quotedToggle": "Εμφάνιση/απόκρυψη παρατιθέμενου κειμένου",
 };

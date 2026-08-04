@@ -442,4 +442,6 @@ export const cs: Dict = {
   "mail.unifiedHint": "Zobrazit doručené všech účtů dohromady",
   "shell.showQuota": "Ukazatel úložiště",
   "shell.showMbox": "Tlačítko exportu mbox",
+  "compose.quotedHistory": "Citovaný text",
+  "compose.quotedToggle": "Zobrazit/skrýt citovaný text",
 };

@@ -442,4 +442,6 @@ export const de: Dict = {
   "mail.unifiedHint": "Eingänge aller Konten zusammen anzeigen",
   "shell.showQuota": "Speicheranzeige",
   "shell.showMbox": "mbox-Export-Knopf",
+  "compose.quotedHistory": "Zitierter Verlauf",
+  "compose.quotedToggle": "Verlauf ein-/ausblenden",
 };

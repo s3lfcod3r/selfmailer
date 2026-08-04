@@ -442,4 +442,6 @@ export const sv: Dict = {
   "mail.unifiedHint": "Visa alla kontons inkorgar tillsammans",
   "shell.showQuota": "Lagringsmätare",
   "shell.showMbox": "mbox-exportknapp",
+  "compose.quotedHistory": "Citerad text",
+  "compose.quotedToggle": "Visa/dölj citerad text",
 };

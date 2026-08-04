@@ -442,4 +442,6 @@ export const da: Dict = {
   "mail.unifiedHint": "Vis alle kontoers indbakke samlet",
   "shell.showQuota": "Lagerlinje",
   "shell.showMbox": "mbox-eksportknap",
+  "compose.quotedHistory": "Citeret tekst",
+  "compose.quotedToggle": "Vis/skjul citeret tekst",
 };

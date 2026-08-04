@@ -442,4 +442,6 @@ export const nl: Dict = {
   "mail.unifiedHint": "Toon de inbox van alle accounts samen",
   "shell.showQuota": "Opslagbalk",
   "shell.showMbox": "mbox-exportknop",
+  "compose.quotedHistory": "Geciteerde tekst",
+  "compose.quotedToggle": "Geciteerde tekst tonen/verbergen",
 };

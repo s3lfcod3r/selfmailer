@@ -442,4 +442,6 @@ export const es: Dict = {
   "mail.unifiedHint": "Mostrar juntas las bandejas de entrada de todas las cuentas",
   "shell.showQuota": "Barra de almacenamiento",
   "shell.showMbox": "Botón de exportación mbox",
+  "compose.quotedHistory": "Texto citado",
+  "compose.quotedToggle": "Mostrar/ocultar texto citado",
 };

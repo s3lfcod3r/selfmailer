@@ -9,60 +9,43 @@ import { RecipientField } from "./RecipientField";
 
 export type Draft = {
   to: string; cc: string; bcc: string; subject: string; body: string; in_reply_to: string;
+  // Zitierter Verlauf (Antwort/Weiterleitung) — bewusst GETRENNT vom Eingabefeld:
+  // so bleibt das Schreibfeld sauber, und der Verlauf wird darunter als grauer
+  // Balken angezeigt (wie Gmail). Beim Senden hinten angehängt.
+  quotedHtml?: string; quotedText?: string;
 };
 
 export function emptyDraft(): Draft {
   return { to: "", cc: "", bcc: "", subject: "", body: "", in_reply_to: "" };
 }
 
-function quoteText(text: string, html: string): string {
-  const raw = text || html.replace(/<[^>]+>/g, "");
-  // Nur den NEUESTEN Teil der Mail zitieren (nicht den ganzen verschachtelten
-  // Verlauf) — sonst wächst mit jeder Antwort eine "> > > >"-Wand. trimQuotedText
-  // schneidet an der ersten Zitat-Einleitung / dem ersten ">"-Block ab.
-  const src = trimQuotedText(raw).text;
-  return src.split("\n").map((l) => "> " + l).join("\n");
-}
+const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-// Wandelt den Klartext des Editors in einen HTML-Teil um, in dem der zitierte
-// Verlauf (Zeilen mit "> ") als grauer Balken (<blockquote>) erscheint statt
-// sichtbarer ">"-Zeichen. hasQuote=false, wenn kein Zitat da ist — dann bleibt
-// der (evtl. formatierte) Editor-HTML unangetastet (neue Mails verlieren nichts).
-export function quoteToHtml(fullText: string): { html: string; hasQuote: boolean } {
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const lines = fullText.split("\n");
-  const qStart = lines.findIndex((l) => l.trimStart().startsWith(">"));
-  if (qStart < 0) return { html: "", hasQuote: false };
-  // Einleitungszeile ("Am … schrieb …:") direkt über dem Zitat mit einbeziehen.
-  let introIdx = qStart - 1;
-  while (introIdx >= 0 && lines[introIdx].trim() === "") introIdx--;
-  const hasIntro = introIdx >= 0 && !lines[introIdx].trimStart().startsWith(">");
-  const replyEnd = hasIntro ? introIdx : qStart;
-  const replyHtml = lines.slice(0, replyEnd).map(esc).join("<br>");
-  // Eine Zitatebene ("> ") abziehen; tiefere Ebenen bleiben als Text im Balken.
-  const quoted = lines.slice(qStart).map((l) => esc(l.replace(/^\s*>\s?/, ""))).join("<br>");
-  // Struktur 1:1 wie Gmail: gmail_attr-Einleitung ÜBER dem Zitat, Zitat als
-  // blockquote.gmail_quote mit dünner 1px-Linie links, Textfarbe bleibt normal.
-  // Die Klassen sorgen dafür, dass andere Clients das Zitat erkennen/einklappen.
-  const attr = hasIntro
-    ? `<div class="gmail_attr" style="color:#5f6368">${esc(lines[introIdx])}</div>` : "";
-  const bq = '<div class="gmail_quote">' + attr
+// Baut aus Einleitung + zitiertem Klartext beide Fassungen des Verlaufs:
+// - quotedText: klassisch mit "> " je Zeile (für den Plaintext-Teil / einfache Clients)
+// - quotedHtml: grauer Gmail-Balken (blockquote.gmail_quote, 1px-Linie), Text normal
+export function buildQuoteBlock(introLine: string, rawSource: string): { quotedText: string; quotedHtml: string } {
+  const quotedText = "\n\n" + introLine + "\n" + rawSource.split("\n").map((l) => "> " + l).join("\n");
+  const quotedHtml = '<div class="gmail_quote"><div class="gmail_attr" style="color:#5f6368">'
+    + escHtml(introLine) + "</div>"
     + '<blockquote class="gmail_quote" style="margin:0 0 0 0.8ex;border-left:1px solid #ccc;padding-left:1ex">'
-    + quoted + "</blockquote></div>";
-  return { html: (replyHtml ? replyHtml + "<br><br>" : "") + bq, hasQuote: true };
+    + escHtml(rawSource).replace(/\n/g, "<br>") + "</blockquote></div>";
+  return { quotedText, quotedHtml };
 }
 
-// Antwort-Entwurf aus einer geöffneten Nachricht. t für lokalisierte Zitat-Zeile.
+// Antwort-Entwurf aus einer geöffneten Nachricht. Das Schreibfeld bleibt LEER
+// (sauberes Tippen), der Verlauf steckt getrennt in quotedText/quotedHtml und
+// wird darunter als Balken angezeigt bzw. beim Senden angehängt.
 export function replyDraft(d: {
   from: string; subject: string; date: string; text: string; html: string; message_id: string;
 }, t: TFunc): Draft {
+  // Nur den NEUESTEN Teil zitieren (trimQuotedText kappt den verschachtelten Verlauf).
+  const raw = trimQuotedText(d.text || d.html.replace(/<[^>]+>/g, "")).text;
+  const { quotedText, quotedHtml } = buildQuoteBlock(t("compose.replyIntro", { date: d.date, from: d.from }), raw);
   return {
-    to: d.from,
-    cc: "",
-    bcc: "",
+    to: d.from, cc: "", bcc: "",
     subject: d.subject.startsWith("Re:") ? d.subject : "Re: " + d.subject,
-    body: "\n\n" + t("compose.replyIntro", { date: d.date, from: d.from }) + "\n" + quoteText(d.text, d.html),
-    in_reply_to: d.message_id,
+    body: "", in_reply_to: d.message_id, quotedText, quotedHtml,
   };
 }
 
@@ -152,6 +135,9 @@ export function Compose({
   const [showCc, setShowCc] = useState<boolean>(!!draft.cc);
   const [showBcc, setShowBcc] = useState<boolean>(!!draft.bcc);
   const [moreOpen, setMoreOpen] = useState(false);
+  // Zitierten Verlauf einer Antwort sichtbar zeigen (Balken). Standardmäßig an,
+  // damit man beim Antworten sofort sieht, was zitiert wird.
+  const [showQuote, setShowQuote] = useState(true);
   const [readReceipt, setReadReceipt] = useState(false);
   const [deliveryReceipt, setDeliveryReceipt] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -297,12 +283,11 @@ export function Compose({
     );
     const sig = currentSig;
     const editorText = editorRef.current?.innerText ?? d.body;
-    // Bei Antworten mit Zitat: HTML-Teil bekommt den grauen Zitat-Balken statt ">".
-    // Ohne Zitat bleibt der (formatierbare) Editor-HTML erhalten. Der Text-Teil
-    // behält "> " für maximale Kompatibilität mit einfachen Mailclients.
-    const q = quoteToHtml(editorText);
-    const html = (q.hasQuote ? q.html : (editorRef.current?.innerHTML ?? "")) + sigHtml(sig);
-    const body = editorText + sigText(sig);
+    // Reihenfolge: eigener Text → Signatur → zitierter Verlauf (getrennt gehalten,
+    // deshalb sauber). HTML-Teil bekommt den grauen Gmail-Balken (d.quotedHtml),
+    // der Text-Teil das klassische "> " (d.quotedText) für einfache Clients.
+    const html = (editorRef.current?.innerHTML ?? "") + sigHtml(sig) + (d.quotedHtml ?? "");
+    const body = editorText + sigText(sig) + (d.quotedText ?? "");
     return {
       to: split(d.to), cc: split(d.cc), bcc: split(d.bcc),
       subject: d.subject, body, html,
@@ -348,7 +333,9 @@ export function Compose({
       try {
         await api.post(`/mail/${fromId}/draft`, {
           to: split(d.to), cc: split(d.cc), bcc: split(d.bcc),
-          subject: d.subject, body: body + sigText(sig), html: html + sigHtml(sig),
+          subject: d.subject,
+          body: body + sigText(sig) + (d.quotedText ?? ""),
+          html: html + sigHtml(sig) + (d.quotedHtml ?? ""),
         });
       } catch (e) {
         // Speichern fehlgeschlagen: Modal OFFEN lassen + Fehler zeigen, damit der
@@ -424,6 +411,21 @@ export function Compose({
             data-placeholder={t("compose.body")}
             onPaste={onPasteEditor}
           />
+          {/* Zitierter Verlauf (Antwort): getrennt vom Schreibfeld, als grauer Balken
+              wie bei Gmail — standardmäßig eingeklappt (Klick blendet ein/aus). */}
+          {d.quotedHtml && (
+            <div style={{ marginTop: "0.4rem" }}>
+              <button className="ghost" style={{ padding: "0.15rem 0.4rem", fontSize: "0.8rem", color: "var(--self-muted, #8aa)" }}
+                onClick={() => setShowQuote((v) => !v)} title={t("compose.quotedToggle")}>
+                {showQuote ? "▾" : "▸"} {t("compose.quotedHistory")}
+              </button>
+              {showQuote && (
+                <div className="compose-quote"
+                  style={{ marginTop: "0.35rem", opacity: 0.85 }}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(d.quotedHtml) }} />
+              )}
+            </div>
+          )}
           {(() => {
             const sig = currentSig;
             return sig ? (

@@ -442,4 +442,6 @@ export const pl: Dict = {
   "mail.unifiedHint": "Pokaż skrzynki odbiorcze wszystkich kont razem",
   "shell.showQuota": "Pasek pojemności",
   "shell.showMbox": "Przycisk eksportu mbox",
+  "compose.quotedHistory": "Cytowany tekst",
+  "compose.quotedToggle": "Pokaż/ukryj cytowany tekst",
 };
