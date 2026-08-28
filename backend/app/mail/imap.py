@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from html import unescape
 import threading
 import time
 from contextlib import contextmanager
@@ -363,8 +364,16 @@ def set_flags_many(
 
 
 def _snippet(text: str, html: str) -> str:
-    """Kurze 1-Zeilen-Vorschau aus Text- oder HTML-Body (Tags grob entfernt)."""
-    src = text or re.sub(r"<[^>]+>", " ", html)
+    """Kurze 1-Zeilen-Vorschau aus Text- oder HTML-Body.
+
+    Beim HTML-Pfad zuerst <style>/<script>/<head> KOMPLETT entfernen (inkl. Inhalt)
+    — nur Tags zu strippen ließ CSS-Quelltext in der Vorschau stehen
+    („@media all and (max-width: 480px) …" bei Newsletter-Mails)."""
+    src = text
+    if not src:
+        h = re.sub(r"(?is)<(style|script|head)[^>]*>.*?</\1>", " ", html or "")
+        h = re.sub(r"(?is)<!--.*?-->", " ", h)
+        src = unescape(re.sub(r"<[^>]+>", " ", h))
     return " ".join(src.split())[:160]
 
 
