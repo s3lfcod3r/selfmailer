@@ -1137,3 +1137,27 @@ img.thread-avatar { object-fit: cover; }
   color: var(--self-text);
   font-size: 0.86rem;
 }
+
+/* ==== Politur „ruhig & aufgeräumt" (Apple-inspiriert) — Farbschema unverändert ====
+   Nur Form/Rhythmus: weichere Radien (tokens.css), sanfte Übergänge, dezente
+   Fokus-Ringe, mehr Luft in Listenzeilen, ruhigere Trennungen. */
+button, input, textarea, select, .mail-row, .mail-folder, .pgbtn, .link-btn, .mail-acc-head {
+  transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--self-teal);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--self-teal) 20%, transparent);
+}
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--self-teal) 25%, transparent);
+}
+/* Listenzeilen: einen Hauch mehr Luft + sanfter Hover statt harter Kantenfarbe. */
+.mail-row { padding: 0.78rem 0.95rem; }
+.mail-row:hover { background: var(--self-bg-2); }
+/* Modale/Karten/Feldgruppen: großzügigere, gleichmäßige Rundungen. */
+.modal { border-radius: 16px; }
+.acc-fieldset { border-radius: 12px; }
+/* Überschriften-Labels ruhiger (leichte Sperrung wie in System-UIs). */
+.label { letter-spacing: 0.02em; }

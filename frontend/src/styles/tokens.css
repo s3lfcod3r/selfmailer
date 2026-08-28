@@ -75,8 +75,8 @@
   --self-font-wordmark: "Orbitron", var(--self-font-sans); /* Logo-Schriftzug "SelfXxx" (Weight 800), lokal via @font-face oben — Self-Marken-Standard */
 
   /* --- Radius / Elevation -------------------------------- */
-  --self-radius: 10px;
-  --self-radius-sm: 6px;
+  --self-radius: 12px;   /* Politur: weichere Ecken (Apple-artig) */
+  --self-radius-sm: 9px;
   --self-glow-teal: 0 0 60px -12px rgba(51, 167, 140, 0.45);
 
   /* --- Motion -------------------------------------------- */
