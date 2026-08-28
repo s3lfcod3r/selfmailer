@@ -593,9 +593,11 @@ select.bulk-btn { max-width: 170px; }
   text-transform: capitalize; font-size: 1.15rem; min-width: 11ch; text-align: center;
 }
 .cal-nav .ghost { min-width: 32px; font-size: 1.2rem; line-height: 1; }
-.cal-switch { display: inline-flex; border: 1px solid var(--self-line-strong); border-radius: 8px; overflow: hidden; }
-.cal-switch button { padding: 0.35rem 0.8rem; background: transparent; border: none; color: var(--self-text-2); cursor: pointer; }
-.cal-switch button.on { background: var(--self-teal); color: #04130f; font-weight: 600; }
+/* Segmented Control (iOS-Stil): eine verbundene Gruppe, aktives Segment als
+   erhabene Fläche — ruhiger als drei einzeln gefüllte Pillen. */
+.cal-switch { display: inline-flex; background: var(--self-bg-3); border: 1px solid var(--self-line); border-radius: 10px; padding: 3px; gap: 2px; }
+.cal-switch button { padding: 0.28rem 0.85rem; background: transparent; border: none; border-radius: 7px; color: var(--self-text-2); cursor: pointer; font-size: 0.85rem; }
+.cal-switch button.on { background: var(--self-bg-1); color: var(--self-text); font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); }
 
 /* minmax(0,1fr): Zeilen bleiben GLEICH hoch und wachsen NICHT mit dem Inhalt
    (sonst verschiebt sich das Gitter bei vielen Terminen). Inhalt wird geklippt. */
@@ -1161,3 +1163,8 @@ button:focus-visible {
 .acc-fieldset { border-radius: 12px; }
 /* Überschriften-Labels ruhiger (leichte Sperrung wie in System-UIs). */
 .label { letter-spacing: 0.02em; }
+
+
+/* ---- Leere Zustände: ruhiges Symbol statt verlorenem Mini-Satz ------------- */
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.7rem; }
+.empty-state .empty-ico { font-size: 2.8rem; opacity: 0.3; filter: grayscale(35%); }

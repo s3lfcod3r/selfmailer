@@ -246,7 +246,10 @@ export function Contacts() {
       {/* Rechte Spalte: Detail / Editor */}
       <div className="md-detail">
         {sel === null ? (
-          <div className="md-placeholder">{t("contacts.selectHint")}</div>
+          <div className="md-placeholder empty-state">
+            <span className="empty-ico" aria-hidden>👤</span>
+            {t("contacts.selectHint")}
+          </div>
         ) : (
           <div className="stack" style={{ gap: "0.7rem" }}>
             <div className="row" style={{ alignItems: "center", gap: "0.6rem" }}>

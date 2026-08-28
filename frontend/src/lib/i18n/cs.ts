@@ -456,4 +456,6 @@ export const cs: Dict = {
   "vacation.interval": "Nejvýše každých … dní na odesílatele",
   "vacation.needBody": "Zadejte text odpovědi.",
   "vacation.saved": "Uloženo.",
+  "cal.colorsToggle": "Zobrazit barvy kalendářů",
+  "notes.search": "Hledat v poznámkách…",
 };

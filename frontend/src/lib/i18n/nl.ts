@@ -456,4 +456,6 @@ export const nl: Dict = {
   "vacation.interval": "Hoogstens elke … dagen per afzender",
   "vacation.needBody": "Voer een antwoordtekst in.",
   "vacation.saved": "Opgeslagen.",
+  "cal.colorsToggle": "Agendakleuren tonen",
+  "notes.search": "Notities doorzoeken…",
 };

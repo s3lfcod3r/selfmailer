@@ -456,4 +456,6 @@ export const el: Dict = {
   "vacation.interval": "Το πολύ κάθε … ημέρες ανά αποστολέα",
   "vacation.needBody": "Εισαγάγετε κείμενο απάντησης.",
   "vacation.saved": "Αποθηκεύτηκε.",
+  "cal.colorsToggle": "Εμφάνιση χρωμάτων ημερολογίου",
+  "notes.search": "Αναζήτηση σημειώσεων…",
 };

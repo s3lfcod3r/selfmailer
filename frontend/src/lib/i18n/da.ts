@@ -456,4 +456,6 @@ export const da: Dict = {
   "vacation.interval": "Højst hver … dage pr. afsender",
   "vacation.needBody": "Indtast en svartekst.",
   "vacation.saved": "Gemt.",
+  "cal.colorsToggle": "Vis kalenderfarver",
+  "notes.search": "Søg i noter…",
 };

@@ -456,4 +456,6 @@ export const pl: Dict = {
   "vacation.interval": "Najwyżej co … dni na nadawcę",
   "vacation.needBody": "Wpisz treść odpowiedzi.",
   "vacation.saved": "Zapisano.",
+  "cal.colorsToggle": "Pokaż kolory kalendarzy",
+  "notes.search": "Szukaj w notatkach…",
 };

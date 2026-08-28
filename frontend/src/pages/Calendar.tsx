@@ -88,6 +88,10 @@ export function Calendar() {
   // Geburtstage als echte Termine im Kalender? Dann virtuelle Anzeige weglassen.
   const [bdayActive, setBdayActive] = useState(false);
   const [mode, setMode] = useState<"month" | "agenda" | "tasks">("month");
+  // Termin-Chips in der Farbe ihres Kalenders (wie Apple Kalender) — umschaltbar
+  // auf die klassische einfarbige Ansicht; Wahl bleibt lokal gespeichert.
+  const [calColors, setCalColors] = useState<boolean>(() => localStorage.getItem("selfmailer.calColors") !== "0");
+  useEffect(() => { localStorage.setItem("selfmailer.calColors", calColors ? "1" : "0"); }, [calColors]);
   const now = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
   const [form, setForm] = useState<Form>({ ...EMPTY });
@@ -390,6 +394,7 @@ export function Calendar() {
             <button className={mode === "agenda" ? "on" : ""} onClick={() => setMode("agenda")}>{t("cal.agenda")}</button>
             <button className={mode === "tasks" ? "on" : ""} onClick={() => setMode("tasks")}>✓ {t("cal.tasks")}</button>
           </div>
+          <button className="ghost" style={{ opacity: calColors ? 1 : 0.4 }} onClick={() => setCalColors((v) => !v)} title={t("cal.colorsToggle")}>🎨</button>
           {mode !== "tasks" && <button className="primary" onClick={() => openCreate(selectedDay ? new Date(selectedDay + "T12:00:00") : undefined)}>＋ {t("cal.newEvent")}</button>}
         </div>
       </div>
@@ -445,7 +450,13 @@ export function Calendar() {
                         ))}
                         {evs.map((ev) => (
                           <div key={ev.id} className="cal-chip" title={`${nameOf(ev)}: ${ev.title}`}
-                            style={ev.source_color ? { borderLeft: `3px solid ${ev.source_color}`, paddingLeft: "5px" } : undefined}
+                            style={
+                              // Bunt: Chip-Fläche aus der Kalenderfarbe abmischen (dunkler
+                              // Pastellton, Text bleibt hell lesbar) — wie Apple Kalender.
+                              calColors && ev.source_color
+                                ? { background: `color-mix(in srgb, ${ev.source_color} 34%, var(--self-bg-3))`, borderLeft: `3px solid ${ev.source_color}`, paddingLeft: "5px" }
+                                : ev.source_color ? { borderLeft: `3px solid ${ev.source_color}`, paddingLeft: "5px" } : undefined
+                            }
                             onClick={(e) => { e.stopPropagation(); setDetail(ev); }}>{evLabel(ev)}</div>
                         ))}
                       </div>

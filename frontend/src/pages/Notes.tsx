@@ -75,7 +75,7 @@ export function Notes() {
         </div>
         <div className="md-search">
           <span aria-hidden>🔍</span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("contacts.search")} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("notes.search")} />
         </div>
         <div className="md-scroll">
           {sorted.map((n) => {
@@ -104,7 +104,10 @@ export function Notes() {
       {/* Rechte Spalte: Detail / Editor */}
       <div className="md-detail">
         {sel === null ? (
-          <div className="md-placeholder">{t("notes.selectHint")}</div>
+          <div className="md-placeholder empty-state">
+            <span className="empty-ico" aria-hidden>📝</span>
+            {t("notes.selectHint")}
+          </div>
         ) : (
           <div className="stack" style={{ gap: "0.7rem", height: "100%" }}>
             <div className="row" style={{ alignItems: "center" }}>

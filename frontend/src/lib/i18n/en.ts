@@ -458,4 +458,6 @@ export const en = {
   "vacation.interval": "At most every … days per sender",
   "vacation.needBody": "Please enter a reply text.",
   "vacation.saved": "Saved.",
+  "cal.colorsToggle": "Show calendar colors",
+  "notes.search": "Search notes…",
 };

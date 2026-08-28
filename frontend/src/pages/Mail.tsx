@@ -2475,7 +2475,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             )}
           </div>
         ) : (
-          <div className="mail-placeholder">{t("mail.selectHint")}</div>
+          <div className="mail-placeholder empty-state">
+            <span className="empty-ico" aria-hidden>✉️</span>
+            {t("mail.selectHint")}
+          </div>
         )}
       </div>
 

@@ -456,4 +456,6 @@ export const sv: Dict = {
   "vacation.interval": "Högst var … dag per avsändare",
   "vacation.needBody": "Ange en svarstext.",
   "vacation.saved": "Sparat.",
+  "cal.colorsToggle": "Visa kalenderfärger",
+  "notes.search": "Sök anteckningar…",
 };
