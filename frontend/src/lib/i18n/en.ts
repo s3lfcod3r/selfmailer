@@ -446,4 +446,5 @@ export const en = {
   "shell.showMbox": "mbox export button",
   "compose.quotedHistory": "Quoted text",
   "compose.quotedToggle": "Show/hide quoted text",
+  "mail.mboxHint": "Export this folder as an mbox file",
 };

@@ -140,8 +140,12 @@ async def _send_with_dsn(account: MailAccount, password: str, msg, recipients: l
             dsn_ok = False
         mail_options = ["RET=HDRS"] if dsn_ok else []
         rcpt_options = ["NOTIFY=SUCCESS,DELAY,FAILURE"] if dsn_ok else []
+        # Envelope-Sender = Adresse aus dem From-Header (ggf. Alias) — sonst gehen
+        # DSN-Bounces an die Konto-Adresse statt an den Alias und SPF/DMARC-
+        # Alignment kann beim Empfänger kippen.
+        envelope_from = parseaddr(str(msg["From"] or ""))[1] or account.email
         await client.sendmail(
-            account.email,
+            envelope_from,
             recipients,
             msg.as_bytes(),
             mail_options=mail_options,

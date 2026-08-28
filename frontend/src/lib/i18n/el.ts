@@ -444,4 +444,5 @@ export const el: Dict = {
   "shell.showMbox": "Κουμπί εξαγωγής mbox",
   "compose.quotedHistory": "Παρατιθέμενο κείμενο",
   "compose.quotedToggle": "Εμφάνιση/απόκρυψη παρατιθέμενου κειμένου",
+  "mail.mboxHint": "Εξαγωγή αυτού του φακέλου ως αρχείο mbox",
 };

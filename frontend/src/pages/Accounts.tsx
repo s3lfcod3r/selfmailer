@@ -68,8 +68,13 @@ export function Accounts() {
   }
   async function test(a: Account) {
     setErr(""); setMsg(t("accounts.testing"));
-    const r = await api.post<{ ok: boolean; error?: string; folders?: string[] }>(`/accounts/${a.id}/test`);
-    setMsg(r.ok ? t("accounts.testOk", { n: r.folders?.length ?? 0 }) : t("accounts.testErr", { error: r.error ?? "" }));
+    try {
+      const r = await api.post<{ ok: boolean; error?: string; folders?: string[] }>(`/accounts/${a.id}/test`);
+      setMsg(r.ok ? t("accounts.testOk", { n: r.folders?.length ?? 0 }) : t("accounts.testErr", { error: r.error ?? "" }));
+    } catch (e) {
+      // Sonst bliebe dauerhaft „teste…" stehen, ohne dass je ein Ergebnis kommt.
+      setMsg(""); setErr((e as Error).message);
+    }
   }
   async function remove(a: Account) {
     if (!(await confirmDialog(t("accounts.confirmDelete", { name: a.label || a.email })))) return;

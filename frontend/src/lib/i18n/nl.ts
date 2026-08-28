@@ -444,4 +444,5 @@ export const nl: Dict = {
   "shell.showMbox": "mbox-exportknop",
   "compose.quotedHistory": "Geciteerde tekst",
   "compose.quotedToggle": "Geciteerde tekst tonen/verbergen",
+  "mail.mboxHint": "Deze map exporteren als mbox-bestand",
 };

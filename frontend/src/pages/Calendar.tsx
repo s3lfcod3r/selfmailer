@@ -318,8 +318,11 @@ export function Calendar() {
 
   function shift(delta: number) {
     setCursor((c) => { const m = c.month + delta; return { year: c.year + Math.floor(m / 12), month: ((m % 12) + 12) % 12 }; });
+    // Gewählten Tag verwerfen — sonst legt „+" still einen Termin in einem
+    // nicht mehr sichtbaren Alt-Monat an.
+    setSelectedDay(null);
   }
-  function goToday() { setCursor({ year: now.getFullYear(), month: now.getMonth() }); }
+  function goToday() { setCursor({ year: now.getFullYear(), month: now.getMonth() }); setSelectedDay(null); }
 
   const eventsByDay = useMemo(() => {
     // Mehrtägige Termine auf JEDEN überspannten Tag legen (nicht nur den Starttag).

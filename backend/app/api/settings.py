@@ -89,8 +89,9 @@ def put_ui_settings(
         if not isinstance(val, typ):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"'{key}' erwartet {typ.__name__}")
         if key == "account_order":
-            # Nur echte Konto-IDs (ganze Zahlen, keine Bools) übernehmen — kein Müll speichern.
-            val = [x for x in val if isinstance(x, int) and not isinstance(x, bool)]
+            # Nur echte Konto-IDs (ganze Zahlen, keine Bools) übernehmen — kein Müll
+            # speichern; Länge deckeln, damit das Feld nicht unbegrenzt wachsen kann.
+            val = [x for x in val if isinstance(x, int) and not isinstance(x, bool)][:100]
         current[key] = val
     db_user = session.get(User, user.id)
     if db_user is None:

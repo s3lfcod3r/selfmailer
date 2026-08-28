@@ -710,25 +710,38 @@ def get_raw(account: MailAccount, password: str, uid: str, folder: str = "INBOX"
 
 def iter_mbox(account: MailAccount, password: str, folder: str = "INBOX", limit: int = 5000):
     """Streamt alle Mails eines Ordners im mbox-Format (mboxrd) als Bytes-Chunks —
-    für den Ordner-Export (Datenhoheit). Gedeckelt gegen Endlos-Exporte. Chunked-Fetch,
-    damit nicht der ganze Ordner auf einmal in den Speicher geladen wird."""
+    für den Ordner-Export (Datenhoheit). Gedeckelt gegen Endlos-Exporte.
+
+    WICHTIG: pro Block eine KURZLEBIGE Verbindung. Ein Generator in einem einzigen
+    `with _mailbox(...)` hielte die Verbindung (Pool-Lock bzw. Fallback-Slot) so
+    lange offen, wie der Client den Download zieht — bei langsamen Clients
+    minutenlang. Das blockierte den Hintergrund-Sync desselben Kontos („Konto
+    gerade beschäftigt"). Deshalb: UID-Liste einmal holen, dann je 50er-Block
+    Verbindung öffnen, Block puffern, Verbindung schließen, DANN ausliefern."""
     _reject_folder_ctrl(folder)
     with _mailbox(account, password, folder=folder, read_fallback=True) as box:
-        uids = box.uids()
-        if limit and len(uids) > limit:
-            uids = uids[-limit:]  # neueste `limit` Mails
-        if not uids:
-            return
-        for msg in box.fetch(AND(uid=",".join(uids)), mark_seen=False, bulk=25):
-            try:
-                raw = msg.obj.as_bytes() or b""
-            except Exception:  # noqa: BLE001
-                continue
-            # mboxrd: Zeilen, die mit (>*)From beginnen, um ein '>' ergänzen.
-            raw = re.sub(rb"(?m)^(>*From )", rb">\1", raw)
-            d = msg.date
-            ts = d.strftime("%a %b %d %H:%M:%S %Y") if d else "Thu Jan  1 00:00:00 1970"
-            yield f"From MAILER-DAEMON@selfmailer {ts}\n".encode() + raw + b"\n"
+        uids = list(box.uids())
+    if limit and len(uids) > limit:
+        uids = uids[-limit:]  # neueste `limit` Mails
+    if not uids:
+        return
+    _CHUNK = 50  # Block im Speicher (typ. wenige MB); Verbindung nur währenddessen offen
+    for i in range(0, len(uids), _CHUNK):
+        sel = uids[i:i + _CHUNK]
+        buf: list[bytes] = []
+        with _mailbox(account, password, folder=folder, read_fallback=True) as box:
+            for msg in box.fetch(AND(uid=",".join(sel)), mark_seen=False, bulk=25):
+                try:
+                    raw = msg.obj.as_bytes() or b""
+                except Exception:  # noqa: BLE001
+                    continue
+                # mboxrd: Zeilen, die mit (>*)From beginnen, um ein '>' ergänzen.
+                raw = re.sub(rb"(?m)^(>*From )", rb">\1", raw)
+                d = msg.date
+                ts = d.strftime("%a %b %d %H:%M:%S %Y") if d else "Thu Jan  1 00:00:00 1970"
+                buf.append(f"From MAILER-DAEMON@selfmailer {ts}\n".encode() + raw + b"\n")
+        # Verbindung wieder frei — der Client darf jetzt beliebig langsam lesen.
+        yield from buf
 
 
 def get_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> dict | None:

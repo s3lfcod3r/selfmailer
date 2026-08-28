@@ -20,6 +20,7 @@ from ..models import (
     CachedMessage,
     FolderSync,
     MailAccount,
+    MailIdentity,
     MailRule,
     Protocol,
     User,
@@ -154,7 +155,9 @@ def delete_account(
     acc = _owned(account_id, user, session)
     # Kinder-Zeilen zuerst per Bulk-DELETE entfernen (sonst Waisen + langsames
     # Commit hinter laufendem Sync = "hängt"). account_id ist indiziert.
-    for model in (CachedMessage, FolderSync, CachedFolder, MailRule):
+    # MailIdentity mit aufräumen — sonst bleiben Geister-Identitäten sichtbar,
+    # die auf ein gelöschtes Konto zeigen.
+    for model in (CachedMessage, FolderSync, CachedFolder, MailRule, MailIdentity):
         session.execute(sa_delete(model).where(model.account_id == account_id))
     session.delete(acc)
     session.commit()

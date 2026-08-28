@@ -444,4 +444,5 @@ export const da: Dict = {
   "shell.showMbox": "mbox-eksportknap",
   "compose.quotedHistory": "Citeret tekst",
   "compose.quotedToggle": "Vis/skjul citeret tekst",
+  "mail.mboxHint": "Eksportér denne mappe som mbox-fil",
 };

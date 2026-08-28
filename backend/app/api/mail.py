@@ -5,6 +5,7 @@ import datetime as _dt
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
 from aiosmtplib.errors import SMTPRecipientsRefused
@@ -15,7 +16,7 @@ from starlette.concurrency import run_in_threadpool
 from sqlmodel import Session, select
 
 from ..core.crypto import decrypt
-from ..core.db import get_session
+from ..core.db import engine, get_session
 from ..events import bus
 from ..mail import cache as cache_mod
 from ..mail import imap as imap_mod
@@ -273,12 +274,18 @@ def unified_messages(
     Ist eine INBOX noch nie gecacht (frisches Konto), wird sie einmalig live
     nachgeladen — best effort, ein fehlerhaftes Konto blockiert das Aggregat nicht."""
     accs = list(session.exec(select(MailAccount).where(MailAccount.user_id == user.id)).all())
-    for acc in accs:
-        if not cache_mod.has_cache(session, acc.id, "INBOX"):
+    # Erst-Sync für noch nie gecachte INBOXen PARALLEL (eigene Session je Thread):
+    # seriell würde ein einziges langsames Konto die Summe aller Roundtrips kosten.
+    to_sync = [acc for acc in accs if not cache_mod.has_cache(session, acc.id, "INBOX")]
+    if to_sync:
+        def _first_sync(acc: MailAccount) -> None:
             try:
-                cache_mod.sync_folder(session, acc, _account_secret(acc), "INBOX", cap=max(limit, 50))
+                with Session(engine) as s2:
+                    cache_mod.sync_folder(s2, acc, _account_secret(acc), "INBOX", cap=max(limit, 50))
             except Exception:  # noqa: BLE001 - einzelnes Konto darf das Aggregat nicht kippen
                 logger.warning("Unified: Erst-Sync fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+        with ThreadPoolExecutor(max_workers=min(4, len(to_sync))) as pool:
+            list(pool.map(_first_sync, to_sync))
     labels = {acc.id: (acc.label or acc.email) for acc in accs}
     rows = cache_mod.read_unified(session, [acc.id for acc in accs], limit=limit, offset=offset)
     for r in rows:

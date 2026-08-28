@@ -3,7 +3,7 @@ import { api, ApiError, copyText, download, type Account, type MsgHeader, type M
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
-import { Compose, emptyDraft, replyDraft, forwardDraft, type Draft } from "../components/Compose";
+import { Compose, emptyDraft, replyDraft, forwardDraft, parseDraftBody, type Draft } from "../components/Compose";
 import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, avatarFor, trimQuotedHtml, trimQuotedText } from "../lib/mailview";
 import { ThreadReader } from "../components/ThreadReader";
 import { groupThreads, normalizeSubject, type Conversation } from "../lib/threads";
@@ -269,7 +269,7 @@ const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, onOpen, onTo
 // Bewusst schlicht (Überblick über ALLE Postfächer); ein Klick springt ins Konto und
 // öffnet die Mail. Keine Auswahl/Threads hier — das bleibt der Konto-Ansicht vorbehalten.
 type UMsg = MsgHeader & { account_id: number; account_label: string };
-const UnifiedRow = memo(function UnifiedRow({ m, onOpen }: { m: UMsg; onOpen: (m: UMsg) => void }) {
+const UnifiedRow = memo(function UnifiedRow({ m, onOpen, noSubject }: { m: UMsg; onOpen: (m: UMsg) => void; noSubject: string }) {
   return (
     <div className={`mail-row ${m.seen ? "" : "unseen"}`}
       role="button" tabIndex={0}
@@ -283,7 +283,7 @@ const UnifiedRow = memo(function UnifiedRow({ m, onOpen }: { m: UMsg; onOpen: (m
           <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(m.date)}</span>
         </div>
         <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || "(kein Betreff)"}</span>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || noSubject}</span>
           {m.has_attachments && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
           <span className="mail-folder-tag" title={m.account_label} style={{ flex: "0 0 auto" }}>{m.account_label}</span>
         </div>
@@ -302,6 +302,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Unified Inbox: alle Konten-INBOXen zusammengeführt (Umschalter oben). Standardmäßig
   // aus; ein Klick auf eine Zeile springt ins jeweilige Konto und öffnet die Mail.
   const [unified, setUnified] = useState(false);
+  // Ref-Spiegel für den SSE-Handler (der Effekt läuft nur einmal → State wäre veraltet).
+  const unifiedRef = useRef(false);
+  useEffect(() => { unifiedRef.current = unified; }, [unified]);
+  const uReloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [uRows, setURows] = useState<UMsg[]>([]);
   const [uLoading, setULoading] = useState(false);
   const [uErr, setUErr] = useState("");
@@ -973,6 +977,12 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         if (selRef.current && selRef.current.acc === ev.account_id) {
           bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
         }
+        // Unified Inbox live nachladen (entprellt) — sonst erscheinen neue Mails
+        // dort erst nach manuellem ⟳.
+        if (unifiedRef.current) {
+          if (uReloadTimer.current) clearTimeout(uReloadTimer.current);
+          uReloadTimer.current = setTimeout(() => { if (unifiedRef.current) loadUnified(); }, 800);
+        }
       } catch { /* ignorieren */ }
     };
     return () => es.close();
@@ -1294,7 +1304,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       if (!isLatest()) return;  // veraltete/überholte Öffnung: nichts setzen
       const lastPart = fol.split(/[/.]/).pop() || fol;
       if (specialKind(lastPart) === "drafts") {
-        setDraft({ to: (msg.to ?? []).join(", "), cc: "", bcc: "", subject: msg.subject, body: msg.text || (msg.html || "").replace(/<[^>]+>/g, ""), in_reply_to: "" });
+        // Signatur + Zitat aus dem gespeicherten Text herauslösen — sonst dupliziert
+        // sich die Signatur beim erneuten Senden und das Zitat liegt editierbar im Feld.
+        const parsed = parseDraftBody(msg.text || (msg.html || "").replace(/<[^>]+>/g, ""));
+        setDraft({
+          to: (msg.to ?? []).join(", "), cc: "", bcc: "", subject: msg.subject,
+          body: parsed.body, in_reply_to: "",
+          quotedText: parsed.quotedText, quotedHtml: parsed.quotedHtml,
+        });
         setMobilePane("list");
         return;
       }
@@ -1975,14 +1992,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             // Balken: bei belegt>0 mindestens ein sichtbarer Streifen, sonst wirkt er leer/kaputt.
             const barW = quota.used > 0 ? Math.max(pct, 2) : 0;
             return (
-              <div title={`${fmtSize(quota.used)} / ${fmtSize(quota.limit)} (${pctLabel})`} style={{ marginBottom: "0.6rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", fontSize: "0.7rem", color: "var(--self-text-3)", marginBottom: 3 }}>
+              <div className="mail-quota" title={`${fmtSize(quota.used)} / ${fmtSize(quota.limit)} (${pctLabel})`}>
+                <div className="mail-quota-head">
                   <span>{de ? "Speicher" : "Storage"}</span>
                   {/* Echte Größen statt nur Prozent — sonst sieht ein fast leeres Postfach wie „0 %" kaputt aus. */}
                   <span style={{ whiteSpace: "nowrap" }}>{fmtSize(quota.used)} / {fmtSize(quota.limit)}</span>
                 </div>
-                <div style={{ height: 5, borderRadius: 3, background: "var(--self-bg-3)", overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${barW}%`, background: pct > 90 ? "#e05a5a" : "var(--self-teal, #33a78c)" }} />
+                <div className="mail-quota-track">
+                  <div className="mail-quota-fill" style={{ width: `${barW}%`, background: pct > 90 ? "#e05a5a" : undefined }} />
                 </div>
               </div>
             );
@@ -2057,15 +2074,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
           </div>
           {/* Unified-Inbox-Umschalter: nur sinnvoll ab 2 Konten. */}
           {accounts.length > 1 && (
-            <div className="row" style={{ alignItems: "center", gap: "0.4rem", padding: "0.25rem 0.1rem" }}>
+            <div className="mail-unified-bar">
               <button
                 className={unified ? "primary" : "ghost"}
-                style={{ padding: "0.15rem 0.6rem", fontSize: "0.82rem" }}
                 onClick={() => setUnified((v) => !v)}
                 title={t("mail.unifiedHint")}
               >📥 {t("mail.unifiedInbox")}</button>
               {unified && (
-                <button className="ghost" style={{ padding: "0.15rem 0.5rem", fontSize: "0.82rem" }} onClick={loadUnified} disabled={uLoading}>⟳</button>
+                <button className="ghost" onClick={loadUnified} disabled={uLoading} title="⟳">⟳</button>
               )}
             </div>
           )}
@@ -2075,7 +2091,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               {uErr && <div className="err">{uErr}</div>}
               {!uLoading && uRows.length === 0 && !uErr && <p className="muted">{t("mail.noMessages")}</p>}
               {uRows.map((m) => (
-                <UnifiedRow key={`${m.account_id}:${m.uid}`} m={m} onOpen={openUnifiedRow} />
+                <UnifiedRow key={`${m.account_id}:${m.uid}`} m={m} onOpen={openUnifiedRow} noSubject={t("mail.noSubject")} />
               ))}
             </div>
           ) : (
@@ -2152,7 +2168,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               ))}
               {sel && showMbox && (
                 <button className="link-btn" style={{ marginLeft: "auto" }}
-                  title={de ? "Diesen Ordner als mbox-Datei exportieren" : "Export this folder as mbox"}
+                  title={t("mail.mboxHint")}
                   onClick={exportMbox}>⤓ mbox</button>
               )}
               {labels.length > 0 && (

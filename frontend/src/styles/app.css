@@ -1109,3 +1109,31 @@ img.thread-avatar { object-fit: cover; }
    (per JS gesetzt) → keine inneren Scrollbalken, man scrollt die Konversation. */
 .thread-body-frame { flex: 0 0 auto; min-height: 48px; height: 260px; width: 100%; }
 .thread-atts { margin-top: 0.8rem; border-top: 1px solid var(--self-line); padding-top: 0.7rem; }
+
+/* ---- Unified-Inbox-Leiste (über der Liste, im Stil der Ordnerleiste) -------- */
+.mail-unified-bar {
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.3rem 0.15rem; margin-bottom: 0.15rem;
+  border-bottom: 1px solid var(--self-line);
+}
+.mail-unified-bar > button { padding: 0.15rem 0.6rem; font-size: 0.82rem; }
+
+/* ---- Speicher-/Quota-Balken (Seitenleiste) ---------------------------------- */
+.mail-quota { margin-bottom: 0.6rem; }
+.mail-quota-head {
+  display: flex; justify-content: space-between; gap: 0.5rem;
+  font-size: 0.7rem; color: var(--self-text-3, var(--self-text-2)); margin-bottom: 3px;
+}
+.mail-quota-track { height: 5px; border-radius: 3px; background: var(--self-bg-3); overflow: hidden; }
+.mail-quota-fill { height: 100%; background: var(--self-teal); }
+
+/* ---- Zitat-Block im Schreiben-Fenster (nur ANZEIGE) -------------------------
+   Die Gmail-Farben (#5f6368 / #ccc) stecken inline im gesendeten HTML und sind
+   für helle Empfänger-Clients richtig — auf unserem dunklen Compose-Canvas sind
+   sie aber zu flau. Fürs Display hier auf die Theme-Farben umbiegen. */
+.compose-quote .gmail_attr { color: var(--self-text-2) !important; font-size: 0.8rem; margin-bottom: 0.25rem; }
+.compose-quote blockquote.gmail_quote {
+  border-left-color: var(--self-line-strong) !important;
+  color: var(--self-text);
+  font-size: 0.86rem;
+}

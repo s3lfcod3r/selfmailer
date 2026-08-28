@@ -35,7 +35,9 @@ export function IdentityManager({ accountId }: { accountId: number }) {
   }
   async function save() {
     setErr("");
-    if (!draft.email.trim()) { setErr(t("identities.needEmail")); return; }
+    // Der Speichern-Knopf ist type="button" (kein Formular-Submit) → die HTML5-
+    // E-Mail-Prüfung greift nie. Deshalb hier explizit prüfen.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email.trim())) { setErr(t("identities.needEmail")); return; }
     try {
       if (editId && editId > 0) {
         await api.patch<Identity>(`/identities/${editId}`, draft);

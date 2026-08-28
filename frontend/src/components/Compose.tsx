@@ -25,12 +25,40 @@ const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").re
 // - quotedText: klassisch mit "> " je Zeile (für den Plaintext-Teil / einfache Clients)
 // - quotedHtml: grauer Gmail-Balken (blockquote.gmail_quote, 1px-Linie), Text normal
 export function buildQuoteBlock(introLine: string, rawSource: string): { quotedText: string; quotedHtml: string } {
-  const quotedText = "\n\n" + introLine + "\n" + rawSource.split("\n").map((l) => "> " + l).join("\n");
-  const quotedHtml = '<div class="gmail_quote"><div class="gmail_attr" style="color:#5f6368">'
-    + escHtml(introLine) + "</div>"
+  const quotedText = "\n\n" + (introLine ? introLine + "\n" : "")
+    + rawSource.split("\n").map((l) => "> " + l).join("\n");
+  const attr = introLine
+    ? '<div class="gmail_attr" style="color:#5f6368">' + escHtml(introLine) + "</div>" : "";
+  const quotedHtml = '<div class="gmail_quote">' + attr
     + '<blockquote class="gmail_quote" style="margin:0 0 0 0.8ex;border-left:1px solid #ccc;padding-left:1ex">'
     + escHtml(rawSource).replace(/\n/g, "<br>") + "</blockquote></div>";
   return { quotedText, quotedHtml };
+}
+
+// Gespeicherten Entwurf zerlegen: beim Speichern wurden Signatur + Zitat an den
+// Text angehängt — beim Wiederöffnen müssen sie wieder RAUS aus dem Schreibfeld,
+// sonst verdoppelt sich die Signatur beim erneuten Senden und das Zitat landet
+// editierbar im Feld statt als Balken darunter.
+export function parseDraftBody(raw: string): { body: string; quotedText: string; quotedHtml: string } {
+  let text = raw;
+  let quotedText = "", quotedHtml = "";
+  const lines = text.split("\n");
+  const qStart = lines.findIndex((l) => l.trimStart().startsWith(">"));
+  if (qStart >= 0) {
+    let introIdx = qStart - 1;
+    while (introIdx >= 0 && lines[introIdx].trim() === "") introIdx--;
+    const hasIntro = introIdx >= 0 && !lines[introIdx].trimStart().startsWith(">");
+    const cut = hasIntro ? introIdx : qStart;
+    const intro = hasIntro ? lines[introIdx] : "";
+    const rawQuote = lines.slice(qStart).map((l) => l.replace(/^\s*>\s?/, "")).join("\n");
+    const qb = buildQuoteBlock(intro, rawQuote);
+    quotedText = qb.quotedText; quotedHtml = qb.quotedHtml;
+    text = lines.slice(0, cut).join("\n");
+  }
+  // Signatur abtrennen (wird beim Senden frisch angehängt).
+  const sigIdx = text.lastIndexOf("\n\n-- \n");
+  if (sigIdx >= 0) text = text.slice(0, sigIdx);
+  return { body: text.replace(/\s+$/, ""), quotedText, quotedHtml };
 }
 
 // Antwort-Entwurf aus einer geöffneten Nachricht. Das Schreibfeld bleibt LEER
@@ -49,19 +77,28 @@ export function replyDraft(d: {
   };
 }
 
+// Weiterleitung: Original als getrennter Block unter dem leeren Schreibfeld —
+// im HTML-Teil MIT Original-Formatierung/Links (DOMPurify-bereinigt), im
+// Text-Teil als Klartext. Vorher ging beim Weiterleiten alles Formatierte verloren.
 export function forwardDraft(d: {
   from: string; subject: string; date: string; text: string; html: string;
 }, t: TFunc): Draft {
   const orig = d.text || d.html.replace(/<[^>]+>/g, "");
-  const head = "\n\n" + t("compose.forwardHeader") + "\n";
+  const head = t("compose.forwardHeader");
+  const meta = t("compose.fwdFrom") + " " + d.from + "\n"
+    + t("compose.fwdDate") + " " + d.date + "\n"
+    + t("compose.fwdSubject") + " " + d.subject;
+  const quotedText = "\n\n" + head + "\n" + meta + "\n\n" + orig;
+  const bodyHtml = d.html
+    ? DOMPurify.sanitize(d.html)
+    : escHtml(orig).replace(/\n/g, "<br>");
+  const quotedHtml = '<div class="gmail_quote"><div class="gmail_attr" style="color:#5f6368">'
+    + escHtml(head) + "<br>" + escHtml(meta).replace(/\n/g, "<br>") + "</div>"
+    + bodyHtml + "</div>";
   return {
     to: "", cc: "", bcc: "",
     subject: d.subject.startsWith("Fwd:") ? d.subject : "Fwd: " + d.subject,
-    body: head
-      + t("compose.fwdFrom") + " " + d.from + "\n"
-      + t("compose.fwdDate") + " " + d.date + "\n"
-      + t("compose.fwdSubject") + " " + d.subject + "\n\n" + orig,
-    in_reply_to: "",
+    body: "", in_reply_to: "", quotedText, quotedHtml,
   };
 }
 
@@ -70,8 +107,12 @@ function split(v: string): string[] {
 }
 
 // Signatur kann HTML (neuer Rich-Editor) ODER alter Plaintext sein.
+// WICHTIG: "Sven <sven@web.de>" ist KEIN HTML — als HTML gilt nur, was ein echtes
+// Tag-Paar (<b>…</b>) oder ein bekanntes Einzel-Tag (<br>, <img …>, <hr>) enthält.
+// Die alte lose Heuristik hat sonst die E-Mail-Adresse aus der Signatur gelöscht.
 function isHtmlSig(sig: string): boolean {
-  return /<[a-z][\s\S]*>/i.test(sig);
+  return /<\s*([a-z][a-z0-9]*)\b[^>]*>[\s\S]*<\s*\/\s*\1\s*>/i.test(sig)
+    || /<(br|img|hr)\b[^>]*\/?>/i.test(sig);
 }
 // Plaintext-Fassung der Signatur (für den text/plain-Teil der Mail).
 function sigText(sig: string): string {
@@ -200,6 +241,17 @@ export function Compose({
     } else {
       document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
     }
+  }
+  // Gleiches Spiel für DRAG & DROP: der Browser würde gezogenes HTML sonst
+  // UNGEFILTERT ins contentEditable einsetzen (und es landete im gesendeten HTML).
+  function onDropEditor(e: React.DragEvent<HTMLDivElement>) {
+    const html = e.dataTransfer.getData("text/html");
+    const txt = e.dataTransfer.getData("text/plain");
+    if (!html && !txt) return;  // z. B. Dateien: dem übrigen Handling überlassen
+    e.preventDefault();
+    editorRef.current?.focus();
+    if (html) document.execCommand("insertHTML", false, DOMPurify.sanitize(html));
+    else document.execCommand("insertText", false, txt);
   }
 
   function addFiles(list: FileList | null) {
@@ -369,7 +421,10 @@ export function Compose({
               >
                 {accounts.map((a) => {
                   const aliases = identities.filter((i) => i.account_id === a.id);
-                  const accLabel = a.label && a.label !== a.email ? `${a.label} — ${a.email}` : a.email;
+                  // Lange Namen kürzen — sonst sprengt eine lange Alias-Adresse das
+                  // schmale Schreiben-Fenster (voller Text steht im title der Auswahl).
+                  const trunc = (s: string) => (s.length > 52 ? s.slice(0, 51) + "…" : s);
+                  const accLabel = trunc(a.label && a.label !== a.email ? `${a.label} — ${a.email}` : a.email);
                   // Ohne Aliase: schlichte Option. Mit Aliassen: Gruppe (Konto + Aliase).
                   return aliases.length === 0 ? (
                     <option key={a.id} value={"a" + a.id}>{accLabel}</option>
@@ -378,7 +433,7 @@ export function Compose({
                       <option value={"a" + a.id}>{accLabel}</option>
                       {aliases.map((i) => (
                         <option key={i.id} value={"i" + i.id}>
-                          {i.name ? `${i.name} — ${i.email}` : i.email}
+                          {trunc(i.name ? `${i.name} — ${i.email}` : i.email)}
                         </option>
                       ))}
                     </optgroup>
@@ -410,6 +465,7 @@ export function Compose({
             suppressContentEditableWarning
             data-placeholder={t("compose.body")}
             onPaste={onPasteEditor}
+            onDrop={onDropEditor}
           />
           {/* Zitierter Verlauf (Antwort): getrennt vom Schreibfeld, als grauer Balken
               wie bei Gmail — standardmäßig eingeklappt (Klick blendet ein/aus). */}

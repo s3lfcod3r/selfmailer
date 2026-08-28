@@ -444,4 +444,5 @@ export const fr: Dict = {
   "shell.showMbox": "Bouton export mbox",
   "compose.quotedHistory": "Texte cité",
   "compose.quotedToggle": "Afficher/masquer le texte cité",
+  "mail.mboxHint": "Exporter ce dossier au format mbox",
 };
