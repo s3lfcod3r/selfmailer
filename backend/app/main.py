@@ -35,6 +35,7 @@ from .api import (
     tasks,
     templates,
     translate,
+    vacation,
 )
 # Alias: das Modul heißt settings, die Konfigurationsvariable unten aber auch —
 # ohne Umbenennung würde die Variable das Modul überschreiben.
@@ -175,6 +176,7 @@ app.include_router(rules.router)
 app.include_router(notes.router)
 app.include_router(templates.router)
 app.include_router(identities.router)
+app.include_router(vacation.router)
 app.include_router(labels.router)
 app.include_router(schedule.router)
 app.include_router(tasks.router)

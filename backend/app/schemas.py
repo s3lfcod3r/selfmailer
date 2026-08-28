@@ -385,6 +385,26 @@ class IdentityOut(BaseModel):
     is_default: bool
 
 
+# ---- Abwesenheitsnotiz ----------------------------------------------------
+class VacationOut(BaseModel):
+    account_id: int
+    enabled: bool
+    subject: str
+    body: str
+    start_date: str
+    end_date: str
+    interval_days: int
+
+
+class VacationUpdate(BaseModel):
+    enabled: bool | None = None
+    subject: str | None = Field(default=None, max_length=200)
+    body: str | None = Field(default=None, max_length=5000)
+    start_date: str | None = Field(default=None, max_length=10)
+    end_date: str | None = Field(default=None, max_length=10)
+    interval_days: int | None = Field(default=None, ge=1, le=90)
+
+
 # ---- Labels / Schlagworte -----------------------------------------------
 class LabelCreate(BaseModel):
     name: str = ""

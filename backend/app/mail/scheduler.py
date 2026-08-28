@@ -36,6 +36,7 @@ from . import cache as cache_mod
 from . import imap as imap_mod
 from . import push as push_mod
 from . import smtp as smtp_mod
+from . import vacation as vacation_mod
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,14 @@ def _sync_account(acc: MailAccount) -> None:
             logger.warning(
                 "Hintergrund-Sync fehlgeschlagen (account_id=%s, folder=%s)", acc.id, folder, exc_info=True
             )
+
+    # 1b) Abwesenheitsnotiz: neue INBOX-Mails prüfen und ggf. automatisch antworten.
+    #     Defensiv (Standard AUS, Schleifenschutz in vacation.py); Fehler kippen nie den Sync.
+    if not _stop.is_set():
+        try:
+            vacation_mod.process_account(acc, pw)
+        except Exception:  # noqa: BLE001
+            logger.warning("Abwesenheits-Check fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
     # 2) Ordnerliste + Zähler für die Seitenleiste (CachedFolder)
     if _stop.is_set():

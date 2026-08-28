@@ -744,6 +744,41 @@ def iter_mbox(account: MailAccount, password: str, folder: str = "INBOX", limit:
         yield from buf
 
 
+def fetch_new_headers(account: MailAccount, password: str, last_uid: int, cap: int = 50) -> tuple[list[dict], int]:
+    """Header (OHNE Body) aller INBOX-Mails mit UID > last_uid — für die
+    Abwesenheitsnotiz. Liefert (Kandidaten, höchste vorhandene UID).
+
+    Nur die neuesten ``cap`` neuen Mails werden geliefert (Notbremse gegen
+    Antwort-Fluten nach langer Offline-Zeit); last_uid rückt trotzdem auf die
+    höchste UID vor, damit Übersprungenes nicht später nachbeantwortet wird."""
+    with _mailbox(account, password, folder="INBOX", read_fallback=True) as box:
+        try:
+            all_uids = sorted(int(u) for u in box.uids() if str(u).isdigit())
+        except Exception:  # noqa: BLE001 - defekte UID-Liste: lieber nichts tun
+            return [], last_uid
+        if not all_uids:
+            return [], last_uid
+        max_uid = all_uids[-1]
+        new = [u for u in all_uids if u > last_uid][-cap:]
+        if not new:
+            return [], max_uid
+        out: list[dict] = []
+        for msg in box.fetch(AND(uid=",".join(str(u) for u in new)), headers_only=True, mark_seen=False, bulk=True):
+            h = msg.obj
+            out.append({
+                "uid": msg.uid,
+                "from": msg.from_ or "",
+                "subject": msg.subject or "",
+                "message_id": str(h.get("Message-ID", "") or ""),
+                "auto_submitted": str(h.get("Auto-Submitted", "") or ""),
+                "precedence": str(h.get("Precedence", "") or ""),
+                "list_id": str(h.get("List-Id", "") or h.get("List-Unsubscribe", "") or h.get("X-Mailing-List", "") or ""),
+                "suppress": str(h.get("X-Auto-Response-Suppress", "") or ""),
+                "return_path": str(h.get("Return-Path", "") or ""),
+            })
+        return out, max_uid
+
+
 def get_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> dict | None:
     # Lesezugriff: bei belegter Verbindung frische Kurzverbindung statt warten/503.
     with _mailbox(account, password, folder=folder, read_fallback=True) as box:

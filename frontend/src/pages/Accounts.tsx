@@ -4,6 +4,7 @@ import { useLang } from "../lib/i18n";
 import { confirmDialog } from "../lib/dialog";
 import { RichEditor } from "../components/RichEditor";
 import { IdentityManager } from "../components/IdentityManager";
+import { VacationManager } from "../components/VacationManager";
 
 type Form = {
   label: string; email: string; password: string;
@@ -181,6 +182,7 @@ export function Accounts() {
                     placeholder={t("accounts.signaturePlaceholder")} />
                 </div>
                 <IdentityManager accountId={a.id} />
+                <VacationManager accountId={a.id} />
                 <fieldset className="acc-fieldset">
                   <legend>🗑 {t("accounts.spamSection")}</legend>
                   <label className="stack" style={{ gap: "0.35rem" }}>

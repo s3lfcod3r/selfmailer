@@ -38,6 +38,7 @@ async def send_message(
     delivery_receipt: bool = False,
     from_addr: str = "",
     from_name: str = "",
+    extra_headers: dict[str, str] | None = None,
 ) -> bytes:
     """Versendet die Mail und gibt die ROHE Nachricht (Bytes) zurück — damit der
     Aufrufer eine Kopie in den Gesendet-Ordner legen kann (IMAP APPEND).
@@ -73,6 +74,9 @@ async def send_message(
         # Alt-Header (kaum ein Server wertet ihn aus) — die echte Zustellbestätigung
         # läuft über SMTP-DSN (NOTIFY), siehe _send unten. Header bleibt als Fallback.
         msg["Return-Receipt-To"] = _from_email
+    # Zusatz-Header (z. B. Auto-Submitted für die Abwesenheitsnotiz) — CR/LF strippen.
+    for k, v in (extra_headers or {}).items():
+        msg[k] = str(v).replace("\r", " ").replace("\n", " ")
     msg.set_content(body)
     if html:
         # HTML-Variante als Alternative (Clients zeigen bevorzugt HTML).

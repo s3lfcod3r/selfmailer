@@ -145,6 +145,35 @@ class MailIdentity(SQLModel, table=True):
     updated_at: dt.datetime = Field(default_factory=_now)
 
 
+class VacationSetting(SQLModel, table=True):
+    """Abwesenheitsnotiz je Konto — bewusst defensiv & standardmäßig AUS.
+
+    ``last_uid``: höchste INBOX-UID, bis zu der schon geprüft wurde. 0 = beim
+    nächsten Scheduler-Lauf NUR initialisieren (nichts beantworten) — so werden
+    ausschließlich Mails beantwortet, die NACH dem Einschalten ankommen.
+    Tabelle via create_all (keine Migration nötig)."""
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    account_id: int = Field(index=True, foreign_key="mailaccount.id")
+    enabled: bool = False
+    subject: str = "Abwesenheitsnotiz"
+    body: str = ""
+    start_date: str = ""      # "YYYY-MM-DD" oder leer = sofort
+    end_date: str = ""        # "YYYY-MM-DD" oder leer = unbegrenzt
+    interval_days: int = 7    # je Absender höchstens alle N Tage antworten
+    last_uid: int = 0
+    updated_at: dt.datetime = Field(default_factory=_now)
+
+
+class VacationReply(SQLModel, table=True):
+    """Protokoll gesendeter Abwesenheitsantworten (je Konto+Absender) — Grundlage
+    für „einmal pro Absender je Zeitfenster". Tabelle via create_all."""
+    id: int | None = Field(default=None, primary_key=True)
+    account_id: int = Field(index=True, foreign_key="mailaccount.id")
+    sender: str = Field(index=True)   # Absender-Adresse, kleingeschrieben
+    sent_at: dt.datetime = Field(default_factory=_now)
+
+
 class ScheduledMail(SQLModel, table=True):
     """Zum späteren Versand geparkte Mail (Schedule Send). Der Scheduler versendet
     fällige Einträge per SMTP. ``payload_json`` = vollständige SendRequest als JSON.
