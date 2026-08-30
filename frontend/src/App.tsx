@@ -5,7 +5,6 @@ import { DialogHost } from "./lib/dialog";
 import { Login } from "./pages/Login";
 import { Mail } from "./pages/Mail";
 import { Wordmark } from "./components/Wordmark";
-import { LangPicker } from "./components/LangPicker";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // Lazy-Import mit Selbstheilung: schlägt das Laden eines Chunks fehl — typisch
@@ -41,9 +40,10 @@ const Sync = lazyWithReload(() => import("./pages/Sync").then((m) => ({ default:
 const Admin = lazyWithReload(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
 const Rules = lazyWithReload(() => import("./pages/Rules").then((m) => ({ default: m.Rules })));
 const Notify = lazyWithReload(() => import("./pages/Notify").then((m) => ({ default: m.Notify })));
+const Settings = lazyWithReload(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 const TotpSettings = lazyWithReload(() => import("./components/TotpSettings").then((m) => ({ default: m.TotpSettings })));
 
-type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin" | "rules" | "notify";
+type View = "mail" | "calendar" | "contacts" | "notes" | "sync" | "accounts" | "admin" | "rules" | "notify" | "settings";
 
 // --- Theme-Anpassung: eigene Farben als CSS-Variablen-Overrides ---------------
 type ThemeCustom = { bg: string; surface: string; text: string; accent: string; unread: string };
@@ -88,12 +88,14 @@ const APPS: AppItem[] = [
   { key: "contacts", labelKey: "nav.contacts", icon: "📇" },
   { key: "notes", labelKey: "nav.notes", icon: "🗒" },
 ];
-// Im Benutzer-Menü: Sync & Export + Einstellungen.
-const SETTINGS: AppItem[] = [
+// Benutzer-Menü: NUR Sprungziele, keine Schalter. Alles Einstellbare liegt hinter
+// „Einstellungen" — ein Klapp-Menü ist zum Springen da, nicht zum Konfigurieren.
+const MENU: AppItem[] = [
+  { key: "accounts", labelKey: "nav.accounts", icon: "⚙" },
+  { key: "rules", labelKey: "nav.rules", icon: "🔀" },
   { key: "notify", labelKey: "nav.notify", icon: "🔔" },
   { key: "sync", labelKey: "nav.sync", icon: "🔄" },
-  { key: "rules", labelKey: "nav.rules", icon: "🔀" },
-  { key: "accounts", labelKey: "nav.accounts", icon: "⚙" },
+  { key: "settings", labelKey: "nav.settings", icon: "🎛" },
   { key: "admin", labelKey: "nav.admin", icon: "👥", adminOnly: true },
 ];
 
@@ -116,21 +118,25 @@ export function App() {
   const [pwBusy, setPwBusy] = useState(false);
   const [theme, setTheme] = useState<string>(() => localStorage.getItem("selfmailer.theme") || "dark");
   const [pollMin, setPollMin] = useState<number>(() => {
-    const v = Number(localStorage.getItem("selfmailer.pollMin"));
+    // Erst auf "noch nie gesetzt" prüfen: Number(null) ist 0, und 0 ist hier ein
+    // GÜLTIGER Wert ("Aus"). Ohne diese Zeile fiel jede frische Installation auf
+    // 0 zurück — der Auto-Abruf war also standardmäßig aus, obwohl 5 Minuten
+    // gemeint waren.
+    const raw = localStorage.getItem("selfmailer.pollMin");
+    if (raw === null) return 5;
+    const v = Number(raw);
     return [0, 1, 5, 15, 30].includes(v) ? v : 5;
   });
-  // Externe Bilder (Tracking-Pixel) standardmäßig blockieren — Datenschutz/Sicherheit.
-  const [blockImages, setBlockImages] = useState<boolean>(() => localStorage.getItem("selfmailer.blockImages") !== "0");
-  // Helle Mails automatisch in den dunklen Look umfaerben (global; pro Mail übersteuerbar).
-  // Default AN: der früher unlesbare Fall (hell-auf-hell) lag an einem Bug im Dunkel-Stil
-  // (Hintergrund wurde mitinvertiert) — behoben. Pro Mail per 🌙/☀️ umschaltbar.
-  const [darkMail, setDarkMail] = useState<boolean>(() => localStorage.getItem("selfmailer.darkMail") !== "0");
-  // Speicheranzeige (Quota-Balken) in der Postfachliste. Default AN; wer sie nicht
-  // braucht, blendet sie hier aus (rein lokale Anzeige-Einstellung).
-  const [showQuota, setShowQuota] = useState<boolean>(() => localStorage.getItem("selfmailer.showQuota") !== "0");
-  // „⤓ mbox"-Knopf (Ordner als .mbox exportieren) in der Listen-Leiste. Default AN;
-  // wer ihn nicht braucht, blendet ihn hier aus (rein lokale Anzeige-Einstellung).
-  const [showMbox, setShowMbox] = useState<boolean>(() => localStorage.getItem("selfmailer.showMbox") !== "0");
+  // Diese vier waren einmal Schalter im Benutzermenü — jetzt sind sie entschieden.
+  //
+  // Externe Bilder bleiben IMMER blockiert (Tracking-Pixel). Wer eine einzelne Mail
+  // vollständig sehen will, hat dafür weiterhin „Bilder anzeigen" im Lesekopf.
+  // Speicheranzeige und mbox-Export sind einfach da, statt hinter einem Schalter.
+  // Ein Schalter, den man einmal setzt oder nie, ist keine Einstellung — er ist eine
+  // Entscheidung, die dem Nutzer aufgehalst wurde.
+  const blockImages = true;
+  const showQuota = true;
+  const showMbox = true;
   // Markierte (Stern-)Mails oben anheften. Default AUS — die gewohnte rein
   // chronologische Liste bleibt damit die Voreinstellung.
   // GETEILTE Einstellung: der Server ist die Wahrheit (damit die Android-App
@@ -160,10 +166,6 @@ export function App() {
     localStorage.setItem("selfmailer.theme", theme);
   }, [theme]);
   useEffect(() => { localStorage.setItem("selfmailer.pollMin", String(pollMin)); }, [pollMin]);
-  useEffect(() => { localStorage.setItem("selfmailer.blockImages", blockImages ? "1" : "0"); }, [blockImages]);
-  useEffect(() => { localStorage.setItem("selfmailer.darkMail", darkMail ? "1" : "0"); }, [darkMail]);
-  useEffect(() => { localStorage.setItem("selfmailer.showQuota", showQuota ? "1" : "0"); }, [showQuota]);
-  useEffect(() => { localStorage.setItem("selfmailer.showMbox", showMbox ? "1" : "0"); }, [showMbox]);
   // Version einmalig holen. Scheitert das, bleibt die Anzeige leer statt eine
   // Fehlermeldung zu zeigen — die Versionsnummer ist Information, kein Feature.
   useEffect(() => {
@@ -243,7 +245,10 @@ export function App() {
 
   const isAdmin = user.role === "admin";
   const apps = APPS;
-  const settings = SETTINGS.filter((s) => !s.adminOnly || isAdmin);
+  const menuItems = MENU.filter((s) => !s.adminOnly || isAdmin);
+  // Mail-Ansicht folgt dem App-Theme: im dunklen Design werden helle Mails
+  // eingefärbt, im hellen bleiben sie im Original. Pro Mail weiter umschaltbar.
+  const darkMail = theme === "dark";
 
   function go(v: View) { setView(v); setMenu(null); }
   function logout() {
@@ -360,89 +365,12 @@ export function App() {
             <div className="user-menu-mail">{user.username}{isAdmin && <span className="user-menu-role">{t("shell.adminBadge")}</span>}</div>
           </div>
 
-          <div className="user-menu-section">{t("menu.manage")}</div>
-          {settings.map((s) => (
+          {menuItems.map((s) => (
             <button key={s.key} onClick={() => go(s.key)}>
               <span className="user-menu-ico">{s.icon}</span>
               <span className="user-menu-label">{t(s.labelKey)}</span>
             </button>
           ))}
-
-          <div className="user-menu-section">{t("menu.security")}</div>
-          <button onClick={openPw}>
-            <span className="user-menu-ico">🔑</span>
-            <span className="user-menu-label">{t("user.changePassword")}</span>
-          </button>
-          <button onClick={() => { setMenu(null); setTotpOpen(true); }}>
-            <span className="user-menu-ico">🛡</span>
-            <span className="user-menu-label">{t("totp.menu")}</span>
-          </button>
-          <button onClick={() => setBlockImages((b) => !b)}>
-            <span className="user-menu-ico">🖼</span>
-            <span className="user-menu-label">{t("shell.blockImages")}</span>
-            <span className={blockImages ? "um-switch on" : "um-switch"} />
-          </button>
-          <button onClick={() => setPinFlagged((b) => !b)}>
-            <span className="user-menu-ico">⭐</span>
-            <span className="user-menu-label">{t("shell.pinFlagged")}</span>
-            <span className={pinFlagged ? "um-switch on" : "um-switch"} />
-          </button>
-          <button onClick={() => setConversationView((b) => !b)}>
-            <span className="user-menu-ico">💬</span>
-            <span className="user-menu-label">{t("shell.conversationView")}</span>
-            <span className={conversationView ? "um-switch on" : "um-switch"} />
-          </button>
-          <button onClick={() => setShowQuota((b) => !b)}>
-            <span className="user-menu-ico">💾</span>
-            <span className="user-menu-label">{t("shell.showQuota")}</span>
-            <span className={showQuota ? "um-switch on" : "um-switch"} />
-          </button>
-          <button onClick={() => setShowMbox((b) => !b)}>
-            <span className="user-menu-ico">⤓</span>
-            <span className="user-menu-label">{t("shell.showMbox")}</span>
-            <span className={showMbox ? "um-switch on" : "um-switch"} />
-          </button>
-
-          <div className="user-menu-section">{t("menu.appearance")}</div>
-          <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
-            <span className="user-menu-ico">🌐</span>
-            <span className="user-menu-label">{t("shell.langSwitch")}</span>
-            <LangPicker />
-          </div>
-          <button onClick={() => setTheme((tm) => (tm === "dark" ? "light" : "dark"))}>
-            <span className="user-menu-ico">{theme === "dark" ? "☀" : "🌙"}</span>
-            <span className="user-menu-label">{theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}</span>
-          </button>
-          <button onClick={() => setDarkMail((b) => !b)}>
-            <span className="user-menu-ico">🌗</span>
-            <span className="user-menu-label">{t("shell.darkMail")}</span>
-            <span className={darkMail ? "um-switch on" : "um-switch"} />
-          </button>
-          <button onClick={() => { setMenu(null); setDesignOpen(true); }}>
-            <span className="user-menu-ico">🎨</span>
-            <span className="user-menu-label">{t("shell.design")}</span>
-          </button>
-          <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
-            <span className="user-menu-ico">🔠</span>
-            <span className="user-menu-label">{t("shell.textSize")}</span>
-            <select value={uiScale} onChange={(e) => setUiScale(Number(e.target.value))}>
-              <option value={100}>100%</option>
-              <option value={110}>110%</option>
-              <option value={125}>125%</option>
-              <option value={150}>150%</option>
-            </select>
-          </div>
-          <div className="user-menu-row" onClick={(e) => e.stopPropagation()}>
-            <span className="user-menu-ico">🔄</span>
-            <span className="user-menu-label">{t("shell.autoRefresh")}</span>
-            <select value={pollMin} onChange={(e) => setPollMin(Number(e.target.value))}>
-              <option value={0}>{t("shell.autoOff")}</option>
-              <option value={1}>1 min</option>
-              <option value={5}>5 min</option>
-              <option value={15}>15 min</option>
-              <option value={30}>30 min</option>
-            </select>
-          </div>
 
           <hr />
           <button className="user-menu-logout" onClick={logout}>
@@ -477,6 +405,24 @@ export function App() {
             {view === "notify" && <Notify />}
             {view === "accounts" && <Accounts />}
             {view === "rules" && <Rules />}
+            {view === "settings" && (
+              <Settings
+                theme={theme}
+                onTheme={setTheme}
+                uiScale={uiScale}
+                onUiScale={setUiScale}
+                pollMin={pollMin}
+                onPollMin={setPollMin}
+                pinFlagged={pinFlagged}
+                onPinFlagged={setPinFlagged}
+                conversationView={conversationView}
+                onConversationView={setConversationView}
+                onOpenDesign={() => setDesignOpen(true)}
+                onOpenPassword={openPw}
+                onOpenTotp={() => setTotpOpen(true)}
+                appVersion={appVersion}
+              />
+            )}
             {view === "admin" && isAdmin && <Admin meId={user.id} />}
           </Suspense>
         </ErrorBoundary>

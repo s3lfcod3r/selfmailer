@@ -25,6 +25,8 @@ export const el: Dict = {
   "nav.admin": "Διαχείριση",
   "nav.rules": "Κανόνες",
   "nav.notify": "Ειδοποιήσεις",
+  "nav.settings": "Ρυθμίσεις",
+  "settings.general": "Γενικά",
   "rules.new": "Νέος κανόνας",
   "rules.to": "Προς (παραλήπτης)",
   "rules.valuePlaceholder": "περιέχει … (πολλά με κόμμα: slot, casino, bonus)",

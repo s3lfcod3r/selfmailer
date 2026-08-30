@@ -25,6 +25,8 @@ export const nl: Dict = {
   "nav.admin": "Beheer",
   "nav.rules": "Regels",
   "nav.notify": "Meldingen",
+  "nav.settings": "Instellingen",
+  "settings.general": "Algemeen",
   "rules.new": "Nieuwe regel",
   "rules.to": "Aan (ontvanger)",
   "rules.valuePlaceholder": "bevat … (meerdere met komma's: slot, casino, bonus)",

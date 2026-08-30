@@ -25,6 +25,8 @@ export const sv: Dict = {
   "nav.admin": "Administration",
   "nav.rules": "Regler",
   "nav.notify": "Aviseringar",
+  "nav.settings": "Inställningar",
+  "settings.general": "Allmänt",
   "rules.new": "Ny regel",
   "rules.to": "Till (mottagare)",
   "rules.valuePlaceholder": "innehåller … (flera med komma: slot, casino, bonus)",

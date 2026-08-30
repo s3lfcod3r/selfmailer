@@ -25,6 +25,8 @@ export const da: Dict = {
   "nav.admin": "Administration",
   "nav.rules": "Regler",
   "nav.notify": "Notifikationer",
+  "nav.settings": "Indstillinger",
+  "settings.general": "Generelt",
   "rules.new": "Ny regel",
   "rules.to": "Til (modtager)",
   "rules.valuePlaceholder": "indeholder … (flere med komma: slot, casino, bonus)",

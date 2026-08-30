@@ -1168,3 +1168,45 @@ button:focus-visible {
 /* ---- Leere Zustände: ruhiges Symbol statt verlorenem Mini-Satz ------------- */
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.7rem; }
 .empty-state .empty-ico { font-size: 2.8rem; opacity: 0.3; filter: grayscale(35%); }
+
+/* ---- Einstellungen-Seite ------------------------------------------------
+   Ersetzt die Schalter-Wand im Benutzermenü. Aufbau bewusst wie in mobilen
+   Systemeinstellungen: wenige Gruppen, je Gruppe eine Karte, in der Karte
+   ruhige Zeilen mit Haarlinie dazwischen. Label links, Bedienelement rechts —
+   das Auge läuft eine Kante entlang statt über wechselnde Einrückungen. */
+.set-page { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.6rem; }
+.set-title { margin: 0; font-size: 1.3rem; font-weight: 700; }
+.set-group { display: flex; flex-direction: column; gap: 0.45rem; }
+.set-group-title {
+  margin: 0; padding-left: 0.15rem;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--self-text-3);
+}
+.set-card {
+  background: var(--self-bg-2);
+  border: 1px solid var(--self-line);
+  border-radius: var(--self-radius);
+  overflow: hidden;
+}
+.set-row {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-top: 1px solid var(--self-line);
+}
+.set-row:first-child { border-top: none; }
+.set-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.set-row-label { color: var(--self-text); font-size: 0.94rem; }
+.set-row-hint { color: var(--self-text-2); font-size: 0.79rem; line-height: 1.4; }
+.set-row-control { flex: 0 0 auto; display: flex; align-items: center; gap: 0.5rem; }
+.set-row-control select { min-width: 7.5rem; }
+/* Der Schalter ist ein <button role="switch"> — er braucht denselben Look wie im
+   Menü, aber ohne dessen Button-Grundstil (Rahmen/Hover). */
+.set-row-control .um-switch { border: none; padding: 0; cursor: pointer; }
+.set-row-control .um-switch:hover { border: none; }
+.set-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding-top: 0.4rem; border-top: 1px solid var(--self-line);
+  color: var(--self-text-3); font-size: 0.8rem;
+}
+.set-foot a { color: var(--self-text-2); text-decoration: none; }
+.set-foot a:hover { color: var(--self-teal-bright); }

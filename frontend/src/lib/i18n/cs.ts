@@ -25,6 +25,8 @@ export const cs: Dict = {
   "nav.admin": "Správa",
   "nav.rules": "Pravidla",
   "nav.notify": "Oznámení",
+  "nav.settings": "Nastavení",
+  "settings.general": "Obecné",
   "rules.new": "Nové pravidlo",
   "rules.to": "Komu (příjemce)",
   "rules.valuePlaceholder": "obsahuje … (více položek čárkou: slot, casino, bonus)",

@@ -27,6 +27,8 @@ export const en = {
   "nav.admin": "Administration",
   "nav.rules": "Rules",
   "nav.notify": "Notifications",
+  "nav.settings": "Settings",
+  "settings.general": "General",
   "rules.new": "New rule",
   "rules.to": "To (recipient)",
   "rules.valuePlaceholder": "contains … (several with commas: slot, casino, bonus)",
