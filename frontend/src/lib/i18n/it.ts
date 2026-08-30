@@ -148,6 +148,7 @@ export const it: Dict = {
   "accounts.appPassword": "Password / password per app",
   "accounts.imapHost": "Host IMAP (ad es. imap.web.de)",
   "accounts.smtpHost": "Host SMTP (ad es. smtp.web.de)",
+  "accounts.serverSettings": "Impostazioni del server",
   "accounts.save": "Salva account",
   "accounts.test": "Prova la connessione",
   "accounts.empty": "Ancora nessun account. Creane uno qui sopra.",

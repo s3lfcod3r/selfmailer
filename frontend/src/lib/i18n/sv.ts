@@ -148,6 +148,7 @@ export const sv: Dict = {
   "accounts.appPassword": "Lösenord / app-lösenord",
   "accounts.imapHost": "IMAP-värd (t.ex. imap.web.de)",
   "accounts.smtpHost": "SMTP-värd (t.ex. smtp.web.de)",
+  "accounts.serverSettings": "Serverinställningar",
   "accounts.save": "Spara konto",
   "accounts.test": "Testa anslutning",
   "accounts.empty": "Inget konto ännu. Skapa ett ovan.",

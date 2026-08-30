@@ -148,6 +148,7 @@ export const el: Dict = {
   "accounts.appPassword": "Κωδικός / κωδικός εφαρμογής",
   "accounts.imapHost": "Host IMAP (π.χ. imap.web.de)",
   "accounts.smtpHost": "Host SMTP (π.χ. smtp.web.de)",
+  "accounts.serverSettings": "Ρυθμίσεις διακομιστή",
   "accounts.save": "Αποθήκευση λογαριασμού",
   "accounts.test": "Δοκιμή σύνδεσης",
   "accounts.empty": "Δεν υπάρχει λογαριασμός ακόμη. Δημιουργήστε έναν παραπάνω.",

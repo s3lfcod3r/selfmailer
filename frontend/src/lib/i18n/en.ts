@@ -150,6 +150,7 @@ export const en = {
   "accounts.appPassword": "Password / app password",
   "accounts.imapHost": "IMAP host (e.g. imap.web.de)",
   "accounts.smtpHost": "SMTP host (e.g. smtp.web.de)",
+  "accounts.serverSettings": "Server settings",
   "accounts.save": "Save account",
   "accounts.test": "Test connection",
   "accounts.empty": "No account yet. Create one above.",

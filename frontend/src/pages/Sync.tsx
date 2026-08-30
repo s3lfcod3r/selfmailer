@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, copyText, type Account, type DavAccount, type DavKind, type FeedToken, type GcalCalendar, type MigrateResult, type SyncResult } from "../lib/api";
 import { useLang, dateLocale, type Lang, type TFunc } from "../lib/i18n";
+import { Fold } from "../components/Fold";
 import { confirmDialog } from "../lib/dialog";
 import { safeLinkUrl } from "../lib/url";
 
@@ -25,6 +26,7 @@ export function Sync() {
   const [form, setForm] = useState({ ...EMPTY });
   // Bearbeiten-Modus: editId = welches Konto, editForm = dessen Felder.
   const [editId, setEditId] = useState<number | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
   const [editForm, setEditForm] = useState({ ...EDIT_EMPTY });
   const [busy, setBusy] = useState<number | null>(null);
   const [note, setNote] = useState("");
@@ -150,6 +152,7 @@ export function Sync() {
     try {
       await api.post<DavAccount>("/dav/accounts", form);
       setForm({ ...EMPTY });
+      setShowAdd(false);   // nach dem Anlegen zeigt die Liste das Ergebnis
       load();
     } catch (e) { setErr((e as Error).message); }
   }
@@ -264,9 +267,7 @@ export function Sync() {
 
       {/* Postfach-Migration: aus einem Quellkonto (z. B. Synology IMAP) in die
           passenden Zielkonten anhand des Empfängers. */}
-      <section className="stack">
-        <div className="label">{t("mig.heading")}</div>
-        <p className="muted" style={{ margin: 0 }}>{t("mig.hint")}</p>
+        <Fold title={<>{t("mig.heading")}</>} hint={<>{t("mig.hint")}</>}>
         <div className="card stack" style={{ padding: "1rem" }}>
           <div className="row" style={{ flexWrap: "wrap" }}>
             <select value={mig.sourceId} onChange={(e) => setMig((m) => ({ ...m, sourceId: Number(e.target.value) }))}>
@@ -304,12 +305,10 @@ export function Sync() {
             </div>
           )}
         </div>
-      </section>
+        </Fold>
 
       {/* Abonnierbare Export-Feeds */}
-      <section className="stack">
-        <div className="label">{t("sync.feedHeading")}</div>
-        <p className="muted" style={{ margin: 0 }}>{t("sync.feedHint")}</p>
+        <Fold title={<>{t("sync.feedHeading")}</>} hint={<>{t("sync.feedHint")}</>} defaultOpen>
         {feed && (
           <div className="stack">
             {[
@@ -332,17 +331,13 @@ export function Sync() {
             </div>
           </div>
         )}
-      </section>
+        </Fold>
 
       {/* Schreib-Token fürs Dashboard / Kalender-Widget (getrennt vom Lese-Token) */}
-      <section className="stack">
-        <div className="label">Schreib-Token (Dashboard / Kalender-Widget)</div>
-        <p className="muted" style={{ margin: 0 }}>
-          Nur dieser Token darf Termine <b>anlegen, ändern und löschen</b>. Trage ihn im
+        <Fold title={<>Schreib-Token (Dashboard / Kalender-Widget)</>} hint={<>Nur dieser Token darf Termine <b>anlegen, ändern und löschen</b>. Trage ihn im
           SelfDashboard-Plugin „SelfMailer Kalender" als Token ein. Verwende ihn <b>nicht</b>
           {" "}in .ics-Abo-URLs — dafür ist der obige Nur-Lese-Token da (ein geleakter Abo-Link
-          kann so nichts verändern).
-        </p>
+          kann so nichts verändern).</>}>
         {writeTok ? (
           <div className="card row" style={{ padding: "0.7rem 1rem" }}>
             <div className="grow" style={{ overflow: "hidden" }}>
@@ -355,17 +350,13 @@ export function Sync() {
         ) : (
           <div className="row"><button className="ghost" onClick={showWriteToken}>Schreib-Token anzeigen</button></div>
         )}
-      </section>
+        </Fold>
 
       {/* Automatische Kalender-Erkennung (Discovery) */}
-      <section className="stack">
-        <div className="label">Kalender automatisch finden</div>
-        <p className="muted" style={{ margin: 0 }}>
-          Server-Adresse + E-Mail + Passwort eingeben — SelfMailer sucht die Kalender selbst.
+        <Fold title={<>Kalender automatisch finden</>} hint={<>Server-Adresse + E-Mail + Passwort eingeben — SelfMailer sucht die Kalender selbst.
           Beispiele: web.de <code>https://caldav.web.de</code>, GMX <code>https://caldav.gmx.net</code>,
           iCloud <code>https://caldav.icloud.com</code> (App-Passwort), Nextcloud die eigene Server-Adresse.
-          <strong>Google geht so NICHT</strong> (verlangt OAuth) — dafür unten die iCal-Abo-URL nutzen.
-        </p>
+          <strong>Google geht so NICHT</strong> (verlangt OAuth) — dafür unten die iCal-Abo-URL nutzen.</>}>
         <form className="card stack" style={{ padding: "1rem" }} onSubmit={runDiscover}>
           <div className="row" style={{ flexWrap: "wrap" }}>
             <select value={disc.kind} onChange={(e) => setDisc((d) => ({ ...d, kind: e.target.value as DavKind }))}>
@@ -396,16 +387,12 @@ export function Sync() {
             ))}
           </div>
         )}
-      </section>
+        </Fold>
 
       {/* iCal-Feed abonnieren (read-only) — der einfache Google-Weg ohne OAuth */}
-      <section className="stack">
-        <div className="label">Kalender per iCal-URL abonnieren (read-only)</div>
-        <p className="muted" style={{ margin: 0 }}>
-          Für <strong>Google</strong> (das kein App-Passwort erlaubt): in Google Kalender →
+        <Fold title={<>Kalender per iCal-URL abonnieren (read-only)</>} hint={<>Für <strong>Google</strong> (das kein App-Passwort erlaubt): in Google Kalender →
           Einstellungen → den Kalender wählen → „Geheime Adresse im iCal-Format" kopieren und hier einfügen.
-          Funktioniert auch für jeden anderen .ics-Feed. Nur Anzeigen (kein Zurückschreiben).
-        </p>
+          Funktioniert auch für jeden anderen .ics-Feed. Nur Anzeigen (kein Zurückschreiben).</>}>
         <form className="card stack" style={{ padding: "1rem" }} onSubmit={addIcs}>
           <div className="row">
             <input placeholder="Name (z. B. Google privat)" value={ics.label}
@@ -417,20 +404,16 @@ export function Sync() {
             <button className="primary">Abonnieren</button>
           </div>
         </form>
-      </section>
+        </Fold>
 
       {/* Google-Kalender via OAuth (zwei Wege, sobald Schreiben aktiv ist) */}
-      <section className="stack">
-        <div className="label">Google-Kalender verbinden (OAuth)</div>
-        <p className="muted" style={{ margin: 0 }}>
-          Google verlangt OAuth (App-Passwort geht nicht). Einmalige Einrichtung in der{" "}
+        <Fold title={<>Google-Kalender verbinden (OAuth)</>} hint={<>Google verlangt OAuth (App-Passwort geht nicht). Einmalige Einrichtung in der{" "}
           <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Google Cloud Console</a>:
           OAuth-Client (Webanwendung) anlegen, als Redirect <code>https://developers.google.com/oauthplayground</code> eintragen,
           Google-Calendar-API aktivieren. Dann im{" "}
           <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noreferrer">OAuth Playground</a>{" "}
           (Zahnrad → „Use your own OAuth credentials") mit Scope{" "}
-          <code>https://www.googleapis.com/auth/calendar</code> ein <strong>refresh_token</strong> holen und hier eintragen.
-        </p>
+          <code>https://www.googleapis.com/auth/calendar</code> ein <strong>refresh_token</strong> holen und hier eintragen.</>}>
         <form className="card stack" style={{ padding: "1rem" }} onSubmit={addGoogle}>
           <input placeholder="Google-E-Mail" value={goog.email}
                  onChange={(e) => setGoog((g) => ({ ...g, email: e.target.value }))} required />
@@ -446,16 +429,12 @@ export function Sync() {
             <button className="primary" disabled={googBusy}>{googBusy ? "Prüfe…" : "Verbinden"}</button>
           </div>
         </form>
-      </section>
+        </Fold>
 
       {/* Kalender ein-/ausblenden (z. B. „Kalenderwochen" weg) */}
       {Object.values(calsByAcc).some((c) => c.length > 0) && (
-        <section className="stack">
-          <div className="label">Kalender anzeigen / ausblenden</div>
-          <p className="muted" style={{ margin: 0 }}>
-            Häkchen entfernt = Kalender ausgeblendet (z. B. „Kalenderwochen"/„Feiertage").
-            Der ★ markiert den <strong>Standardkalender</strong> — dort landen neue Termine vorausgewählt.
-          </p>
+          <Fold title={<>Kalender anzeigen / ausblenden</>} hint={<>Häkchen entfernt = Kalender ausgeblendet (z. B. „Kalenderwochen"/„Feiertage").
+            Der ★ markiert den <strong>Standardkalender</strong> — dort landen neue Termine vorausgewählt.</>} defaultOpen>
           {accounts.filter((a) => a.kind === "gcal").map((a) => (
             <div className="card stack" style={{ padding: "0.8rem 1rem" }} key={a.id}>
               <div style={{ fontWeight: 600 }}>{a.label || a.username}</div>
@@ -479,15 +458,17 @@ export function Sync() {
               })}
             </div>
           ))}
-        </section>
+          </Fold>
       )}
 
       {/* Externe CalDAV/CardDAV-Konten */}
-      <section className="stack">
+      <Fold title={<>{t("sync.externalHeading")}</>} badge={accounts.length || undefined} defaultOpen>
         <div className="row">
-          <div className="label grow">{t("sync.externalHeading")}</div>
+          <span className="grow" />
           {accounts.length > 0 && <button className="ghost" onClick={syncAll}>Alle abgleichen</button>}
+          {!showAdd && <button className="ghost" onClick={() => setShowAdd(true)}>＋ {t("common.add")}</button>}
         </div>
+        {showAdd && (
         <form className="card stack" style={{ padding: "1rem" }} onSubmit={add}>
           <div className="row">
             <select value={form.kind} onChange={(e) => set("kind", e.target.value as DavKind)}>
@@ -503,10 +484,12 @@ export function Sync() {
             <input type="password" placeholder={t("sync.appToken")} value={form.password}
                    onChange={(e) => set("password", e.target.value)} required />
             <button className="primary">{t("common.add")}</button>
+            <button type="button" className="ghost" onClick={() => setShowAdd(false)}>{t("common.cancel")}</button>
           </div>
         </form>
+        )}
 
-        {accounts.length === 0 && <p className="muted">{t("sync.externalEmpty")}</p>}
+        {accounts.length === 0 && !showAdd && <p className="muted">{t("sync.externalEmpty")}</p>}
         <div className="stack">
           {accounts.map((acc) => (
             editId === acc.id ? (
@@ -547,7 +530,7 @@ export function Sync() {
             )
           ))}
         </div>
-      </section>
+      </Fold>
     </div>
   );
 }

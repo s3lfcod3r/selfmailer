@@ -148,6 +148,7 @@ export const cs: Dict = {
   "accounts.appPassword": "Heslo / heslo aplikace",
   "accounts.imapHost": "IMAP server (např. imap.web.de)",
   "accounts.smtpHost": "SMTP server (např. smtp.web.de)",
+  "accounts.serverSettings": "Nastavení serveru",
   "accounts.save": "Uložit účet",
   "accounts.test": "Otestovat připojení",
   "accounts.empty": "Zatím žádný účet. Vytvořte ho výše.",

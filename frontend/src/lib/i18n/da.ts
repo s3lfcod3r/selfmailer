@@ -148,6 +148,7 @@ export const da: Dict = {
   "accounts.appPassword": "Adgangskode / app-adgangskode",
   "accounts.imapHost": "IMAP-host (f.eks. imap.web.de)",
   "accounts.smtpHost": "SMTP-host (f.eks. smtp.web.de)",
+  "accounts.serverSettings": "Serverindstillinger",
   "accounts.save": "Gem konto",
   "accounts.test": "Test forbindelse",
   "accounts.empty": "Ingen konto endnu. Opret en ovenfor.",

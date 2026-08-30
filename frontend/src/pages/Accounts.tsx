@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Account } from "../lib/api";
 import { useLang } from "../lib/i18n";
+import { Fold } from "../components/Fold";
 import { confirmDialog } from "../lib/dialog";
 import { RichEditor } from "../components/RichEditor";
 import { IdentityManager } from "../components/IdentityManager";
@@ -113,6 +114,7 @@ export function Accounts() {
           <input type="password" placeholder={isEdit ? t("accounts.passwordKeep") : ""} value={f.password}
             onChange={(e) => upd({ password: e.target.value })} required={!isEdit} />
         </label>
+        <Fold title={t("accounts.serverSettings")} defaultOpen={!isEdit}>
         <fieldset className="acc-fieldset">
           <legend>IMAP</legend>
           <div className="acc-grid">
@@ -133,6 +135,7 @@ export function Accounts() {
           </div>
           <label className="acc-check"><input type="checkbox" checked={f.smtp_starttls} onChange={(e) => upd({ smtp_starttls: e.target.checked })} /> STARTTLS</label>
         </fieldset>
+        </Fold>
       </div>
     );
   }
@@ -176,15 +179,22 @@ export function Accounts() {
             {editId === a.id && (
               <div className="stack" style={{ gap: "0.9rem", marginTop: "0.8rem" }}>
                 {fields(editForm, (p) => setEditForm((f) => ({ ...f, ...p })), true)}
-                <div className="stack" style={{ gap: "0.35rem" }}>
-                  <span className="label">✍ {t("accounts.signature")}</span>
+                {/* Signatur, Aliase, Abwesenheit, Spam und Papierkorb standen
+                    alle gleichzeitig offen, sobald man auf "Bearbeiten" klickte.
+                    Jeder Block ist fuer sich selten — jetzt zeigt der Bereich
+                    erst einmal nur, was es gibt. */}
+                <Fold title={<>✍ {t("accounts.signature")}</>}>
                   <RichEditor value={editForm.signature} onChange={(html) => setEditForm((f) => ({ ...f, signature: html }))}
                     placeholder={t("accounts.signaturePlaceholder")} />
-                </div>
-                <IdentityManager accountId={a.id} />
-                <VacationManager accountId={a.id} />
+                </Fold>
+                <Fold title={<>👤 {t("identities.section")}</>}>
+                  <IdentityManager accountId={a.id} />
+                </Fold>
+                <Fold title={<>🏖 {t("vacation.section")}</>}>
+                  <VacationManager accountId={a.id} />
+                </Fold>
+                <Fold title={<>🗑 {t("accounts.spamSection")}</>}>
                 <fieldset className="acc-fieldset">
-                  <legend>🗑 {t("accounts.spamSection")}</legend>
                   <label className="stack" style={{ gap: "0.35rem" }}>
                     <span className="label">{t("accounts.spamPurgeLabel")}</span>
                     <select value={editForm.spam_purge_days}
@@ -198,8 +208,9 @@ export function Accounts() {
                   <p className="mail-from" style={{ margin: "0.4rem 0 0.6rem" }}>{t("accounts.spamPurgeHint")}</p>
                   <button type="button" className="ghost" onClick={() => purgeSpamNow(a)}>{t("accounts.spamPurgeNow")}</button>
                 </fieldset>
+                </Fold>
+                <Fold title={<>♻ {t("accounts.trashSection")}</>}>
                 <fieldset className="acc-fieldset">
-                  <legend>♻ {t("accounts.trashSection")}</legend>
                   <label className="stack" style={{ gap: "0.35rem" }}>
                     <span className="label">{t("accounts.trashPurgeLabel")}</span>
                     <select value={editForm.trash_purge_days}
@@ -213,6 +224,7 @@ export function Accounts() {
                   <p className="mail-from" style={{ margin: "0.4rem 0 0.6rem" }}>{t("accounts.trashPurgeHint")}</p>
                   <button type="button" className="ghost" onClick={() => purgeTrashNow(a)}>{t("accounts.trashPurgeNow")}</button>
                 </fieldset>
+                </Fold>
                 <div className="row">
                   <button className="ghost" onClick={() => test(a)}>{t("accounts.test")}</button>
                   <span className="grow" />
