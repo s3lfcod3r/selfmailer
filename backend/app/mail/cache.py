@@ -17,7 +17,7 @@ from sqlalchemy import func, literal, update
 from sqlmodel import Session, select
 
 from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
-from .imap import FLAGGED, SEEN, _mailbox, _snippet, keywords_of, thread_headers
+from .imap import FLAGGED, SEEN, _detail_dict, _mailbox, _snippet, keywords_of, thread_headers
 
 # Obergrenze, wie viele (neueste) Mail-Köpfe pro Sync nachgeladen werden.
 # Bewusst nicht zu hoch: ein Lauf bleibt zeitlich beschaenkt; sehr große Ordner
@@ -34,6 +34,13 @@ _FLAG_WINDOW = 120
 # und ändert sich selten. Darum höchstens alle N Sekunden — häufige Ordner-
 # wechsel/Polls laufen dann nur noch billig (Status + UID-Diff).
 _FLAG_REFRESH_SECS = 25
+# Obergrenze für den Volltext, den der Sync gleich mit ablegt (JSON-Länge).
+# Der Fetch lädt die Mail ohnehin KOMPLETT (Snippet + Anhang-Flag brauchen den
+# Body), also kostet das Mitspeichern keine einzige zusätzliche IMAP-Runde — es
+# spart dem Frontend das zweite Holen derselben Mails über /messages/prefetch.
+# Der Deckel hält Ausreißer (bildlastige Newsletter) aus der DB; solche Mails
+# werden beim Öffnen wie bisher live geholt.
+_DETAIL_CACHE_MAX = 100 * 1024
 
 
 def _as_utc(value: dt.datetime | None) -> dt.datetime | None:
@@ -586,8 +593,15 @@ def hide_uids(session: Session, account_id: int, folder: str, uids: list[str]) -
     session.commit()
 
 
-def sync_folder(session: Session, account: MailAccount, password: str, folder: str, cap: int = _SYNC_CAP) -> dict:
-    """Gleicht den Cache eines Ordners mit dem Server ab (Delta-Sync)."""
+def sync_folder(
+    session: Session, account: MailAccount, password: str, folder: str,
+    cap: int = _SYNC_CAP, *, store_bodies: bool = True,
+) -> dict:
+    """Gleicht den Cache eines Ordners mit dem Server ab (Delta-Sync).
+
+    ``store_bodies``: den beim Fetch ohnehin geladenen Volltext gleich als
+    ``detail_json`` mit ablegen (siehe _DETAIL_CACHE_MAX). Standard an — nur
+    abschalten, wenn bewusst nur Kopfzeilen gepflegt werden sollen."""
     fetch_uids: list[str] = []
     with _mailbox(account, password, folder=folder) as box:
         try:
@@ -661,14 +675,29 @@ def sync_folder(session: Session, account: MailAccount, password: str, folder: s
                 mid = th["message_id"]
                 if mid and mid in cached_mids:
                     continue
-                session.add(CachedMessage(
+                row = CachedMessage(
                     account_id=account.id, folder=folder, uid=msg.uid,
                     subject=msg.subject or "", from_addr=msg.from_ or "", date_str=msg.date_str or "",
                     sort_date=_to_utc_naive(msg.date), seen=SEEN in msg.flags, flagged=FLAGGED in msg.flags,
                     snippet=_snippet(msg.text or "", msg.html or ""), has_attachments=bool(msg.attachments),
                     message_id=mid, in_reply_to=th["in_reply_to"], refs=th["references"],
                     keywords=" ".join(keywords_of(msg)),
-                ))
+                )
+                # Volltext gleich mit ablegen. Die Mail ist an dieser Stelle KOMPLETT
+                # geladen (Snippet und Anhang-Flag brauchen den Body) — bisher wurde
+                # sie danach weggeworfen und vom Frontend über /messages/prefetch ein
+                # ZWEITES Mal geholt. Genau das machte den Erstzugriff auf große
+                # Postfächer (Gmail) so zäh: dieselben Daten zweimal über IMAP.
+                # Anhang-Payloads landen NICHT in detail_json (nur deren Metadaten),
+                # der Eintrag bleibt also klein.
+                if store_bodies:
+                    try:
+                        detail = json.dumps(_detail_dict(msg, account), ensure_ascii=False)
+                        if len(detail) <= _DETAIL_CACHE_MAX:
+                            row.detail_json = detail
+                    except (TypeError, ValueError):
+                        pass  # nicht serialisierbar -> Body wird beim Öffnen live geholt
+                session.add(row)
                 if mid:
                     cached_mids.add(mid)
 

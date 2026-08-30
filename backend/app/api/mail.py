@@ -5,6 +5,7 @@ import datetime as _dt
 import json
 import logging
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
@@ -275,6 +276,37 @@ def delete_folder(
     return {"ok": True}
 
 
+# Wie viele Mails der ERSTE Zugriff auf einen noch ungecachten Ordner synchron
+# holt. Bewusst klein: der Nutzer soll eine Liste sehen, nicht auf ein ganzes
+# Postfach warten. Der Rest kommt unmittelbar danach im Hintergrund.
+_FIRST_SYNC_CAP = 20
+
+
+def _fill_folder_async(account_id: int, password: str, folder: str, cap: int, user_id: int) -> None:
+    """Nach dem Erstzugriff den Rest der ersten Seite(n) im Hintergrund nachladen.
+
+    Läuft auf einem eigenen Daemon-Thread mit EIGENER DB-Session (die Session des
+    Requests ist danach zu) und lädt das Konto frisch — ein über Sessiongrenzen
+    gereichtes Objekt wäre nicht verlässlich. Am Ende ein Live-Sync-Event, damit
+    die offene Liste die nachgeladenen Mails sofort zeigt.
+
+    Fire-and-forget: Fehler werden nur geloggt. Schlägt es fehl, holt der reguläre
+    Hintergrund-Sync die Mails beim nächsten Lauf ohnehin nach.
+    """
+    def _run() -> None:
+        try:
+            with Session(engine) as s:
+                acc = s.get(MailAccount, account_id)
+                if acc is None:
+                    return
+                cache_mod.sync_folder(s, acc, password, folder, cap=cap)
+            bus.publish(user_id, {"type": "mail", "account_id": account_id, "folder": folder})
+        except Exception:  # noqa: BLE001 - Nachladen ist Komfort, nie kritisch
+            logger.warning("Erst-Nachladen fehlgeschlagen (account_id=%s, folder=%s)", account_id, folder, exc_info=True)
+
+    threading.Thread(target=_run, name=f"first-fill-{account_id}", daemon=True).start()
+
+
 def _pin_flagged_first(msgs: list[dict], pin_flagged: bool) -> list[dict]:
     """Markierte Mails nach vorn — für die LIVE-Pfade, die der Cache-Sortierung
     (siehe cache.read_messages) sonst widersprechen würden. ``sorted`` ist stabil,
@@ -340,7 +372,13 @@ def messages(
     try:
         pw = _account_secret(acc)
         if not cache_mod.has_cache(session, account_id, folder):
-            cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
+            # ERSTZUGRIFF: nur eine kurze erste Seite synchron holen. Der Fetch lädt
+            # jede Mail komplett (Snippet/Anhang-Flag brauchen den Body) — bei großen
+            # Postfächern (Gmail, bildlastige Newsletter) ist genau das die lange
+            # Wartezeit. Mit _FIRST_SYNC_CAP steht die Liste nach wenigen Sekunden;
+            # den Rest zieht ein Hintergrund-Thread nach und meldet ihn per SSE.
+            cache_mod.sync_folder(session, acc, pw, folder, cap=_FIRST_SYNC_CAP)
+            _fill_folder_async(account_id, pw, folder, max(limit, 50), user.id)
         msgs = cache_mod.read_messages(
             session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged, keyword=kw
         )
