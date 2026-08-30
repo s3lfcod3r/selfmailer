@@ -1210,3 +1210,101 @@ button:focus-visible {
 }
 .set-foot a { color: var(--self-text-2); text-decoration: none; }
 .set-foot a:hover { color: var(--self-teal-bright); }
+
+/* ---- Mailliste: ruhige Zeile ------------------------------------------
+   Die Liste ist der Bildschirm, den man am längsten ansieht — hier zählt Ruhe
+   mehr als Dichte. Auswahlfeld, Stern und die beiden Aktionen sind da, wenn man
+   sie braucht: beim Überfahren, bei Tastatur-Fokus, sobald etwas ausgewählt ist.
+   Auf Touch-Geräten (kein Hover) bleiben sie dauerhaft sichtbar. */
+.mail-row { display: flex; align-items: flex-start; gap: 0.5rem; }
+
+.mail-row-pick,
+.mail-row-star {
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity var(--self-dur-fast) var(--self-ease);
+}
+.mail-row-pick { display: flex; align-items: center; padding-top: 0.3rem; }
+.mail-row-pick input { width: auto; margin: 0; }
+.mail-row-star {
+  background: none; border: none; cursor: pointer; padding: 0 0.1rem;
+  font-size: 0.95rem; line-height: 1.5; color: var(--self-text-3);
+}
+.mail-row-star:hover { color: var(--self-cyan); border: none; }
+/* Sichtbar bleiben, wenn sie Zustand tragen oder gebraucht werden. */
+.mail-row-star.on { opacity: 1; color: var(--self-cyan); }
+.mail-row-pick.shown,
+.mail-row:hover .mail-row-pick,
+.mail-row:hover .mail-row-star,
+.mail-row:focus-within .mail-row-pick,
+.mail-row:focus-within .mail-row-star,
+.mail-row.picked .mail-row-pick { opacity: 1; }
+
+.mail-row-top { display: flex; gap: 0.5rem; align-items: baseline; }
+.mail-row-from {
+  flex: 1; min-width: 0; font-size: 0.9rem; color: var(--self-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mail-row.unseen .mail-row-from { font-weight: 700; }
+.mail-row-date {
+  flex: 0 0 auto; font-size: 0.72rem; color: var(--self-text-3);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.mail-subj { display: flex; gap: 0.4rem; align-items: center; }
+.mail-row-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-row-clip { flex: 0 0 auto; font-size: 0.8rem; }
+.mail-row-snippet {
+  font-size: 0.78rem; color: var(--self-text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mail-row.picked { background: color-mix(in srgb, var(--self-teal) 10%, transparent); }
+
+.mail-row-actions { flex: 0 0 auto; display: flex; gap: 0.15rem; opacity: 0; transition: opacity var(--self-dur-fast) var(--self-ease); }
+.mail-row:hover .mail-row-actions,
+.mail-row:focus-within .mail-row-actions { opacity: 1; }
+.mail-row-actions button {
+  background: none; border: none; cursor: pointer; padding: 0 0.25rem;
+  color: var(--self-text-3); line-height: 1.4;
+}
+.mail-row-actions button:hover { color: var(--self-text); border: none; }
+/* Den Ungelesen-Zustand tragen bereits der Akzentbalken links und die fette
+   Schrift — der Punkt hier ist die AKTION "als gelesen markieren" und darf
+   deshalb mit den anderen Aktionen im Hover verschwinden. Nur seine Farbe
+   bleibt sprechend. */
+.mail-row-actions .is-unread { color: var(--self-unread); font-size: 1.1rem; line-height: 1; }
+
+/* Ohne Hover (Touch/Stift) gibt es kein Überfahren -> alles dauerhaft zeigen. */
+@media (hover: none) {
+  .mail-row-pick, .mail-row-star, .mail-row-actions { opacity: 1; }
+}
+
+/* Primäre Aktion im Lesekopf: der einzige gefüllte Knopf dort. */
+.icon-btn.accent {
+  background: var(--self-teal); border-color: var(--self-teal); color: #04110d;
+}
+.icon-btn.accent:hover {
+  background: var(--self-teal-bright); border-color: var(--self-teal-bright); color: #04110d;
+}
+
+/* Wer Animationen abgeschaltet hat, bekommt das Ein-/Ausblenden hart geschaltet
+   statt überblendet. (Nebeneffekt: in Hintergrund-Tabs, wo der Browser den
+   Compositor anhält, kann eine laufende Überblendung sonst stehenbleiben.) */
+@media (prefers-reduced-motion: reduce) {
+  .mail-row-pick, .mail-row-star, .mail-row-actions { transition: none; }
+}
+
+/* Antworten ist auch in der Thread-Karte die primaere Aktion — gleicher
+   Akzent wie .icon-btn.accent im Lesekopf, damit beide Koepfe gleich lesen. */
+.thread-msg-actions .ghost.accent { color: var(--self-teal); }
+.thread-msg-actions .ghost.accent:hover { background: var(--self-bg-3); }
+
+/* Avatar der Konversationszeile — sitzt an der Stelle, an der eine normale
+   Mailzeile nichts hat, und traegt die Teilnehmer. Feste Groesse, damit die
+   Betreffspalte in beiden Zeilenarten an derselben Kante beginnt. */
+.conv-row-avatar {
+  flex: 0 0 auto; width: 1.7rem; height: 1.7rem; margin-top: 0.1rem;
+  border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.68rem; font-weight: 700; color: #fff; object-fit: cover;
+}
+/* Die Plakette steht zwischen Namen und Datum in der oberen Zeile. */
+.conv-row .mail-row-top .conv-badge { margin-left: 0.1rem; }

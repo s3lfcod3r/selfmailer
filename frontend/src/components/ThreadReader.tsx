@@ -216,10 +216,14 @@ export function ThreadReader({
           }
           // Aktions-Leiste (kompakt, nur Icons) — sitzt OBEN in der Absenderzeile.
           // stopPropagation am Container, damit ein Klick nicht die Karte zuklappt.
+          // Aktions-Leiste - dasselbe Muster wie der Lesekopf: nur RE / DEL / MEHR
+          // als Dauer-Aktionen, alles Weitere liegt im Mehr-Menue. Davor stehen
+          // ausschliesslich KONTEXT-Schalter, die einen Zustand genau dieser
+          // Nachricht anzeigen (zitierter Verlauf, blockierte Bilder) - die
+          // verschwinden von selbst, wenn es nichts zu melden gibt.
+          // stopPropagation am Container, damit ein Klick nicht die Karte zuklappt.
           const actionsBar = isOpen && d ? (
             <div className="thread-msg-actions" onClick={(e) => e.stopPropagation()}>
-              <button className="ghost" onClick={() => onReply(d)} title={t("mail.reply")}>↩</button>
-              <button className="ghost" onClick={() => onForward(d)} title={t("mail.forward")}>↪</button>
               {hasQuote && (
                 <button className={`ghost ${showQuote ? "on" : ""}`} onClick={() => setQuoteOk((s) => { const n = new Set(s); if (n.has(m.uid)) n.delete(m.uid); else n.add(m.uid); return n; })}
                   title={showQuote ? t("mail.quoteHide") : t("mail.quoteShow")}>{showQuote ? "▴" : "···"}</button>
@@ -227,9 +231,40 @@ export function ThreadReader({
               {blockImages && !showImgs && remote && (
                 <button className="ghost" onClick={() => setImgOk((s) => new Set(s).add(m.uid))} title={t("mail.showImages")}>🖼</button>
               )}
-              {actions && (
+              <button className="ghost accent" onClick={() => onReply(d)} title={t("mail.reply")}>↩</button>
+              <button className="ghost read-del" onClick={() => onDelete(m)} title={t("mail.delete")}>🗑</button>
+              {actions ? (
                 <span style={{ position: "relative" }}>
-                  <button className={`ghost ${lblMenuKey === keyFor(m) ? "on" : ""}`} onClick={() => { setLblMenuKey((k) => k === keyFor(m) ? null : keyFor(m)); setMoreMenuKey(null); }} title={t("label.title")}>🏷</button>
+                  <button className={`ghost ${moreMenuKey === keyFor(m) || lblMenuKey === keyFor(m) ? "on" : ""}`}
+                    onClick={() => { setMoreMenuKey((k) => k === keyFor(m) ? null : keyFor(m)); setLblMenuKey(null); }}
+                    title={t("mail.more")}>⋯</button>
+                  {moreMenuKey === keyFor(m) && (
+                    <>
+                      <div className="menu-backdrop" onClick={() => setMoreMenuKey(null)} />
+                      <div className="read-menu">
+                        {/* mail.forward bringt sein Symbol schon mit - kein zweites davor. */}
+                        <button onClick={() => { setMoreMenuKey(null); onForward(d); }}>{t("mail.forward")}</button>
+                        <hr />
+                        <button onClick={() => { setMoreMenuKey(null); setLblMenuKey(keyFor(m)); }}>🏷 {t("label.title")}</button>
+                        {actions.folders.length > 1 && (
+                          <label className="read-menu-move">
+                            <span>📁 {t("mail.moveTo")}</span>
+                            <select value="" onChange={(e) => { if (e.target.value) { actions.onMove(m, e.target.value); setMoreMenuKey(null); } }}>
+                              <option value="">…</option>
+                              {actions.folders.filter((f) => f !== (m.folder || folder)).map((f) => <option key={f} value={f}>{f}</option>)}
+                            </select>
+                          </label>
+                        )}
+                        {actions.onSpam && <button onClick={() => { setMoreMenuKey(null); actions.onSpam!(m); }}>🚫 {t("mail.spam")}</button>}
+                        <hr />
+                        <button onClick={() => { setMoreMenuKey(null); actions.onMarkUnread(m); }}>● {t("mail.markUnread")}</button>
+                        <button onClick={() => { setMoreMenuKey(null); actions.onAddContact(m); }}>👤 {t("mail.addContact")}</button>
+                        <button onClick={() => { setMoreMenuKey(null); actions.onViewSource(m); }}>📄 {lang === "de" ? "Original anzeigen" : "View source"}</button>
+                        <hr />
+                        <button className="read-menu-danger" onClick={() => { setMoreMenuKey(null); actions.onBlock(m); }}>🚫 {t("mail.blockSender")}</button>
+                      </div>
+                    </>
+                  )}
                   {lblMenuKey === keyFor(m) && (
                     <>
                       <div className="menu-backdrop" onClick={() => setLblMenuKey(null)} />
@@ -252,34 +287,11 @@ export function ThreadReader({
                     </>
                   )}
                 </span>
+              ) : (
+                /* Ohne actions gibt es kein Mehr-Menue - dann muss Weiterleiten
+                   direkt in der Leiste stehen, sonst waere es unerreichbar. */
+                <button className="ghost" onClick={() => onForward(d)} title={t("mail.forward")}>↪</button>
               )}
-              {actions?.onSpam && <button className="ghost" onClick={() => actions.onSpam!(m)} title={t("mail.spam")}>🚫</button>}
-              {actions && (
-                <span style={{ position: "relative" }}>
-                  <button className={`ghost ${moreMenuKey === keyFor(m) ? "on" : ""}`} onClick={() => { setMoreMenuKey((k) => k === keyFor(m) ? null : keyFor(m)); setLblMenuKey(null); }} title={t("mail.more")}>⋯</button>
-                  {moreMenuKey === keyFor(m) && (
-                    <>
-                      <div className="menu-backdrop" onClick={() => setMoreMenuKey(null)} />
-                      <div className="read-menu">
-                        <button onClick={() => { setMoreMenuKey(null); actions.onAddContact(m); }}>👤 {t("mail.addContact")}</button>
-                        <button onClick={() => { setMoreMenuKey(null); actions.onMarkUnread(m); }}>● {t("mail.markUnread")}</button>
-                        <button className="read-menu-danger" onClick={() => { setMoreMenuKey(null); actions.onBlock(m); }}>🚫 {t("mail.blockSender")}</button>
-                        {actions.folders.length > 1 && (
-                          <label className="read-menu-move">
-                            <span>📁 {t("mail.moveTo")}</span>
-                            <select value="" onChange={(e) => { if (e.target.value) { actions.onMove(m, e.target.value); setMoreMenuKey(null); } }}>
-                              <option value="">…</option>
-                              {actions.folders.filter((f) => f !== (m.folder || folder)).map((f) => <option key={f} value={f}>{f}</option>)}
-                            </select>
-                          </label>
-                        )}
-                        <button onClick={() => { setMoreMenuKey(null); actions.onViewSource(m); }}>📄 {lang === "de" ? "Original anzeigen" : "View source"}</button>
-                      </div>
-                    </>
-                  )}
-                </span>
-              )}
-              <button className="ghost read-del" onClick={() => onDelete(m)} title={t("mail.delete")}>🗑</button>
             </div>
           ) : null;
           return (

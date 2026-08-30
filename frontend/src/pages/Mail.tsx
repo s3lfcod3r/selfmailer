@@ -93,18 +93,6 @@ function LabelChips({ keywords, labelMap }: { keywords?: string[]; labelMap: Rec
 const PAGE_SIZE = 50;  // Mails pro Seite
 const SEARCH_LIMIT = 1000;  // Obergrenze der bei aktiver Suche geladenen Mails
 
-// Sichtbare Seitenzahlen mit Auslassung: 1 … (cur-1) cur (cur+1) … last.
-function pageNumbers(cur: number, total: number): (number | "…")[] {
-  if (total <= 1) return [1];
-  const out: (number | "…")[] = [1];
-  const from = Math.max(2, cur - 1);
-  const to = Math.min(total - 1, cur + 1);
-  if (from > 2) out.push("…");
-  for (let p = from; p <= to; p++) out.push(p);
-  if (to < total - 1) out.push("…");
-  out.push(total);
-  return out;
-}
 
 function inDateRange(dateStr: string, from?: string, to?: string): boolean {
   if (!from && !to) return true;
@@ -211,34 +199,45 @@ type RowLabels = { flag: string; noSubject: string; markUnread: string; markRead
 // Eine Nachrichtenzeile der Liste. React.memo: rendert nur neu, wenn sich die
 // eigenen Props ändern — bei hunderten/tausenden Treffern (Suche) reconcilen so
 // nicht mehr alle Zeilen bei jeder Interaktion (Auswahl/Öffnen/Sync).
-const MailRow = memo(function MailRow({ m, isSelected, isActive, handlers, labels, labelMap }: {
-  m: MsgHeader; isSelected: boolean; isActive: boolean; handlers: RowHandlers; labels: RowLabels; labelMap: Record<string, MailLabel>;
+const MailRow = memo(function MailRow({ m, isSelected, isActive, selectMode, handlers, labels, labelMap }: {
+  m: MsgHeader; isSelected: boolean; isActive: boolean; selectMode: boolean;
+  handlers: RowHandlers; labels: RowLabels; labelMap: Record<string, MailLabel>;
 }) {
   return (
-    <div className={`mail-row ${m.seen ? "" : "unseen"}`}
+    <div className={`mail-row ${m.seen ? "" : "unseen"} ${isSelected ? "picked" : ""}`}
       draggable onDragStart={() => handlers.onDragStart(m.uid)} onDragEnd={handlers.onDragEnd}
-      style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: isActive ? "var(--self-teal)" : undefined }}>
-      <input type="checkbox" checked={isSelected} onChange={() => handlers.onToggleSelect(m.uid)} style={{ flex: "0 0 auto", width: "auto", marginTop: "0.3rem" }} />
-      <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: m.flagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={() => handlers.onToggleFlag(m)} title={labels.flag}>
+      style={{ borderColor: isActive ? "var(--self-teal)" : undefined }}>
+      {/* Auswahlfeld und Stern sind da, wenn man sie braucht: beim Überfahren, bei
+          Tastatur-Fokus, sobald etwas ausgewählt ist — und dauerhaft auf Touch
+          (dort gibt es kein Überfahren, siehe CSS). Vorher standen in JEDER Zeile
+          vier Bedienelemente, die das Schriftbild zerhackt haben. */}
+      <label className={`mail-row-pick ${selectMode ? "shown" : ""}`}>
+        <input type="checkbox" checked={isSelected} onChange={() => handlers.onToggleSelect(m.uid)} aria-label={m.subject || labels.noSubject} />
+      </label>
+      <button className={`mail-row-star ${m.flagged ? "on" : ""}`} onClick={() => handlers.onToggleFlag(m)} title={labels.flag}>
         {m.flagged ? "★" : "☆"}
       </button>
       <div className="grow" role="button" tabIndex={0} style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => handlers.onOpen(m.uid, m.folder)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlers.onOpen(m.uid, m.folder); } }} onDoubleClick={() => handlers.onOpenPopup(m.uid, m.folder)} onMouseEnter={() => handlers.onPrefetch(m.uid)}>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
-          <span style={{ flex: 1, minWidth: 0, fontWeight: m.seen ? 400 : 700, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{m.from}</span>
-          <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(m.date)}</span>
+        <div className="mail-row-top">
+          <span className="mail-row-from">{parseAddr(m.from).name || m.from}</span>
+          <span className="mail-row-date">{listDate(m.date)}</span>
         </div>
-        <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || labels.noSubject}</span>
-          {m.has_attachments && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
+        <div className="mail-subj">
+          <span className="mail-row-subject">{m.subject || labels.noSubject}</span>
+          {m.has_attachments && <span className="mail-row-clip">📎</span>}
           <LabelChips keywords={m.labels} labelMap={labelMap} />
           {/* Bei Volltext-Treffern: aus welchem Ordner stammt die Mail? Ohne das
               wirkt eine Trefferliste über mehrere Ordner zusammenhanglos. */}
           {m.folder && <span className="mail-folder-tag" title={m.folder}>{m.folder.split(/[/.]/).pop()}</span>}
         </div>
-        {m.snippet && <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.snippet}</div>}
+        {m.snippet && <div className="mail-row-snippet">{m.snippet}</div>}
       </div>
-      <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto", color: m.seen ? undefined : "var(--self-unread)", fontSize: m.seen ? undefined : "1.1rem", lineHeight: 1 }} onClick={() => handlers.onToggleSeen(m)} title={m.seen ? labels.markUnread : labels.markRead}>{m.seen ? "○" : "●"}</button>
-      <button className="ghost" style={{ padding: "0 0.2rem", flex: "0 0 auto" }} onClick={() => handlers.onDelete(m)} title={labels.delete}>🗑</button>
+      {/* Zeilen-Aktionen: erscheinen beim Überfahren (auf Touch dauerhaft). */}
+      <div className="mail-row-actions">
+        <button onClick={() => handlers.onToggleSeen(m)} title={m.seen ? labels.markUnread : labels.markRead}
+          className={m.seen ? "" : "is-unread"}>{m.seen ? "○" : "●"}</button>
+        <button onClick={() => handlers.onDelete(m)} title={labels.delete}>🗑</button>
+      </div>
     </div>
   );
 });
@@ -246,39 +245,44 @@ const MailRow = memo(function MailRow({ m, isSelected, isActive, handlers, label
 // Eine ZUSAMMENGEFASSTE Konversationszeile (mehrere Mails). Zeigt die Teilnehmer,
 // den Betreff, die Vorschau der neuesten Mail und eine Zähler-Plakette. Ein Klick
 // öffnet den gestapelten Verlauf (ThreadReader).
-const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, onOpen, onToggleFlag, onToggleSelect, labels, avatarMap }: {
-  conv: Conversation; isSelected: boolean; isActive: boolean;
+const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, selectMode, onOpen, onToggleFlag, onToggleSelect, labels, avatarMap }: {
+  conv: Conversation; isSelected: boolean; isActive: boolean; selectMode: boolean;
   onOpen: () => void; onToggleFlag: () => void; onToggleSelect: () => void; labels: RowLabels; avatarMap: Record<string, string>;
 }) {
   const latest = conv.latest;
-  // Name/Avatar aus der neuesten Mail eines ANDEREN Absenders (nicht „Ich").
+  // Name/Avatar aus der neuesten Mail eines ANDEREN Absenders (nicht "Ich").
   const head = conv.displayFrom ?? latest;
   // Teilnehmer kompakt: bis zu 3 Namen, sonst "A, B +N".
   const names = conv.fromNames;
   const who = names.length <= 3 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
   const av = avatarFor(names[0] || head.from);
   const photo = avatarMap[parseAddr(head.from).email.trim().toLowerCase()];
+  // Gleiche Struktur und gleiche Klassen wie MailRow - eine Konversation ist fuer
+  // das Auge zuerst eine Zeile in derselben Liste und erst danach ein Stapel.
+  // Der Avatar ist der EINZIGE Unterschied: er traegt hier die Teilnehmer.
   return (
-    <div className={`mail-row conv-row ${conv.anyUnseen ? "unseen" : ""}`}
-      style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", borderColor: isActive ? "var(--self-teal)" : undefined }}>
-      <input type="checkbox" checked={isSelected} onChange={onToggleSelect} style={{ flex: "0 0 auto", width: "auto", marginTop: "0.3rem" }} />
-      <button className="ghost" style={{ padding: "0 0.1rem", flex: "0 0 auto", color: conv.anyFlagged ? "var(--self-cyan, #00e5c8)" : undefined }} onClick={onToggleFlag} title={labels.flag}>
+    <div className={`mail-row conv-row ${conv.anyUnseen ? "unseen" : ""} ${isSelected ? "picked" : ""}`}
+      style={{ borderColor: isActive ? "var(--self-teal)" : undefined }}>
+      <label className={`mail-row-pick ${selectMode ? "shown" : ""}`}>
+        <input type="checkbox" checked={isSelected} onChange={onToggleSelect} aria-label={latest.subject || labels.noSubject} />
+      </label>
+      <button className={`mail-row-star ${conv.anyFlagged ? "on" : ""}`} onClick={onToggleFlag} title={labels.flag}>
         {conv.anyFlagged ? "★" : "☆"}
       </button>
       {photo
-        ? <img className="thread-avatar" src={photo} alt="" style={{ width: 30, height: 30, marginTop: "0.1rem", flex: "0 0 auto", objectFit: "cover" }} />
-        : <span className="thread-avatar" aria-hidden style={{ width: 30, height: 30, background: av.color, fontSize: 12, marginTop: "0.1rem", flex: "0 0 auto" }}>{av.initials}</span>}
+        ? <img className="conv-row-avatar" src={photo} alt="" />
+        : <span className="conv-row-avatar" aria-hidden style={{ background: av.color }}>{av.initials}</span>}
       <div className="grow" role="button" tabIndex={0} style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={onOpen} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
-          <span style={{ flex: 1, minWidth: 0, fontWeight: conv.anyUnseen ? 700 : 400, color: "var(--self-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.9rem" }}>{who}</span>
+        <div className="mail-row-top">
+          <span className="mail-row-from">{who}</span>
           <span className="conv-badge" title={`${conv.count}`}>{conv.count}</span>
-          <span className="muted" style={{ fontSize: "0.72rem", whiteSpace: "nowrap", flex: "0 0 auto" }}>{listDate(latest.date)}</span>
+          <span className="mail-row-date">{listDate(latest.date)}</span>
         </div>
-        <div className="mail-subj" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{latest.subject || labels.noSubject}</span>
-          {conv.anyAttachment && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
+        <div className="mail-subj">
+          <span className="mail-row-subject">{latest.subject || labels.noSubject}</span>
+          {conv.anyAttachment && <span className="mail-row-clip">📎</span>}
         </div>
-        {latest.snippet && <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{latest.snippet}</div>}
+        {latest.snippet && <div className="mail-row-snippet">{latest.snippet}</div>}
       </div>
     </div>
   );
@@ -385,6 +389,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [syncing, setSyncing] = useState(false);
   // Lese-Kopf: Mehr-Menü (⋯) und ausklappbare Detailzeilen (Von/An/Datum/Betreff).
   const [readMenu, setReadMenu] = useState(false);
+  // Eigener State fuer das Menue im Popup: der Lesekopf steht gleichzeitig im
+  // DOM: ein gemeinsamer Schalter wuerde beide Menues zugleich oeffnen.
+  const [popupMenu, setPopupMenu] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   // Absender als Kontakt gespeichert? (kurzes Erfolgs-Feedback im Lesekopf)
   const [contactSaved, setContactSaved] = useState(false);
@@ -396,6 +403,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [translateEnabled, setTranslateEnabled] = useState(false);
   // Doppelklick auf eine Mail öffnet sie zusätzlich in einem eigenen Popup-Fenster.
   const [popup, setPopup] = useState(false);
+  useEffect(() => { if (!popup) setPopupMenu(false); }, [popup]);
   // Echtheits-Details (SPF/DKIM/DMARC + Volltext) zum kompakten Status-Chip aufgeklappt?
   const [authOpen, setAuthOpen] = useState(false);
   // Lesebestätigung: pro UID gemerkt, ob schon gesendet ("sent") oder ignoriert ("hidden").
@@ -1839,10 +1847,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function authCluster(msg: MsgDetail): ReactNode {
     const v = authView(msg.auth ?? null, de);
     const imagesBlocked = !!msg.html && blockImages && !showImages && hasRemoteContent(msg.html);
-    if (!msg.auth && !imagesBlocked && !translateEnabled) return null;
+    // Echtheit nur MELDEN, wenn etwas nicht stimmt. „Alles in Ordnung" ist der
+    // Normalfall und braucht kein Abzeichen an jeder Mail — ein Hinweis, der
+    // immer da ist, wird übersehen, wenn er einmal zählt.
+    const authProblem = !!msg.auth && (msg.auth.self_spoof || msg.auth.verdict === "fail");
+    if (!authProblem && !imagesBlocked) return null;
     return (
       <>
-        {msg.auth && (
+        {authProblem && (
           <button
             type="button"
             onClick={() => setAuthOpen((v2) => !v2)}
@@ -2127,20 +2139,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               }}
             >⟳ {t("mail.syncing")}</div>
           )}
-          {!listAll && totalPages > 1 && (
-            <div className="mail-pager">
-              <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(1)} title={t("mail.firstPage")}>«</button>
-              <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(page - 1)} title={t("mail.prevPage")}>‹</button>
-              {pageNumbers(page, totalPages).map((p, i) =>
-                p === "…"
-                  ? <span key={`e${i}`} className="pg-gap">…</span>
-                  : <button key={p} className={`pgbtn ${p === page ? "active" : ""}`} aria-current={p === page ? "page" : undefined} disabled={loadingMore} onClick={() => goPage(p)}>{p}</button>,
-              )}
-              <button className="pgbtn" disabled={page >= totalPages || loadingMore} onClick={() => goPage(page + 1)} title={t("mail.nextPage")}>›</button>
-              <button className="pgbtn" disabled={page >= totalPages || loadingMore} onClick={() => goPage(totalPages)} title={t("mail.lastPage")}>»</button>
-              <span className="pg-info">{t("mail.pageOf", { p: page, n: totalPages })}</span>
-            </div>
-          )}
+          {/* Der Pager steht nur noch UNTEN — dort, wo man beim Durchsehen ankommt.
+              Oben verstellte er die Sicht auf die Mails, und zwei Pager für dieselbe
+              Liste sind einer zu viel. */}
           {selected.size > 0 && (
             <div className="bulk-bar">
               <div className="bulk-count">
@@ -2276,6 +2277,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                       m={conv.latest}
                       isSelected={selected.has(conv.latest.uid)}
                       isActive={open?.uid === conv.latest.uid}
+                    selectMode={selected.size > 0}
                       handlers={rowHandlers}
                       labels={rowLabels}
                       labelMap={labelMap}
@@ -2285,6 +2287,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                       key={conv.key}
                       conv={conv}
                       isSelected={conv.messages.every((m) => selected.has(m.uid))}
+                      selectMode={selected.size > 0}
                       isActive={openThread?.key === conv.key}
                       onOpen={() => openConversation(conv)}
                       onToggleFlag={() => toggleFlag(conv.latest)}
@@ -2300,6 +2303,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                     m={m}
                     isSelected={selected.has(m.uid)}
                     isActive={open?.uid === m.uid}
+                    selectMode={selected.size > 0}
                     handlers={rowHandlers}
                     labels={rowLabels}
                     labelMap={labelMap}
@@ -2358,15 +2362,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             <div className="mail-head">
               <div className="mail-head-top">
                 <h2 className="mail-head-subject">{open.subject || t("mail.noSubject")}</h2>
+                {/* Beim LESEN braucht man drei Dinge: antworten, wegwerfen, schließen.
+                    Alles Weitere ist eine Ordnungs-Aktion und liegt im ⋯-Menü — vorher
+                    standen hier acht Icons nebeneinander, von denen die meisten nur
+                    beim Aufräumen gebraucht werden. */}
                 <div className="mail-head-actions">
-                  <button className="icon-btn" onClick={() => setDraft(replyDraft(open, t))} title={t("mail.reply")}>↩</button>
-                  <button className="icon-btn" onClick={() => setDraft(forwardDraft(open, t))} title={t("mail.forward")}>↪</button>
-                  <button className="icon-btn" onClick={() => printMessage(open, de)} title={de ? "Drucken" : "Print"}>🖨</button>
-                  {spamFolder && folder !== spamFolder && (
-                    <button className="icon-btn" onClick={() => moveMsg(open.uid, spamFolder)} title={t("mail.spam")}>🚫</button>
-                  )}
+                  <button className="icon-btn accent" onClick={() => setDraft(replyDraft(open, t))} title={t("mail.reply")}>↩</button>
                   <button className="icon-btn read-del" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
-                  <button className={`icon-btn ${labelMenu ? "on" : ""}`} onClick={() => setLabelMenu((v) => !v)} title={t("label.title")}>🏷</button>
                   {labelMenu && (
                     <>
                       <div className="menu-backdrop" onClick={() => setLabelMenu(false)} />
@@ -2416,13 +2418,21 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                   {readMenu && (
                     <>
                       <div className="menu-backdrop" onClick={() => setReadMenu(false)} />
+                      {/* Gruppiert statt aneinandergereiht: erst was man mit der Mail
+                          TUT, dann wo sie HIN soll, dann der Absender, zuletzt das
+                          Destruktive abgesetzt. */}
                       <div className="read-menu">
-                        <button onClick={() => { saveSenderAsContact(); setReadMenu(false); }} disabled={contactSaved}>
-                          {contactSaved ? "✓" : "👤"} {contactSaved ? t("mail.contactSaved") : t("mail.addContact")}
-                        </button>
-                        <button onClick={() => { markUnread(open.uid); setReadMenu(false); }}>● {t("mail.markUnread")}</button>
-                        <button className="read-menu-danger" onClick={() => { setReadMenu(false); blockSender(); }}>🚫 {t("mail.blockSender")}</button>
-                        <button onClick={() => { setReadMenu(false); if (activeId != null) openTransfer(activeId, folder, [open.uid]); }}>↪ {t("xfer.toAccount")}</button>
+                        {/* mail.forward/mail.reply bringen ihr Symbol schon mit — hier
+                            KEIN zweites davorsetzen. */}
+                        <button onClick={() => { setReadMenu(false); setDraft(forwardDraft(open, t)); }}>{t("mail.forward")}</button>
+                        <button onClick={() => { setReadMenu(false); printMessage(open, de); }}>🖨 {de ? "Drucken" : "Print"}</button>
+                        {translateEnabled && (
+                          <button onClick={() => { setReadMenu(false); doTranslate(open); }}>
+                            🌐 {translated != null ? (de ? "Original anzeigen" : "Show original") : (de ? "Übersetzen" : "Translate")}
+                          </button>
+                        )}
+                        <hr />
+                        <button onClick={() => { setReadMenu(false); setLabelMenu(true); }}>🏷 {t("label.title")}</button>
                         {folderNames.length > 1 && (
                           <label className="read-menu-move">
                             <span>📁 {t("mail.moveTo")}</span>
@@ -2432,7 +2442,23 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                             </select>
                           </label>
                         )}
+                        {spamFolder && folder !== spamFolder && (
+                          <button onClick={() => { setReadMenu(false); moveMsg(open.uid, spamFolder); }}>🚫 {t("mail.spam")}</button>
+                        )}
+                        <button onClick={() => { setReadMenu(false); if (activeId != null) openTransfer(activeId, folder, [open.uid]); }}>{t("xfer.toAccount")}</button>
+                        <hr />
+                        <button onClick={() => { markUnread(open.uid); setReadMenu(false); }}>● {t("mail.markUnread")}</button>
+                        <button onClick={() => { saveSenderAsContact(); setReadMenu(false); }} disabled={contactSaved}>
+                          {contactSaved ? "✓" : "👤"} {contactSaved ? t("mail.contactSaved") : t("mail.addContact")}
+                        </button>
+                        {open.html && (
+                          <button onClick={() => { setReadMenu(false); setDarkBody((v) => !v); }}>
+                            {darkBody ? "☀️" : "🌙"} {darkBody ? (de ? "Original-Farben" : "Original colors") : (de ? "Dunkel einfärben" : "Tint dark")}
+                          </button>
+                        )}
                         <button onClick={() => { setReadMenu(false); showRaw(open.uid); }}>📄 {de ? "Original anzeigen" : "View source"}</button>
+                        <hr />
+                        <button className="read-menu-danger" onClick={() => { setReadMenu(false); blockSender(); }}>🚫 {t("mail.blockSender")}</button>
                       </div>
                     </>
                   )}
@@ -2666,10 +2692,24 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
           <div style={{ width: "min(900px, 100%)", maxHeight: "88vh", background: "var(--self-bg-2)", border: "1px solid var(--self-line)", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--self-line)" }}>
               <h2 id="mail-popup-title" style={{ flex: 1, minWidth: 0, margin: 0, fontSize: "1.1rem", fontWeight: 700, lineHeight: 1.3, color: "var(--self-text)" }}>{open.subject || t("mail.noSubject")}</h2>
-              <div style={{ display: "flex", gap: 6, flex: "0 0 auto" }}>
-                <button className="icon-btn" onClick={() => { setDraft(replyDraft(open, t)); setPopup(false); }} title={t("mail.reply")}>↩</button>
-                <button className="icon-btn" onClick={() => { setDraft(forwardDraft(open, t)); setPopup(false); }} title={t("mail.forward")}>↪</button>
-                <button className="icon-btn" onClick={() => printMessage(open, de)} title={de ? "Drucken" : "Print"}>🖨</button>
+              {/* Dieselben vier Elemente wie in der Lesespalte: Antworten, Loeschen,
+                  Mehr, Schliessen. Wer zwischen Spalte und Popup wechselt, soll
+                  nicht umlernen muessen. */}
+              <div className="mail-head-actions" style={{ flex: "0 0 auto" }}>
+                <button className="icon-btn accent" onClick={() => { setDraft(replyDraft(open, t)); setPopup(false); }} title={t("mail.reply")}>↩</button>
+                <button className="icon-btn read-del" onClick={() => { setPopup(false); del(open); }} title={t("mail.delete")}>🗑</button>
+                <button className={`icon-btn ${popupMenu ? "on" : ""}`} onClick={() => setPopupMenu((v) => !v)} title={t("mail.more")}>⋯</button>
+                {popupMenu && (
+                  <>
+                    <div className="menu-backdrop" onClick={() => setPopupMenu(false)} />
+                    <div className="read-menu">
+                      {/* mail.forward bringt sein Symbol schon mit. */}
+                      <button onClick={() => { setPopupMenu(false); setDraft(forwardDraft(open, t)); setPopup(false); }}>{t("mail.forward")}</button>
+                      <button onClick={() => { setPopupMenu(false); printMessage(open, de); }}>🖨 {de ? "Drucken" : "Print"}</button>
+                      <button onClick={() => { setPopupMenu(false); showRaw(open.uid); }}>📄 {de ? "Original anzeigen" : "View source"}</button>
+                    </div>
+                  </>
+                )}
                 <button className="icon-btn" onClick={() => setPopup(false)} title={t("mail.back")}>✕</button>
               </div>
             </div>
