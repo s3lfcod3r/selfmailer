@@ -359,6 +359,7 @@ export const en = {
   "contacts.save": "Save contact",
   "contacts.edit": "Edit",
   "contacts.notesPlaceholder": "Notes…",
+  "contacts.moreFields": "More details",
   "contacts.empty": "No contacts found.",
   "contacts.noName": "(no name)",
 

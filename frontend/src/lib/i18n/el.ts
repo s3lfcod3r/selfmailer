@@ -357,6 +357,7 @@ export const el: Dict = {
   "contacts.save": "Αποθήκευση επαφής",
   "contacts.edit": "Επεξεργασία",
   "contacts.notesPlaceholder": "Σημειώσεις…",
+  "contacts.moreFields": "Περισσότερα στοιχεία",
   "contacts.empty": "Δεν βρέθηκαν επαφές.",
   "contacts.noName": "(χωρίς όνομα)",
 

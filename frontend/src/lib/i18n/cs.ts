@@ -357,6 +357,7 @@ export const cs: Dict = {
   "contacts.save": "Uložit kontakt",
   "contacts.edit": "Upravit",
   "contacts.notesPlaceholder": "Poznámky…",
+  "contacts.moreFields": "Další údaje",
   "contacts.empty": "Nenalezeny žádné kontakty.",
   "contacts.noName": "(bez jména)",
 

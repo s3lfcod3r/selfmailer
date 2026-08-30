@@ -357,6 +357,7 @@ export const nl: Dict = {
   "contacts.save": "Contact opslaan",
   "contacts.edit": "Bewerken",
   "contacts.notesPlaceholder": "Notities…",
+  "contacts.moreFields": "Meer gegevens",
   "contacts.empty": "Geen contacten gevonden.",
   "contacts.noName": "(geen naam)",
 

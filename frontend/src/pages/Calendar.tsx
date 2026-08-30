@@ -91,6 +91,7 @@ export function Calendar() {
   // Termin-Chips in der Farbe ihres Kalenders (wie Apple Kalender) — umschaltbar
   // auf die klassische einfarbige Ansicht; Wahl bleibt lokal gespeichert.
   const [calColors, setCalColors] = useState<boolean>(() => localStorage.getItem("selfmailer.calColors") !== "0");
+  const [calMenu, setCalMenu] = useState(false);
   useEffect(() => { localStorage.setItem("selfmailer.calColors", calColors ? "1" : "0"); }, [calColors]);
   const now = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
@@ -394,7 +395,23 @@ export function Calendar() {
             <button className={mode === "agenda" ? "on" : ""} onClick={() => setMode("agenda")}>{t("cal.agenda")}</button>
             <button className={mode === "tasks" ? "on" : ""} onClick={() => setMode("tasks")}>✓ {t("cal.tasks")}</button>
           </div>
-          <button className="ghost" style={{ opacity: calColors ? 1 : 0.4 }} onClick={() => setCalColors((v) => !v)} title={t("cal.colorsToggle")}>🎨</button>
+          {/* Der Farb-Schalter ist eine Anzeige-Einstellung, die man einmal setzt
+              und dann nie wieder anfasst — er stand trotzdem gleichberechtigt
+              neben "Neuer Termin". Jetzt liegt er im Menue. */}
+          <span style={{ position: "relative" }}>
+            <button className={`ghost ${calMenu ? "on" : ""}`} onClick={() => setCalMenu((v) => !v)} title={t("mail.more")}>⋯</button>
+            {calMenu && (
+              <>
+                <div className="menu-backdrop" onClick={() => setCalMenu(false)} />
+                <div className="read-menu" style={{ right: 0 }}>
+                  <button onClick={() => { setCalMenu(false); setCalColors((v) => !v); }}>
+                    <span className="grow">🎨 {t("cal.colorsToggle")}</span>
+                    {calColors && <span>✓</span>}
+                  </button>
+                </div>
+              </>
+            )}
+          </span>
           {mode !== "tasks" && <button className="primary" onClick={() => openCreate(selectedDay ? new Date(selectedDay + "T12:00:00") : undefined)}>＋ {t("cal.newEvent")}</button>}
         </div>
       </div>
@@ -634,6 +651,8 @@ function TaskRow({ tk, lang, onToggle, onRemove }: { tk: Task; lang: Lang; onTog
         <div className="cal-task-title">{tk.title}</div>
         {tk.due && <div className={`cal-task-due ${overdue ? "overdue" : ""}`}>{new Date(tk.due + "T00:00:00").toLocaleDateString(dateLocale(lang), { day: "2-digit", month: "short" })}</div>}
       </div>
+      {/* Loeschen erscheint beim Ueberfahren, bei Tastatur-Fokus und dauerhaft
+          auf Touch (siehe CSS) — dasselbe Muster wie in der Mailliste. */}
       <button className="ghost cal-task-del" onClick={() => onRemove(tk)}>✕</button>
     </div>
   );

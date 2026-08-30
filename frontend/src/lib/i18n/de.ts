@@ -357,6 +357,7 @@ export const de: Dict = {
   "contacts.save": "Kontakt speichern",
   "contacts.edit": "Bearbeiten",
   "contacts.notesPlaceholder": "Notizen…",
+  "contacts.moreFields": "Weitere Angaben",
   "contacts.empty": "Keine Kontakte gefunden.",
   "contacts.noName": "(ohne Namen)",
 

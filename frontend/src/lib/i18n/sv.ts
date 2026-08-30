@@ -357,6 +357,7 @@ export const sv: Dict = {
   "contacts.save": "Spara kontakt",
   "contacts.edit": "Redigera",
   "contacts.notesPlaceholder": "Anteckningar…",
+  "contacts.moreFields": "Fler uppgifter",
   "contacts.empty": "Inga kontakter hittades.",
   "contacts.noName": "(inget namn)",
 

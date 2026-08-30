@@ -57,8 +57,24 @@ function formFrom(ct: Contact): Form {
   };
 }
 
+// Felder, die NICHT zu den vier haeufigen gehoeren. Ist eines davon gefuellt,
+// klappt der Bereich beim Oeffnen von selbst auf — sonst wuerde man seine
+// eigenen Daten nicht sehen.
+const EXTRA_FIELDS = [
+  "title", "organization", "website", "phone", "work_phone",
+  "street", "postal_code", "city", "country", "birthday", "notes",
+] as const;
+
+function hasExtras(form: Form): boolean {
+  return EXTRA_FIELDS.some((k) => (form[k] ?? "").trim() !== "");
+}
+
 // Gemeinsamer Feldblock für Anlegen + Bearbeiten (DRY).
+// Beim Anlegen standen hier fuenfzehn leere Felder gleichzeitig. Getippt werden
+// fast immer nur Name, E-Mail und Mobilnummer — der Rest liegt jetzt hinter
+// "Weitere Angaben" und ist einen Klick entfernt.
 function ContactFields({ form, set, t }: { form: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; t: TFunc }) {
+  const [showMore, setShowMore] = useState(() => hasExtras(form));
   async function pickPhoto(file: File | undefined) {
     if (!file) return;
     try { set("photo", await fileToAvatarUrl(file)); } catch { /* ignorieren */ }
@@ -80,29 +96,39 @@ function ContactFields({ form, set, t }: { form: Form; set: <K extends keyof For
         <input placeholder={t("contacts.lastName")} value={form.last_name} onChange={(e) => set("last_name", e.target.value)} />
       </div>
       <div className="row">
-        <input placeholder={t("contacts.title")} value={form.title} onChange={(e) => set("title", e.target.value)} />
-        <input placeholder={t("contacts.org")} value={form.organization} onChange={(e) => set("organization", e.target.value)} />
-      </div>
-      <div className="row">
         <input placeholder={t("common.email")} value={form.email} onChange={(e) => set("email", e.target.value)} />
-        <input placeholder={t("contacts.website")} value={form.website} onChange={(e) => set("website", e.target.value)} />
-      </div>
-      <div className="row">
-        <input placeholder={t("contacts.phone")} value={form.phone} onChange={(e) => set("phone", e.target.value)} />
         <input placeholder={t("contacts.mobile")} value={form.mobile} onChange={(e) => set("mobile", e.target.value)} />
-        <input placeholder={t("contacts.workPhone")} value={form.work_phone} onChange={(e) => set("work_phone", e.target.value)} />
       </div>
-      <input placeholder={t("contacts.street")} value={form.street} onChange={(e) => set("street", e.target.value)} />
-      <div className="row">
-        <input style={{ maxWidth: 120 }} placeholder={t("contacts.postalCode")} value={form.postal_code} onChange={(e) => set("postal_code", e.target.value)} />
-        <input placeholder={t("contacts.city")} value={form.city} onChange={(e) => set("city", e.target.value)} />
-        <input style={{ maxWidth: 140 }} placeholder={t("contacts.country")} value={form.country} onChange={(e) => set("country", e.target.value)} />
-      </div>
-      <div className="row" style={{ alignItems: "center" }}>
-        <label className="label" style={{ minWidth: 90 }}>🎂 {t("contacts.birthday")}</label>
-        <input type="date" value={form.birthday} onChange={(e) => set("birthday", e.target.value)} />
-      </div>
-      <textarea placeholder={t("contacts.notesPlaceholder")} value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} />
+
+      {!showMore && (
+        <button type="button" className="link-btn ct-more" onClick={() => setShowMore(true)}>
+          ＋ {t("contacts.moreFields")}
+        </button>
+      )}
+      {showMore && (
+        <>
+          <div className="row">
+            <input placeholder={t("contacts.title")} value={form.title} onChange={(e) => set("title", e.target.value)} />
+            <input placeholder={t("contacts.org")} value={form.organization} onChange={(e) => set("organization", e.target.value)} />
+          </div>
+          <input placeholder={t("contacts.website")} value={form.website} onChange={(e) => set("website", e.target.value)} />
+          <div className="row">
+            <input placeholder={t("contacts.phone")} value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+            <input placeholder={t("contacts.workPhone")} value={form.work_phone} onChange={(e) => set("work_phone", e.target.value)} />
+          </div>
+          <input placeholder={t("contacts.street")} value={form.street} onChange={(e) => set("street", e.target.value)} />
+          <div className="row">
+            <input style={{ maxWidth: 120 }} placeholder={t("contacts.postalCode")} value={form.postal_code} onChange={(e) => set("postal_code", e.target.value)} />
+            <input placeholder={t("contacts.city")} value={form.city} onChange={(e) => set("city", e.target.value)} />
+            <input style={{ maxWidth: 140 }} placeholder={t("contacts.country")} value={form.country} onChange={(e) => set("country", e.target.value)} />
+          </div>
+          <div className="row" style={{ alignItems: "center" }}>
+            <label className="label" style={{ minWidth: 90 }}>🎂 {t("contacts.birthday")}</label>
+            <input type="date" value={form.birthday} onChange={(e) => set("birthday", e.target.value)} />
+          </div>
+          <textarea placeholder={t("contacts.notesPlaceholder")} value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} />
+        </>
+      )}
     </>
   );
 }
@@ -279,7 +305,9 @@ export function Contacts() {
             <details className="ct-edit" open={sel === "new"}>
               <summary>{sel === "new" ? t("contacts.new") : t("contacts.edit")}</summary>
               <div className="stack" style={{ gap: "0.6rem", marginTop: "0.7rem" }}>
-                <ContactFields form={form} set={set} t={t} />
+                {/* key: beim Wechsel des Kontakts neu montieren, sonst bliebe
+                    "Weitere Angaben" vom vorigen Kontakt haengen. */}
+                <ContactFields key={String(sel)} form={form} set={set} t={t} />
               </div>
             </details>
 

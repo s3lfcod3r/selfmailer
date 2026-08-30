@@ -1333,3 +1333,16 @@ button:focus-visible {
 }
 .compose-more hr { border: none; border-top: 1px solid var(--self-line); margin: 0.35rem 0; }
 .compose-toolbar .ghost.on { color: var(--self-teal); background: var(--self-bg-3); }
+
+/* Aufgaben-Loeschen: war schon beim Ueberfahren eingeblendet, aber per Tastatur
+   unerreichbar und auf Touch unsichtbar — dort gibt es kein Ueberfahren.
+   Gleiche Regel wie bei den Zeilen-Aktionen der Mailliste. */
+.cal-task:focus-within .cal-task-del,
+.cal-task-del:focus-visible { opacity: 1; }
+@media (hover: none) {
+  .cal-task-del { opacity: 1; }
+}
+
+/* "Weitere Angaben" im Kontakt-Formular: als ruhiger Textknopf, nicht als
+   weiterer gefuellter Schalter. */
+.ct-more { align-self: flex-start; padding: 0.15rem 0; }
