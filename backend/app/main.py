@@ -63,9 +63,11 @@ async def lifespan(app: FastAPI):
 # Eine einzige Versionsquelle — muss zum README-Badge, zum Git-Tag und zur
 # versionName der Android-App passen. Die WebUI zeigt sie im Benutzermenü an
 # (über /api/health), damit man sieht, welcher Stand tatsächlich läuft.
-# War lange auf 1.12.0 stehengeblieben, während die Releases bis 1.44.0 liefen —
-# beim Erhöhen bitte alle vier Stellen zusammen anfassen.
-APP_VERSION = "1.45.0"
+# War schon zweimal stehengeblieben (erst auf 1.12.0, dann auf 1.45.0), während
+# die Releases weiterliefen — beim Erhöhen bitte alle vier Stellen zusammen
+# anfassen: hier, README-Badge, frontend/package.json und die versionName der
+# Android-App. Ein `git fetch --tags` vorher zeigt, wo die Releases wirklich stehen.
+APP_VERSION = "1.75.0"
 
 # Öffentliche API-Docs (Swagger/ReDoc/OpenAPI-Schema) in Produktion abschalten —
 # reduziert die Angriffsfläche/Info-Preisgabe; die WebUI/APK brauchen sie nicht.
@@ -193,7 +195,7 @@ app.include_router(settings_api.router)
 
 # Build-Marker: erlaubt von außen zu prüfen, welche Version wirklich LÄUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhöhen.
-APP_BUILD = "2026-07-19-volltextsuche"
+APP_BUILD = "2026-08-30-jobstatus-kontaktname"
 
 
 @app.get("/api/health")
