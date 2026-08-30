@@ -321,6 +321,8 @@ export const nl: Dict = {
   "cal.month": "Maand",
   "cal.agenda": "Agenda",
   "cal.today": "Vandaag",
+  "cal.prevMonth": "Vorige maand",
+  "cal.nextMonth": "Volgende maand",
   "cal.newEvent": "Nieuwe afspraak",
   "cal.birthday": "Verjaardag",
   "cal.description": "Beschrijving",

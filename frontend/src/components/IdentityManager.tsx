@@ -67,7 +67,7 @@ export function IdentityManager({ accountId }: { accountId: number }) {
               {i.is_default && <span className="badge" style={{ marginLeft: "0.4rem" }}>{t("identities.default")}</span>}
             </span>
             <button type="button" className="ghost" onClick={() => startEdit(i)}>✎</button>
-            <button type="button" className="ghost" onClick={() => remove(i)} title={t("common.remove")}>🗑</button>
+            <button type="button" className="ghost" onClick={() => remove(i)} title={t("common.remove")} aria-label={t("common.remove")}>🗑</button>
           </div>
         ))}
         {items.length === 0 && <p className="muted" style={{ margin: 0 }}>{t("identities.empty")}</p>}

@@ -321,6 +321,8 @@ export const el: Dict = {
   "cal.month": "Μήνας",
   "cal.agenda": "Ατζέντα",
   "cal.today": "Σήμερα",
+  "cal.prevMonth": "Προηγούμενος μήνας",
+  "cal.nextMonth": "Επόμενος μήνας",
   "cal.newEvent": "Νέο συμβάν",
   "cal.birthday": "Γενέθλια",
   "cal.description": "Περιγραφή",

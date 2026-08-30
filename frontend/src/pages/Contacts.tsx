@@ -284,7 +284,7 @@ export function Contacts() {
                 {sel === "new" ? t("contacts.new") : (current ? displayName(current, t("contacts.noName")) : "")}
               </h2>
               <span className="grow" />
-              {typeof sel === "number" && <button className="ghost" onClick={remove} title={t("common.delete")}>🗑</button>}
+              {typeof sel === "number" && <button className="ghost" onClick={remove} title={t("common.delete")} aria-label={t("common.delete")}>🗑</button>}
             </div>
 
             {/* Kompakte Detailanzeige (nur bestehende Kontakte) */}

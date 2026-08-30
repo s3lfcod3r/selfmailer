@@ -117,9 +117,9 @@ export function Notes() {
               <span className="grow" />
               {typeof sel === "number" && (() => {
                 const cur = notes.find((n) => n.id === sel);
-                return cur ? <button className="ghost" onClick={(e) => togglePin(cur, e)} title={t("notes.pin")}>{cur.pinned ? "★" : "☆"}</button> : null;
+                return cur ? <button className="ghost" onClick={(e) => togglePin(cur, e)} title={t("notes.pin")} aria-label={t("notes.pin")}>{cur.pinned ? "★" : "☆"}</button> : null;
               })()}
-              {typeof sel === "number" && <button className="ghost" onClick={remove} title={t("common.delete")}>🗑</button>}
+              {typeof sel === "number" && <button className="ghost" onClick={remove} title={t("common.delete")} aria-label={t("common.delete")}>🗑</button>}
             </div>
             <textarea className="md-body-input" value={draft.body}
               onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}

@@ -8,6 +8,7 @@ import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize
 import { ThreadReader } from "../components/ThreadReader";
 import { groupThreads, normalizeSubject, type Conversation } from "../lib/threads";
 import DOMPurify from "dompurify";
+import { useMenuDismiss } from "../lib/useMenuDismiss";
 
 type Sel = { acc: number; folder: string };
 
@@ -214,7 +215,7 @@ const MailRow = memo(function MailRow({ m, isSelected, isActive, selectMode, han
       <label className={`mail-row-pick ${selectMode ? "shown" : ""}`}>
         <input type="checkbox" checked={isSelected} onChange={() => handlers.onToggleSelect(m.uid)} aria-label={m.subject || labels.noSubject} />
       </label>
-      <button className={`mail-row-star ${m.flagged ? "on" : ""}`} onClick={() => handlers.onToggleFlag(m)} title={labels.flag}>
+      <button className={`mail-row-star ${m.flagged ? "on" : ""}`} onClick={() => handlers.onToggleFlag(m)} title={labels.flag} aria-label={labels.flag}>
         {m.flagged ? "★" : "☆"}
       </button>
       <div className="grow" role="button" tabIndex={0} style={{ cursor: "pointer", overflow: "hidden", minWidth: 0 }} onClick={() => handlers.onOpen(m.uid, m.folder)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlers.onOpen(m.uid, m.folder); } }} onDoubleClick={() => handlers.onOpenPopup(m.uid, m.folder)} onMouseEnter={() => handlers.onPrefetch(m.uid)}>
@@ -234,9 +235,9 @@ const MailRow = memo(function MailRow({ m, isSelected, isActive, selectMode, han
       </div>
       {/* Zeilen-Aktionen: erscheinen beim Überfahren (auf Touch dauerhaft). */}
       <div className="mail-row-actions">
-        <button onClick={() => handlers.onToggleSeen(m)} title={m.seen ? labels.markUnread : labels.markRead}
+        <button onClick={() => handlers.onToggleSeen(m)} title={m.seen ? labels.markUnread : labels.markRead} aria-label={m.seen ? labels.markUnread : labels.markRead}
           className={m.seen ? "" : "is-unread"}>{m.seen ? "○" : "●"}</button>
-        <button onClick={() => handlers.onDelete(m)} title={labels.delete}>🗑</button>
+        <button onClick={() => handlers.onDelete(m)} title={labels.delete} aria-label={labels.delete}>🗑</button>
       </div>
     </div>
   );
@@ -266,7 +267,7 @@ const ConvRow = memo(function ConvRow({ conv, isSelected, isActive, selectMode, 
       <label className={`mail-row-pick ${selectMode ? "shown" : ""}`}>
         <input type="checkbox" checked={isSelected} onChange={onToggleSelect} aria-label={latest.subject || labels.noSubject} />
       </label>
-      <button className={`mail-row-star ${conv.anyFlagged ? "on" : ""}`} onClick={onToggleFlag} title={labels.flag}>
+      <button className={`mail-row-star ${conv.anyFlagged ? "on" : ""}`} onClick={onToggleFlag} title={labels.flag} aria-label={labels.flag}>
         {conv.anyFlagged ? "★" : "☆"}
       </button>
       {photo
@@ -358,6 +359,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Ein Menue fuer die ganze Listenspalte (Auswahl, Label-Filter, mbox) statt
   // drei Dauer-Bedienelemente ueber der Liste.
   const [listMenu, setListMenu] = useState(false);
+  useMenuDismiss(listMenu, () => setListMenu(false));
   const [labelMenu, setLabelMenu] = useState(false);
   // Inline-Bearbeitung eines Labels (Umbenennen/Umfärben) im Label-Menü.
   const [labelEdit, setLabelEdit] = useState<{ id: number; name: string; color: string } | null>(null);
@@ -391,9 +393,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [syncing, setSyncing] = useState(false);
   // Lese-Kopf: Mehr-Menü (⋯) und ausklappbare Detailzeilen (Von/An/Datum/Betreff).
   const [readMenu, setReadMenu] = useState(false);
+  useMenuDismiss(readMenu, () => setReadMenu(false));
   // Eigener State fuer das Menue im Popup: der Lesekopf steht gleichzeitig im
   // DOM: ein gemeinsamer Schalter wuerde beide Menues zugleich oeffnen.
   const [popupMenu, setPopupMenu] = useState(false);
+  useMenuDismiss(popupMenu, () => setPopupMenu(false));
   const [detailsOpen, setDetailsOpen] = useState(false);
   // Absender als Kontakt gespeichert? (kurzes Erfolgs-Feedback im Lesekopf)
   const [contactSaved, setContactSaved] = useState(false);
@@ -1661,7 +1665,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             {unseen > 0 && <span className="mail-badge">{unseen}</span>}
           </button>
           {!node.special && (
-            <button className="mail-folder-toggle" style={{ flex: "0 0 auto", width: "auto", padding: "0 0.3rem" }} onClick={() => delFolder(accId, node.path)} title={t("common.delete")}>🗑</button>
+            <button className="mail-folder-toggle" style={{ flex: "0 0 auto", width: "auto", padding: "0 0.3rem" }} onClick={() => delFolder(accId, node.path)} title={t("common.delete")} aria-label={t("common.delete")}>🗑</button>
           )}
         </div>
         {hasKids && isOpen && node.children.map((c) => renderNode(accId, c, depth + 1))}
@@ -2015,7 +2019,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         <aside className="mail-folders" style={{ flex: `0 0 ${foldersW}px` }}>
           <div className="row" style={{ marginBottom: "0.55rem", gap: "0.4rem" }}>
             <button className="primary" style={{ flex: 1 }} onClick={() => activeId != null && setDraft(emptyDraft())}>{t("mail.newMail")}</button>
-            <button className="ghost" title={t("sched.title")} onClick={() => { setSchedOpen(true); loadScheduled(); }}>🕒</button>
+            <button className="ghost" title={t("sched.title")} aria-label={t("sched.title")} onClick={() => { setSchedOpen(true); loadScheduled(); }}>🕒</button>
           </div>
 
           {showQuota && quota && quota.limit > 0 && (() => {
@@ -2071,7 +2075,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                     className="mail-folder-toggle"
                     style={{ width: "auto", padding: "0 0.25rem" }}
                     onClick={(e) => { e.stopPropagation(); newFolder(a.id); }}
-                    title={t("folder.newTop")}
+                    title={t("folder.newTop")} aria-label={t("folder.newTop")}
                   >＋</button>
                 </div>
                 {!collapsed && (tree.length ? tree.map((n) => renderNode(a.id, n, 0)) : <div className="muted" style={{ fontSize: "0.78rem", padding: "0.2rem 0.6rem" }}>…</div>)}
@@ -2084,7 +2088,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                       <div className="mail-hidden-row" key={p}>
                         <span className="mail-hidden-name" title={p}>{p.split(/[/.]/).pop() || p}</span>
                         {unseenOf(a.id, p) > 0 && <span className="mail-badge">{unseenOf(a.id, p)}</span>}
-                        <button className="mail-folder-toggle" style={{ width: "auto", padding: "0 0.3rem" }} onClick={() => unhideFolder(a.id, p)} title={t("folder.unhide")}>👁</button>
+                        <button className="mail-folder-toggle" style={{ width: "auto", padding: "0 0.3rem" }} onClick={() => unhideFolder(a.id, p)} title={t("folder.unhide")} aria-label={t("folder.unhide")}>👁</button>
                       </div>
                     ))}
                   </div>
@@ -2149,7 +2153,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               <div className="bulk-count">
                 <span className="bulk-num">{selected.size}</span>
                 <span>{t("mail.selectedShort")}</span>
-                <button className="bulk-clear" onClick={() => setSelected(new Set())} title={t("mail.clearSelection")}>✕</button>
+                <button className="bulk-clear" onClick={() => setSelected(new Set())} title={t("mail.clearSelection")} aria-label={t("mail.clearSelection")}>✕</button>
               </div>
               <div className="bulk-actions">
                 {/* Frueher stand das dauerhaft ueber der Liste. Hier ist es am Platz:
@@ -2198,7 +2202,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               )}
               <div style={{ marginLeft: "auto", position: "relative" }}>
                 <button className={`list-more ${listMenu ? "on" : ""}`} onClick={() => setListMenu((v) => !v)}
-                  title={t("mail.more")}>⋯</button>
+                  title={t("mail.more")} aria-label={t("mail.more")}>⋯</button>
                 {listMenu && (
                   <>
                     <div className="menu-backdrop" onClick={() => setListMenu(false)} />
@@ -2322,9 +2326,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
             {!loading && messages.length === 0 && <p className="muted">{t("mail.noMessages")}</p>}
             {!listAll && totalPages > 1 && !loading && (
               <div className="mail-pager mail-pager-bottom">
-                <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(page - 1)} title={t("mail.prevPage")}>‹</button>
+                <button className="pgbtn" disabled={page <= 1 || loadingMore} onClick={() => goPage(page - 1)} title={t("mail.prevPage")} aria-label={t("mail.prevPage")}>‹</button>
                 <span className="pg-info">{t("mail.pageOf", { p: page, n: totalPages })}</span>
-                <button className="pgbtn" disabled={page >= totalPages || loadingMore} onClick={() => goPage(page + 1)} title={t("mail.nextPage")}>›</button>
+                <button className="pgbtn" disabled={page >= totalPages || loadingMore} onClick={() => goPage(page + 1)} title={t("mail.nextPage")} aria-label={t("mail.nextPage")}>›</button>
               </div>
             )}
           </div>
@@ -2377,8 +2381,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                     standen hier acht Icons nebeneinander, von denen die meisten nur
                     beim Aufräumen gebraucht werden. */}
                 <div className="mail-head-actions">
-                  <button className="icon-btn accent" onClick={() => setDraft(replyDraft(open, t))} title={t("mail.reply")}>↩</button>
-                  <button className="icon-btn read-del" onClick={() => del(open)} title={t("mail.delete")}>🗑</button>
+                  <button className="icon-btn accent" onClick={() => setDraft(replyDraft(open, t))} title={t("mail.reply")} aria-label={t("mail.reply")}>↩</button>
+                  <button className="icon-btn read-del" onClick={() => del(open)} title={t("mail.delete")} aria-label={t("mail.delete")}>🗑</button>
                   {labelMenu && (
                     <>
                       <div className="menu-backdrop" onClick={() => setLabelMenu(false)} />
@@ -2414,8 +2418,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                                 <span className="grow">{l.name}</span>
                                 {applied && <span>✓</span>}
                               </button>
-                              <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => setLabelEdit({ id: l.id, name: l.name, color: l.color })} title={de ? "Umbenennen / Farbe" : "Rename / color"}>✎</button>
-                              <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => deleteLabel(l.id)} title={t("common.delete")}>🗑</button>
+                              <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => setLabelEdit({ id: l.id, name: l.name, color: l.color })} title={de ? "Umbenennen / Farbe" : "Rename / color"} aria-label={de ? "Umbenennen / Farbe" : "Rename / color"}>✎</button>
+                              <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => deleteLabel(l.id)} title={t("common.delete")} aria-label={t("common.delete")}>🗑</button>
                             </div>
                           );
                         })}
@@ -2423,8 +2427,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                       </div>
                     </>
                   )}
-                  <button className={`icon-btn ${readMenu ? "on" : ""}`} onClick={() => setReadMenu((v) => !v)} title={t("mail.more")}>⋯</button>
-                  <button className="icon-btn" onClick={() => { setOpen(null); setMobilePane("list"); }} title={t("mail.back")}>✕</button>
+                  <button className={`icon-btn ${readMenu ? "on" : ""}`} onClick={() => setReadMenu((v) => !v)} title={t("mail.more")} aria-label={t("mail.more")}>⋯</button>
+                  <button className="icon-btn" onClick={() => { setOpen(null); setMobilePane("list"); }} title={t("mail.back")} aria-label={t("mail.back")}>✕</button>
                   {readMenu && (
                     <>
                       <div className="menu-backdrop" onClick={() => setReadMenu(false)} />
@@ -2475,7 +2479,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                 </div>
               </div>
               <div className="mail-head-meta">
-                <button className="mail-star" onClick={() => toggleFlag(open)} title={t("mail.flag")}>
+                <button className="mail-star" onClick={() => toggleFlag(open)} title={t("mail.flag")} aria-label={t("mail.flag")}>
                   {(messages.find((m) => m.uid === open.uid)?.flagged ?? open.flagged) ? "★" : "☆"}
                 </button>
                 {(() => {
@@ -2638,7 +2642,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                         {s.status === "failed" ? `⚠ ${s.error || t("sched.failed")}` : `→ ${prettyDate(s.send_at)}`}
                       </div>
                     </div>
-                    <button className="ghost" onClick={() => cancelScheduled(s.id)} title={t("sched.cancel")}>🗑</button>
+                    <button className="ghost" onClick={() => cancelScheduled(s.id)} title={t("sched.cancel")} aria-label={t("sched.cancel")}>🗑</button>
                   </div>
                 ))}
               </div>
@@ -2706,9 +2710,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                   Mehr, Schliessen. Wer zwischen Spalte und Popup wechselt, soll
                   nicht umlernen muessen. */}
               <div className="mail-head-actions" style={{ flex: "0 0 auto" }}>
-                <button className="icon-btn accent" onClick={() => { setDraft(replyDraft(open, t)); setPopup(false); }} title={t("mail.reply")}>↩</button>
-                <button className="icon-btn read-del" onClick={() => { setPopup(false); del(open); }} title={t("mail.delete")}>🗑</button>
-                <button className={`icon-btn ${popupMenu ? "on" : ""}`} onClick={() => setPopupMenu((v) => !v)} title={t("mail.more")}>⋯</button>
+                <button className="icon-btn accent" onClick={() => { setDraft(replyDraft(open, t)); setPopup(false); }} title={t("mail.reply")} aria-label={t("mail.reply")}>↩</button>
+                <button className="icon-btn read-del" onClick={() => { setPopup(false); del(open); }} title={t("mail.delete")} aria-label={t("mail.delete")}>🗑</button>
+                <button className={`icon-btn ${popupMenu ? "on" : ""}`} onClick={() => setPopupMenu((v) => !v)} title={t("mail.more")} aria-label={t("mail.more")}>⋯</button>
                 {popupMenu && (
                   <>
                     <div className="menu-backdrop" onClick={() => setPopupMenu(false)} />
@@ -2720,7 +2724,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                     </div>
                   </>
                 )}
-                <button className="icon-btn" onClick={() => setPopup(false)} title={t("mail.back")}>✕</button>
+                <button className="icon-btn" onClick={() => setPopup(false)} title={t("mail.back")} aria-label={t("mail.back")}>✕</button>
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", borderBottom: "1px solid var(--self-line)", fontSize: "0.85rem", color: "var(--self-text-2)" }}>

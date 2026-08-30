@@ -6,6 +6,7 @@ import { promptDialog } from "../lib/dialog";
 import { safeLinkUrl } from "../lib/url";
 import { trimQuotedText } from "../lib/mailview";
 import { RecipientField } from "./RecipientField";
+import { useMenuDismiss } from "../lib/useMenuDismiss";
 
 export type Draft = {
   to: string; cc: string; bcc: string; subject: string; body: string; in_reply_to: string;
@@ -177,6 +178,7 @@ export function Compose({
   // preventDefault, sonst verliert der Editor die Auswahl und execCommand
   // greift ins Leere.
   const [fmtMenu, setFmtMenu] = useState(false);
+  useMenuDismiss(fmtMenu, () => setFmtMenu(false));
   const [d, setD] = useState<Draft>(draft);
   const [files, setFiles] = useState<File[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -189,6 +191,7 @@ export function Compose({
   const [showCc, setShowCc] = useState<boolean>(!!draft.cc);
   const [showBcc, setShowBcc] = useState<boolean>(!!draft.bcc);
   const [moreOpen, setMoreOpen] = useState(false);
+  useMenuDismiss(moreOpen, () => setMoreOpen(false));
   // Zitierten Verlauf einer Antwort sichtbar zeigen (Balken). Standardmäßig an,
   // damit man beim Antworten sofort sieht, was zitiert wird.
   const [showQuote, setShowQuote] = useState(true);
@@ -201,6 +204,7 @@ export function Compose({
   const [templates, setTemplates] = useState<MailTemplate[]>([]);
   const [tplEdit, setTplEdit] = useState<MailTemplate | null>(null);   // Vorlage bearbeiten
   const [tplOpen, setTplOpen] = useState(false);
+  useMenuDismiss(tplOpen, () => setTplOpen(false));
   // „Senden rückgängig": nach Klick auf Senden läuft ein kurzer Countdown, in dem
   // sich der Versand noch abbrechen lässt (wie Gmail). null = kein Versand geplant.
   const UNDO_SECONDS = 5;
@@ -208,6 +212,7 @@ export function Compose({
   const sendTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   // Später senden (Terminversand).
   const [schedMenu, setSchedMenu] = useState(false);
+  useMenuDismiss(schedMenu, () => setSchedMenu(false));
   const [customTime, setCustomTime] = useState("");
 
   useEffect(() => { api.get<Account[]>("/accounts").then(setAccounts).catch(() => {}); }, []);
@@ -420,7 +425,7 @@ export function Compose({
       <div className="modal card compose-modal" onClick={(e) => e.stopPropagation()}>
         <div className="topbar">
           <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{t("compose.new")}</h2>
-          <button className="ghost" onClick={closeAsDraft} title={t("compose.closeDraft")}>✕</button>
+          <button className="ghost" onClick={closeAsDraft} title={t("compose.closeDraft")} aria-label={t("compose.closeDraft")}>✕</button>
         </div>
         <div className="stack">
           {accounts.length > 0 && (
@@ -469,9 +474,9 @@ export function Compose({
             {FORMATS.map((f) => (
               <button key={f.cmd} className="ghost" title={f.title} onMouseDown={(e) => { e.preventDefault(); exec(f.cmd, f.arg); }}>{f.label}</button>
             ))}
-            <button className="ghost" title={t("compose.link")} onMouseDown={(e) => { e.preventDefault(); addLink(); }}>🔗</button>
+            <button className="ghost" title={t("compose.link")} aria-label={t("compose.link")} onMouseDown={(e) => { e.preventDefault(); addLink(); }}>🔗</button>
             <span style={{ position: "relative" }}>
-              <button className={`ghost ${fmtMenu ? "on" : ""}`} title={de ? "Weitere Formate" : "More formatting"}
+              <button className={`ghost ${fmtMenu ? "on" : ""}`} title={de ? "Weitere Formate" : "More formatting"} aria-label={de ? "Weitere Formate" : "More formatting"}
                 onMouseDown={(e) => { e.preventDefault(); setFmtMenu((o) => !o); }}>⋯</button>
               {fmtMenu && (
                 <>
@@ -527,7 +532,7 @@ export function Compose({
               {files.map((f, i) => (
                 <span key={i} className="label" style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
                   📎 {f.name}
-                  <button className="ghost" style={{ padding: "0 0.2rem" }} onClick={() => removeFile(i)} title={t("common.remove")}>✕</button>
+                  <button className="ghost" style={{ padding: "0 0.2rem" }} onClick={() => removeFile(i)} title={t("common.remove")} aria-label={t("common.remove")}>✕</button>
                 </span>
               ))}
             </div>
@@ -553,8 +558,8 @@ export function Compose({
                 {templates.map((tpl) => (
                   <div key={tpl.id} className="compose-tpl-row">
                     <button className="compose-tpl-ins" onClick={() => insertTemplate(tpl)} title={tpl.subject}>{tpl.name}</button>
-                    <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => { setTplOpen(false); setTplEdit(tpl); }} title={t("common.edit")}>✎</button>
-                    <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => deleteTemplate(tpl.id)} title={t("common.delete")}>🗑</button>
+                    <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => { setTplOpen(false); setTplEdit(tpl); }} title={t("common.edit")} aria-label={t("common.edit")}>✎</button>
+                    <button className="ghost" style={{ padding: "0 0.3rem" }} onClick={() => deleteTemplate(tpl.id)} title={t("common.delete")} aria-label={t("common.delete")}>🗑</button>
                   </div>
                 ))}
                 <button className="link-btn" style={{ marginTop: "0.3rem" }} onClick={saveAsTemplate}>＋ {t("tpl.saveCurrent")}</button>
@@ -596,7 +601,7 @@ export function Compose({
                 Spaeter senden, Optionen) -- alle gleich laut, obwohl nur der
                 Anhang beim Schreiben regelmaessig gebraucht wird. Der Rest liegt
                 jetzt hinter EINEM ⋯; die beiden Untermenues oeffnen von dort. */}
-            <button className={`ghost ${moreOpen ? "on" : ""}`} title={t("compose.options")} onClick={() => setMoreOpen((o) => !o)}>⋯</button>
+            <button className={`ghost ${moreOpen ? "on" : ""}`} title={t("compose.options")} aria-label={t("compose.options")} onClick={() => setMoreOpen((o) => !o)}>⋯</button>
             {moreOpen && (
               <>
                 <div className="menu-backdrop" onClick={() => setMoreOpen(false)} />

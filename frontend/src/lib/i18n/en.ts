@@ -323,6 +323,8 @@ export const en = {
   "cal.month": "Month",
   "cal.agenda": "Agenda",
   "cal.today": "Today",
+  "cal.prevMonth": "Previous month",
+  "cal.nextMonth": "Next month",
   "cal.newEvent": "New event",
   "cal.birthday": "Birthday",
   "cal.description": "Description",

@@ -69,7 +69,7 @@ export function RichEditor({
           <button key={f.cmd} type="button" className="ghost" title={f.title}
             onMouseDown={(e) => { e.preventDefault(); exec(f.cmd); }}>{f.label}</button>
         ))}
-        <button type="button" className="ghost" title={t("compose.link")}
+        <button type="button" className="ghost" title={t("compose.link")} aria-label={t("compose.link")}
           onMouseDown={(e) => { e.preventDefault(); addLink(); }}>🔗</button>
       </div>
       <div

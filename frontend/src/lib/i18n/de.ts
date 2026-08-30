@@ -321,6 +321,8 @@ export const de: Dict = {
   "cal.month": "Monat",
   "cal.agenda": "Agenda",
   "cal.today": "Heute",
+  "cal.prevMonth": "Voriger Monat",
+  "cal.nextMonth": "Nächster Monat",
   "cal.newEvent": "Neuer Termin",
   "cal.birthday": "Geburtstag",
   "cal.description": "Beschreibung",

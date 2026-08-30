@@ -284,7 +284,7 @@ export function App() {
           {search && <button className="search-filter" onClick={() => setSearch("")}>✕</button>}
           <button
             className={`search-filter ${(filter.from || filter.subject || filter.dateFrom || filter.dateTo || filter.unread || filter.starred || filter.attachments) ? "on" : ""}`}
-            title={t("filter.title")}
+            title={t("filter.title")} aria-label={t("filter.title")}
             onClick={() => setMenu(menu === "filter" ? null : "filter")}
           >⚙</button>
         </div>
@@ -296,6 +296,7 @@ export function App() {
               className={`icon-btn ${view === a.key ? "on" : ""}`}
               style={a.key === "mail" ? { position: "relative" } : undefined}
               title={t(a.labelKey)}
+              aria-label={t(a.labelKey)}
               onClick={() => go(a.key)}
             >
               {a.icon}
@@ -468,7 +469,7 @@ export function App() {
                 <div className="design-color-row" key={key}>
                   <span>{label}</span>
                   <span className="grow" />
-                  {themeCustom[key] && <button className="ghost design-clear" title={t("design.resetOne")} onClick={() => setThemeCustom((t0) => ({ ...t0, [key]: "" }))}>↺</button>}
+                  {themeCustom[key] && <button className="ghost design-clear" title={t("design.resetOne")} aria-label={t("design.resetOne")} onClick={() => setThemeCustom((t0) => ({ ...t0, [key]: "" }))}>↺</button>}
                   <input type="color" value={themeCustom[key] || THEME_DEFAULTS[tmode][key]} onChange={(e) => setThemeCustom((t0) => ({ ...t0, [key]: e.target.value }))} />
                 </div>
               ))}

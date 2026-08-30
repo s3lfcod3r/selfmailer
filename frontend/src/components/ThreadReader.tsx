@@ -3,6 +3,7 @@ import { api, download, type MsgHeader, type MsgDetail, type MailLabel } from ".
 import { useLang } from "../lib/i18n";
 import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, trimQuotedHtml, trimQuotedText, avatarFor } from "../lib/mailview";
 import type { Conversation } from "../lib/threads";
+import { useMenuDismiss } from "../lib/useMenuDismiss";
 
 // Volle Aktionen je Thread-Nachricht (wie in der Einzelansicht).
 export type ThreadActions = {
@@ -85,7 +86,9 @@ export function ThreadReader({
   const [errUid, setErrUid] = useState<Record<string, string>>({});
   // Offene Menüs je Karte (Schlüssel = folder:uid): Label-Menü bzw. ⋯-Menü.
   const [lblMenuKey, setLblMenuKey] = useState<string | null>(null);
+  useMenuDismiss(lblMenuKey !== null, () => setLblMenuKey(null));
   const [moreMenuKey, setMoreMenuKey] = useState<string | null>(null);
+  useMenuDismiss(moreMenuKey !== null, () => setMoreMenuKey(null));
   const keyFor = (m: MsgHeader) => `${m.folder ?? ""}:${m.uid}`;
   // Aufgeklappte Nachrichten. Start: neueste + alle ungelesenen.
   const [openUids, setOpenUids] = useState<Set<string>>(() => {
@@ -192,7 +195,7 @@ export function ThreadReader({
         </div>
         <div className="thread-head-actions">
           <span className="thread-count" title={t("shell.conversationView")}>💬 {conversation.count}</span>
-          <button className="icon-btn" onClick={onClose} title={t("mail.back")}>✕</button>
+          <button className="icon-btn" onClick={onClose} title={t("mail.back")} aria-label={t("mail.back")}>✕</button>
         </div>
       </div>
       <hr style={{ borderColor: "var(--self-line)", margin: "0.4rem 0 0.6rem" }} />
@@ -226,18 +229,18 @@ export function ThreadReader({
             <div className="thread-msg-actions" onClick={(e) => e.stopPropagation()}>
               {hasQuote && (
                 <button className={`ghost ${showQuote ? "on" : ""}`} onClick={() => setQuoteOk((s) => { const n = new Set(s); if (n.has(m.uid)) n.delete(m.uid); else n.add(m.uid); return n; })}
-                  title={showQuote ? t("mail.quoteHide") : t("mail.quoteShow")}>{showQuote ? "▴" : "···"}</button>
+                  title={showQuote ? t("mail.quoteHide") : t("mail.quoteShow")} aria-label={showQuote ? t("mail.quoteHide") : t("mail.quoteShow")}>{showQuote ? "▴" : "···"}</button>
               )}
               {blockImages && !showImgs && remote && (
-                <button className="ghost" onClick={() => setImgOk((s) => new Set(s).add(m.uid))} title={t("mail.showImages")}>🖼</button>
+                <button className="ghost" onClick={() => setImgOk((s) => new Set(s).add(m.uid))} title={t("mail.showImages")} aria-label={t("mail.showImages")}>🖼</button>
               )}
-              <button className="ghost accent" onClick={() => onReply(d)} title={t("mail.reply")}>↩</button>
-              <button className="ghost read-del" onClick={() => onDelete(m)} title={t("mail.delete")}>🗑</button>
+              <button className="ghost accent" onClick={() => onReply(d)} title={t("mail.reply")} aria-label={t("mail.reply")}>↩</button>
+              <button className="ghost read-del" onClick={() => onDelete(m)} title={t("mail.delete")} aria-label={t("mail.delete")}>🗑</button>
               {actions ? (
                 <span style={{ position: "relative" }}>
                   <button className={`ghost ${moreMenuKey === keyFor(m) || lblMenuKey === keyFor(m) ? "on" : ""}`}
                     onClick={() => { setMoreMenuKey((k) => k === keyFor(m) ? null : keyFor(m)); setLblMenuKey(null); }}
-                    title={t("mail.more")}>⋯</button>
+                    title={t("mail.more")} aria-label={t("mail.more")}>⋯</button>
                   {moreMenuKey === keyFor(m) && (
                     <>
                       <div className="menu-backdrop" onClick={() => setMoreMenuKey(null)} />
@@ -290,7 +293,7 @@ export function ThreadReader({
               ) : (
                 /* Ohne actions gibt es kein Mehr-Menue - dann muss Weiterleiten
                    direkt in der Leiste stehen, sonst waere es unerreichbar. */
-                <button className="ghost" onClick={() => onForward(d)} title={t("mail.forward")}>↪</button>
+                <button className="ghost" onClick={() => onForward(d)} title={t("mail.forward")} aria-label={t("mail.forward")}>↪</button>
               )}
             </div>
           ) : null;
@@ -299,7 +302,7 @@ export function ThreadReader({
               <div className="thread-msg-head" role="button" tabIndex={0}
                 onClick={() => toggle(m)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(m); } }}>
-                <button className="thread-star" onClick={(e) => { e.stopPropagation(); onFlag(m); }} title={t("mail.flag")}>
+                <button className="thread-star" onClick={(e) => { e.stopPropagation(); onFlag(m); }} title={t("mail.flag")} aria-label={t("mail.flag")}>
                   {m.flagged ? "★" : "☆"}
                 </button>
                 <Avatar label={dispName} photo={avatarMap[from.email.trim().toLowerCase()]} />

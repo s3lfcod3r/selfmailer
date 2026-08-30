@@ -172,7 +172,7 @@ export function Accounts() {
               {editId !== a.id && <>
                 <button className="ghost" onClick={() => test(a)}>{t("accounts.test")}</button>
                 <button className="ghost" onClick={() => startEdit(a)}>✎ {t("accounts.edit")}</button>
-                <button className="ghost" onClick={() => remove(a)} title={t("common.remove")}>🗑</button>
+                <button className="ghost" onClick={() => remove(a)} title={t("common.remove")} aria-label={t("common.remove")}>🗑</button>
               </>}
             </div>
 

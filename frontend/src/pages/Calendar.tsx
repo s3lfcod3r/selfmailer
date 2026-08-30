@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type CalEvent, type Contact, type DavAccount, type GcalCalendar, type Task } from "../lib/api";
 import { useLang, dateLocale, type Lang, type TFunc } from "../lib/i18n";
+import { useMenuDismiss } from "../lib/useMenuDismiss";
 
 const EMPTY = { title: "", location: "", description: "", start: "", end: "", all_day: false, target: "local", calendarId: "" };
 type Form = typeof EMPTY;
@@ -92,6 +93,7 @@ export function Calendar() {
   // auf die klassische einfarbige Ansicht; Wahl bleibt lokal gespeichert.
   const [calColors, setCalColors] = useState<boolean>(() => localStorage.getItem("selfmailer.calColors") !== "0");
   const [calMenu, setCalMenu] = useState(false);
+  useMenuDismiss(calMenu, () => setCalMenu(false));
   useEffect(() => { localStorage.setItem("selfmailer.calColors", calColors ? "1" : "0"); }, [calColors]);
   const now = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
@@ -384,9 +386,9 @@ export function Calendar() {
     <div className="cal-wrap">
       <div className="cal-toolbar">
         <div className="cal-nav">
-          <button className="ghost" onClick={() => shift(-1)} title="←">‹</button>
+          <button className="ghost" onClick={() => shift(-1)} title={t("cal.prevMonth")} aria-label={t("cal.prevMonth")}>‹</button>
           <div className="cal-month-title">{monthTitle}</div>
-          <button className="ghost" onClick={() => shift(1)} title="→">›</button>
+          <button className="ghost" onClick={() => shift(1)} title={t("cal.nextMonth")} aria-label={t("cal.nextMonth")}>›</button>
           <button className="ghost" onClick={goToday}>{t("cal.today")}</button>
         </div>
         <div className="row" style={{ gap: "0.4rem" }}>
@@ -399,7 +401,7 @@ export function Calendar() {
               und dann nie wieder anfasst — er stand trotzdem gleichberechtigt
               neben "Neuer Termin". Jetzt liegt er im Menue. */}
           <span style={{ position: "relative" }}>
-            <button className={`ghost ${calMenu ? "on" : ""}`} onClick={() => setCalMenu((v) => !v)} title={t("mail.more")}>⋯</button>
+            <button className={`ghost ${calMenu ? "on" : ""}`} onClick={() => setCalMenu((v) => !v)} title={t("mail.more")} aria-label={t("mail.more")}>⋯</button>
             {calMenu && (
               <>
                 <div className="menu-backdrop" onClick={() => setCalMenu(false)} />
@@ -646,7 +648,7 @@ function TaskRow({ tk, lang, onToggle, onRemove }: { tk: Task; lang: Lang; onTog
   const overdue = tk.due && !tk.done && tk.due < new Date().toISOString().slice(0, 10);
   return (
     <div className={`cal-task ${tk.done ? "done" : ""}`}>
-      <button className="cal-task-check" onClick={() => onToggle(tk)} title={tk.done ? "↺" : "✓"}>{tk.done ? "☑" : "☐"}</button>
+      <button className="cal-task-check" onClick={() => onToggle(tk)} title={tk.done ? "↺" : "✓"} aria-label={tk.done ? "↺" : "✓"}>{tk.done ? "☑" : "☐"}</button>
       <div className="cal-task-body">
         <div className="cal-task-title">{tk.title}</div>
         {tk.due && <div className={`cal-task-due ${overdue ? "overdue" : ""}`}>{new Date(tk.due + "T00:00:00").toLocaleDateString(dateLocale(lang), { day: "2-digit", month: "short" })}</div>}

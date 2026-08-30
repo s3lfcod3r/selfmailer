@@ -321,6 +321,8 @@ export const sv: Dict = {
   "cal.month": "Månad",
   "cal.agenda": "Agenda",
   "cal.today": "Idag",
+  "cal.prevMonth": "Föregående månad",
+  "cal.nextMonth": "Nästa månad",
   "cal.newEvent": "Ny händelse",
   "cal.birthday": "Födelsedag",
   "cal.description": "Beskrivning",

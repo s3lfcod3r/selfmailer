@@ -447,7 +447,7 @@ export function Sync() {
                     <span style={{ width: 11, height: 11, borderRadius: "50%", background: c.color || "var(--self-teal)", flex: "0 0 auto" }} />
                     <span style={{ flex: 1, opacity: on ? 1 : 0.45, textDecoration: on ? "none" : "line-through" }}>{c.name}</span>
                     {c.writable && (
-                      <button type="button" className="ghost" title={isDefault ? "Standardkalender" : "Als Standard für neue Termine"}
+                      <button type="button" className="ghost" title={isDefault ? "Standardkalender" : "Als Standard für neue Termine"} aria-label={isDefault ? "Standardkalender" : "Als Standard für neue Termine"}
                               onClick={() => setDefaultCal(val)} style={{ padding: "0 0.4rem", color: isDefault ? "var(--self-teal-bright)" : "var(--self-text-3)" }}>
                         {isDefault ? "★" : "☆"}
                       </button>
