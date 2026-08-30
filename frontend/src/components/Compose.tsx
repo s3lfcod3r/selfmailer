@@ -148,12 +148,20 @@ function fileToB64(file: File): Promise<string> {
 }
 
 // Formatier-Buttons (eigene Leiste via execCommand).
-const FORMATS: { cmd: string; arg?: string; label: string; title: string }[] = [
+type Format = { cmd: string; arg?: string; label: string; title: string };
+
+// Ueber dem Schreibfeld standen zehn Format-Knoepfe nebeneinander. Die meisten
+// Mails werden gar nicht formatiert, und wer formatiert, braucht fast immer nur
+// Fett, Kursiv und eine Aufzaehlung. Der Rest liegt jetzt hinter dem ⋯ -- weg
+// ist nichts.
+const FORMATS: Format[] = [
   { cmd: "bold", label: "B", title: "Fett" },
   { cmd: "italic", label: "I", title: "Kursiv" },
+  { cmd: "insertUnorderedList", label: "•", title: "Aufzählung" },
+];
+const FORMATS_MORE: Format[] = [
   { cmd: "underline", label: "U", title: "Unterstrichen" },
   { cmd: "strikeThrough", label: "S", title: "Durchgestrichen" },
-  { cmd: "insertUnorderedList", label: "•", title: "Aufzählung" },
   { cmd: "insertOrderedList", label: "1.", title: "Nummerierung" },
   { cmd: "justifyLeft", label: "⯈|", title: "Linksbündig" },
   { cmd: "justifyCenter", label: "≡", title: "Zentriert" },
@@ -163,7 +171,12 @@ const FORMATS: { cmd: string; arg?: string; label: string; title: string }[] = [
 export function Compose({
   accountId, draft, onClose,
 }: { accountId: number; draft: Draft; onClose: () => void }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const de = lang === "de";
+  // Menue der seltenen Format-Befehle. Auf/Zu laeuft ueber onMouseDown mit
+  // preventDefault, sonst verliert der Editor die Auswahl und execCommand
+  // greift ins Leere.
+  const [fmtMenu, setFmtMenu] = useState(false);
   const [d, setD] = useState<Draft>(draft);
   const [files, setFiles] = useState<File[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -457,6 +470,23 @@ export function Compose({
               <button key={f.cmd} className="ghost" title={f.title} onMouseDown={(e) => { e.preventDefault(); exec(f.cmd, f.arg); }}>{f.label}</button>
             ))}
             <button className="ghost" title={t("compose.link")} onMouseDown={(e) => { e.preventDefault(); addLink(); }}>🔗</button>
+            <span style={{ position: "relative" }}>
+              <button className={`ghost ${fmtMenu ? "on" : ""}`} title={de ? "Weitere Formate" : "More formatting"}
+                onMouseDown={(e) => { e.preventDefault(); setFmtMenu((o) => !o); }}>⋯</button>
+              {fmtMenu && (
+                <>
+                  <div className="menu-backdrop" onMouseDown={(e) => { e.preventDefault(); setFmtMenu(false); }} />
+                  <div className="compose-more compose-fmt">
+                    {FORMATS_MORE.map((f) => (
+                      <button key={f.cmd} className="compose-tpl-ins" title={f.title}
+                        onMouseDown={(e) => { e.preventDefault(); exec(f.cmd, f.arg); setFmtMenu(false); }}>
+                        <span className="compose-fmt-icon">{f.label}</span>{f.title}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </span>
           </div>
           <div
             ref={editorRef}
@@ -515,8 +545,9 @@ export function Compose({
               📎 {t("compose.attach")}
               <input type="file" multiple style={{ display: "none" }} onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
             </label>
-            <button className="ghost" title={t("tpl.templates")} onClick={() => setTplOpen((o) => !o)}>📄</button>
             {tplOpen && (
+              <>
+              <div className="menu-backdrop" onClick={() => setTplOpen(false)} />
               <div className="compose-more compose-tpl">
                 {templates.length === 0 && <div className="muted" style={{ fontSize: "0.8rem", padding: "0.2rem 0.3rem" }}>{t("tpl.none")}</div>}
                 {templates.map((tpl) => (
@@ -528,6 +559,7 @@ export function Compose({
                 ))}
                 <button className="link-btn" style={{ marginTop: "0.3rem" }} onClick={saveAsTemplate}>＋ {t("tpl.saveCurrent")}</button>
               </div>
+              </>
             )}
             {tplEdit && (
               <div className="modal-backdrop" onClick={() => setTplEdit(null)}>
@@ -546,8 +578,9 @@ export function Compose({
                 </div>
               </div>
             )}
-            <button className="ghost" title={t("sched.later")} onClick={() => setSchedMenu((o) => !o)}>🕒</button>
             {schedMenu && (
+              <>
+              <div className="menu-backdrop" onClick={() => setSchedMenu(false)} />
               <div className="compose-more compose-sched">
                 <button className="compose-tpl-ins" onClick={() => scheduleSend(new Date(Date.now() + 3600e3))}>{t("sched.in1h")}</button>
                 <button className="compose-tpl-ins" onClick={() => scheduleSend(new Date(Date.now() + 3 * 3600e3))}>{t("sched.in3h")}</button>
@@ -557,13 +590,24 @@ export function Compose({
                   <button className="link-btn" disabled={!customTime} onClick={() => { const dt = new Date(customTime); if (!isNaN(dt.getTime())) scheduleSend(dt); }}>{t("sched.schedule")}</button>
                 </div>
               </div>
+              </>
             )}
-            <button className="ghost" title={t("compose.options")} onClick={() => setMoreOpen((o) => !o)}>⋯</button>
+            {/* Frueher standen hier vier Icons nebeneinander (Anhang, Vorlagen,
+                Spaeter senden, Optionen) -- alle gleich laut, obwohl nur der
+                Anhang beim Schreiben regelmaessig gebraucht wird. Der Rest liegt
+                jetzt hinter EINEM ⋯; die beiden Untermenues oeffnen von dort. */}
+            <button className={`ghost ${moreOpen ? "on" : ""}`} title={t("compose.options")} onClick={() => setMoreOpen((o) => !o)}>⋯</button>
             {moreOpen && (
-              <div className="compose-more">
-                <label><input type="checkbox" style={{ width: "auto" }} checked={readReceipt} onChange={(e) => setReadReceipt(e.target.checked)} /> {t("compose.readReceipt")}</label>
-                <label><input type="checkbox" style={{ width: "auto" }} checked={deliveryReceipt} onChange={(e) => setDeliveryReceipt(e.target.checked)} /> {t("compose.deliveryReceipt")}</label>
-              </div>
+              <>
+                <div className="menu-backdrop" onClick={() => setMoreOpen(false)} />
+                <div className="compose-more">
+                  <button className="compose-tpl-ins" onClick={() => { setMoreOpen(false); setTplOpen(true); }}>📄 {t("tpl.templates")}</button>
+                  <button className="compose-tpl-ins" onClick={() => { setMoreOpen(false); setSchedMenu(true); }}>🕒 {t("sched.later")}</button>
+                  <hr />
+                  <label><input type="checkbox" style={{ width: "auto" }} checked={readReceipt} onChange={(e) => setReadReceipt(e.target.checked)} /> {t("compose.readReceipt")}</label>
+                  <label><input type="checkbox" style={{ width: "auto" }} checked={deliveryReceipt} onChange={(e) => setDeliveryReceipt(e.target.checked)} /> {t("compose.deliveryReceipt")}</label>
+                </div>
+              </>
             )}
             <span className="grow" />
             <button className="ghost" onClick={onClose}>{t("common.cancel")}</button>

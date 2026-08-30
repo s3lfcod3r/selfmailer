@@ -1308,3 +1308,28 @@ button:focus-visible {
 }
 /* Die Plakette steht zwischen Namen und Datum in der oberen Zeile. */
 .conv-row .mail-row-top .conv-badge { margin-left: 0.1rem; }
+
+/* Menue der Listenspalte — sitzt allein rechts ueber der Liste und ersetzt
+   Kaestchen, "Alle auswaehlen", mbox-Export und Label-Knopf. Zurueckhaltend
+   gesetzt: es soll den Blick auf die Mails nicht abfangen. */
+.list-more {
+  border: none; background: none; cursor: pointer; line-height: 1;
+  padding: 0.1rem 0.35rem; border-radius: 6px;
+  color: var(--self-text-3); font-size: 1rem;
+}
+.list-more:hover, .list-more:focus-visible { color: var(--self-text); background: var(--self-bg-3); }
+.list-more.on { color: var(--self-teal); background: var(--self-bg-3); }
+/* Ohne aktiven Filter enthaelt die Zeile nur dieses Menue — dann darf sie kaum
+   Platz kosten. */
+.mail-selbar { min-height: 1.6rem; }
+
+/* Menue der selteneren Format-Befehle. Etwas breiter als die anderen Menues,
+   weil hier Symbol UND Name stehen — ein "S" allein sagt niemandem etwas. */
+.compose-fmt { min-width: 12rem; }
+.compose-fmt .compose-tpl-ins { display: flex; align-items: center; gap: 0.6rem; text-align: left; }
+.compose-fmt-icon {
+  flex: 0 0 1.4rem; text-align: center; font-weight: 600;
+  color: var(--self-text-3);
+}
+.compose-more hr { border: none; border-top: 1px solid var(--self-line); margin: 0.35rem 0; }
+.compose-toolbar .ghost.on { color: var(--self-teal); background: var(--self-bg-3); }

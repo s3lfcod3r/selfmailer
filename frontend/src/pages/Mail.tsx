@@ -355,7 +355,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Labels/Schlagworte des Nutzers + aktiver Label-Filter (Keyword) + Menü im Lesekopf.
   const [labels, setLabels] = useState<MailLabel[]>([]);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
-  const [labelFilterMenu, setLabelFilterMenu] = useState(false);
+  // Ein Menue fuer die ganze Listenspalte (Auswahl, Label-Filter, mbox) statt
+  // drei Dauer-Bedienelemente ueber der Liste.
+  const [listMenu, setListMenu] = useState(false);
   const [labelMenu, setLabelMenu] = useState(false);
   // Inline-Bearbeitung eines Labels (Umbenennen/Umfärben) im Label-Menü.
   const [labelEdit, setLabelEdit] = useState<{ id: number; name: string; color: string } | null>(null);
@@ -2150,6 +2152,18 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                 <button className="bulk-clear" onClick={() => setSelected(new Set())} title={t("mail.clearSelection")}>✕</button>
               </div>
               <div className="bulk-actions">
+                {/* Frueher stand das dauerhaft ueber der Liste. Hier ist es am Platz:
+                    wer schon etwas markiert hat, will die Auswahl oft ausweiten. */}
+                {!allSelected && (
+                  <button className="bulk-btn" onClick={toggleSelectAll}>☑ {t("mail.selectAll")}</button>
+                )}
+                {!listAll && (selectAllFolder ? (
+                  <span className="sel-all-note">{t("mail.allFolderSelected", { n: folderTotal })}</span>
+                ) : (
+                  allSelected && folderTotal > visible.length && (
+                    <button className="bulk-btn" onClick={selectWholeFolder}>{t("mail.selectAllFolder", { n: folderTotal })}</button>
+                  )
+                ))}
                 <button className="bulk-btn" onClick={() => markSelectedSeen(true)}>✓ {t("mail.markRead")}</button>
                 <button className="bulk-btn" onClick={() => markSelectedSeen(false)}>● {t("mail.markUnread")}</button>
                 {folderNames.length > 1 && (
@@ -2166,63 +2180,59 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
               </div>
             </div>
           )}
+          {/* Ueber der Liste stand dauerhaft eine Zeile mit Kaestchen,
+              "Alle auswaehlen", mbox-Export und Label-Filter - vier Bedienelemente,
+              von denen man beim Lesen keines braucht. Sichtbar bleibt jetzt nur, was
+              ZUSTAND ist (ein aktiver Label-Filter) plus ein einzelnes Menue. Das
+              Auswaehlen selbst ist in die Auswahl-Leiste gewandert: die erscheint
+              ohnehin, sobald man die erste Mail markiert. */}
           {(visible.length > 0 || labels.length > 0) && (
             <div className="mail-selbar">
-              {visible.length > 0 && (
-                <label className="row" style={{ gap: "0.5rem", cursor: "pointer", margin: 0 }}>
-                  <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ width: "auto" }} />
-                  <span className="muted" style={{ fontSize: "0.78rem" }}>{t("mail.selectAll")}</span>
-                </label>
+              {labelFilter && (
+                <button className="label-filter on"
+                  style={{ background: labelMap[labelFilter]?.color, borderColor: labelMap[labelFilter]?.color, color: "#fff" }}
+                  onClick={() => setLabelFilter(null)}
+                  title={de ? "Filter aufheben" : "Clear filter"}>
+                  🏷 {labelMap[labelFilter]?.name ?? labelFilter} ✕
+                </button>
               )}
-              {/* Ordnerweites "Alle auswählen" NUR ohne Suche — bei Suche soll
-                  "Alle auswählen" ausschließlich die sichtbaren Treffer markieren. */}
-              {!listAll && (selectAllFolder ? (
-                <span className="sel-all-note">
-                  {t("mail.allFolderSelected", { n: folderTotal })}
-                  <button className="link-btn" onClick={() => { setSelected(new Set()); setSelectAllFolder(false); }}>{t("mail.clearSelection")}</button>
-                </span>
-              ) : (
-                allSelected && folderTotal > visible.length && (
-                  <button className="link-btn" onClick={selectWholeFolder}>{t("mail.selectAllFolder", { n: folderTotal })}</button>
-                )
-              ))}
-              {sel && showMbox && (
-                <button className="link-btn" style={{ marginLeft: "auto" }}
-                  title={t("mail.mboxHint")}
-                  onClick={exportMbox}>⤓ mbox</button>
-              )}
-              {labels.length > 0 && (
-                <div style={{ marginLeft: labels.length > 0 && sel ? "0.4rem" : "auto", position: "relative" }}>
-                  <button
-                    className={`label-filter ${labelFilter ? "on" : ""}`}
-                    style={labelFilter
-                      ? { background: labelMap[labelFilter]?.color, borderColor: labelMap[labelFilter]?.color, color: "#fff" }
-                      : undefined}
-                    onClick={() => setLabelFilterMenu((v) => !v)}
-                    title={de ? "Nach Label filtern" : "Filter by label"}>
-                    🏷 {labelFilter ? (labelMap[labelFilter]?.name ?? labelFilter) : "Label"} ▾
-                  </button>
-                  {labelFilterMenu && (
-                    <>
-                      <div className="menu-backdrop" onClick={() => setLabelFilterMenu(false)} />
-                      <div className="read-menu label-menu" style={{ right: 0 }}>
-                        <button className="label-menu-toggle" onClick={() => { setLabelFilter(null); setLabelFilterMenu(false); }}>
+              <div style={{ marginLeft: "auto", position: "relative" }}>
+                <button className={`list-more ${listMenu ? "on" : ""}`} onClick={() => setListMenu((v) => !v)}
+                  title={t("mail.more")}>⋯</button>
+                {listMenu && (
+                  <>
+                    <div className="menu-backdrop" onClick={() => setListMenu(false)} />
+                    <div className="read-menu" style={{ right: 0 }}>
+                      {visible.length > 0 && (
+                        <button onClick={() => { setListMenu(false); if (!allSelected) toggleSelectAll(); }}>
+                          ☑ {t("mail.selectAll")}
+                        </button>
+                      )}
+                      {labels.length > 0 && <hr />}
+                      {labels.length > 0 && (
+                        <button onClick={() => { setListMenu(false); setLabelFilter(null); }}>
                           <span className="grow">{de ? "Alle anzeigen" : "Show all"}</span>
                           {!labelFilter && <span>✓</span>}
                         </button>
-                        {labels.map((l) => (
-                          <button key={l.keyword} className="label-menu-toggle"
-                            onClick={() => { setLabelFilter((c) => (c === l.keyword ? null : l.keyword)); setLabelFilterMenu(false); }}>
-                            <span className="label-dot" style={{ background: l.color }} />
-                            <span className="grow">{l.name}</span>
-                            {labelFilter === l.keyword && <span>✓</span>}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
+                      )}
+                      {labels.map((l) => (
+                        <button key={l.keyword} className="label-menu-toggle"
+                          onClick={() => { setListMenu(false); setLabelFilter((c) => (c === l.keyword ? null : l.keyword)); }}>
+                          <span className="label-dot" style={{ background: l.color }} />
+                          <span className="grow">{l.name}</span>
+                          {labelFilter === l.keyword && <span>✓</span>}
+                        </button>
+                      ))}
+                      {sel && showMbox && <hr />}
+                      {sel && showMbox && (
+                        <button onClick={() => { setListMenu(false); exportMbox(); }} title={t("mail.mboxHint")}>
+                          ⤓ {de ? "Ordner als mbox sichern" : "Export folder as mbox"}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
           {searchActive && searchTruncated && ftResults === null && (
