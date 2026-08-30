@@ -1,0 +1,34 @@
+# SelfMailer — Single-Container-Deployment (Backend + gebautes Frontend).
+#
+# Schnellstart:
+#   cp .env.example .env
+#   python -c "import secrets; print(secrets.token_hex(32))"   # -> SELFMAILER_SECRET in .env
+#   docker compose up -d
+#
+# Danach http://<host>:8090 öffnen — der erste Aufruf legt das Admin-Konto an.
+#
+# Fertiges Image statt selbst bauen: die `build`-Zeilen auskommentieren und
+# stattdessen `image: ghcr.io/s3lfcod3r/selfmailer:latest` aktivieren.
+
+services:
+  selfmailer:
+    # Der Dockerfile liegt in backend/, braucht aber das Repo-Root als Context
+    # (er kopiert sowohl frontend/ als auch backend/).
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    # image: ghcr.io/s3lfcod3r/selfmailer:latest
+    container_name: selfmailer
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    env_file:
+      - .env
+    volumes:
+      # SQLite-DB, nächtliche Backups und (optional) die FCM-Service-Account-JSON.
+      # Der Container läuft NON-ROOT (uid 99 / gid 100 = nobody:users). Gehört der
+      # Ordner auf dem Host jemand anderem, kann die DB nicht geschrieben werden —
+      # einmalig `sudo chown -R 99:100 ./data` (auf Unraid: Tools -> Docker Safe
+      # New Permissions).
+      - ./data:/data
+    # Der Healthcheck steckt bereits im Image (GET /api/health, alle 30 s).

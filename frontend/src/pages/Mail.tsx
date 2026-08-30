@@ -130,6 +130,25 @@ function loadSet(key: string): Set<number> {
   catch { return new Set(); }
 }
 
+// Absender-Anzeigename → Vor-/Nachname für das Adressbuch.
+// WICHTIG: Das Backend-Schema (ContactCreate) kennt KEIN `name`-Feld, nur
+// first_name/last_name — ein mitgeschicktes `name` würde von Pydantic
+// stillschweigend verworfen und der Kontakt landete namenlos im Adressbuch.
+// Letztes Wort = Nachname, der Rest = Vorname; ein einzelnes Wort bleibt der
+// Vorname. Hat der Absender gar keinen Anzeigenamen (parseAddr liefert dann die
+// Adresse selbst), bleiben beide Felder leer — die E-Mail allein ist ehrlicher
+// als ein Vorname, der wie eine Adresse aussieht.
+function contactNameOf(from: string): { first_name: string; last_name: string } {
+  const { name, email } = parseAddr(from);
+  const raw = (name || "").trim();
+  if (!raw || raw.toLowerCase() === (email || "").trim().toLowerCase()) {
+    return { first_name: "", last_name: "" };
+  }
+  const parts = raw.split(/\s+/);
+  if (parts.length === 1) return { first_name: parts[0], last_name: "" };
+  return { first_name: parts.slice(0, -1).join(" "), last_name: parts[parts.length - 1] };
+}
+
 // Ist der Fehler ein „nicht gefunden" (Mail serverseitig weg)? Bevorzugt den
 // echten HTTP-Status (ApiError.status === 404); nur als Rückfall für Nicht-
 // ApiError-Fehler wird noch der Text geprüft.
@@ -1265,9 +1284,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     } catch (e) { setErr((e as Error).message); }
   }
   async function addThreadContact(m: MsgHeader) {
-    const { name, email } = parseAddr(m.from);
+    const { email } = parseAddr(m.from);
     if (!email) return;
-    try { await api.post("/contacts", { name: name || email, email }); }
+    try { await api.post("/contacts", { ...contactNameOf(m.from), email }); }
     catch (e) { setErr((e as Error).message); }
   }
   async function showRawThread(m: MsgHeader) {
@@ -1572,10 +1591,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Absender der offenen Mail ins Adressbuch übernehmen (Name + Adresse).
   async function saveSenderAsContact() {
     if (!open) return;
-    const { name, email } = parseAddr(open.from);
+    const { email } = parseAddr(open.from);
     if (!email) return;
     try {
-      await api.post("/contacts", { name: name || email, email });
+      await api.post("/contacts", { ...contactNameOf(open.from), email });
       setContactSaved(true);
     } catch (e) { setErr((e as Error).message); }
   }

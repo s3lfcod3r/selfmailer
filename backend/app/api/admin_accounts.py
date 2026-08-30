@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 
 from ..core.crypto import encrypt
 from ..core.db import get_session
-from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount, MailRule, User
+from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount, MailIdentity, MailRule, User
 from ..schemas import AccountCreate, AccountOut
 from .accounts import _check_mail_host
 from .deps import require_admin
@@ -80,8 +80,9 @@ def delete_user_account(
     if acc is None or acc.user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Konto nicht gefunden")
     # Kinder-Zeilen zuerst entfernen (sonst verwaiste Cache-/Regel-Daten) —
-    # identisch zu accounts.delete_account.
-    for model in (CachedMessage, FolderSync, CachedFolder, MailRule):
+    # identisch zu accounts.delete_account. MailIdentity gehört dazu, sonst bleiben
+    # Geister-Identitäten zurück, die auf ein gelöschtes Konto zeigen.
+    for model in (CachedMessage, FolderSync, CachedFolder, MailRule, MailIdentity):
         session.execute(sa_delete(model).where(model.account_id == account_id))
     session.delete(acc)
     session.commit()

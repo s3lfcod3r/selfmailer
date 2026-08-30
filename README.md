@@ -173,7 +173,7 @@ or import it under *Docker → Add Container → Template*. Set the **Master Sec
 | `SELFMAILER_TRANSLATE_API_KEY` | – | – | Optional API key, only if your LibreTranslate instance requires one. |
 | `SELFMAILER_ADMIN_TOKEN` | – | – | If set, first-run admin setup requires this token |
 | `SELFMAILER_BASE_URL` | – | – | Public base URL (e.g. for feed links) |
-| `SELFMAILER_SYNC_INTERVAL` | – | `300` | Seconds between background mail syncs (lower = faster push & sync) |
+| `SELFMAILER_SYNC_INTERVAL` | – | `120` | Seconds between background mail syncs (lower = faster push & sync) |
 | `SELFMAILER_DAV_SYNC_INTERVAL` | – | `120` | Seconds between calendar/contact (DAV) syncs — separate from mail, min 30 |
 | `SELFMAILER_SYNC_DISABLE` | – | `0` | Turn off the background sync |
 | `SELFMAILER_IMAP_TIMEOUT` | – | `15` | IMAP socket timeout (seconds) |
@@ -411,7 +411,7 @@ hinzufügen oder unter *Docker → Add Container → Template* importieren. **Ma
 | `SELFMAILER_TRANSLATE_API_KEY` | – | – | Optionaler API-Key, nur falls deine LibreTranslate-Instanz einen verlangt. |
 | `SELFMAILER_ADMIN_TOKEN` | – | – | Wenn gesetzt, verlangt das Erst-Setup diesen Token |
 | `SELFMAILER_BASE_URL` | – | – | Öffentliche Basis-URL (z. B. für Feed-Links) |
-| `SELFMAILER_SYNC_INTERVAL` | – | `300` | Sekunden zwischen Mail-Hintergrund-Syncs (kleiner = schnellerer Push & Sync) |
+| `SELFMAILER_SYNC_INTERVAL` | – | `120` | Sekunden zwischen Mail-Hintergrund-Syncs (kleiner = schnellerer Push & Sync) |
 | `SELFMAILER_DAV_SYNC_INTERVAL` | – | `120` | Sekunden zwischen Kalender-/Kontakt-Syncs (DAV) — getrennt vom Mail-Sync, min. 30 |
 | `SELFMAILER_SYNC_DISABLE` | – | `0` | Hintergrund-Sync abschalten |
 | `SELFMAILER_IMAP_TIMEOUT` | – | `15` | IMAP-Socket-Timeout (Sekunden) |

@@ -88,6 +88,29 @@ def _account_secret(acc: MailAccount) -> str:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zugangsdaten nicht entschlüsselbar")
 
 
+@router.get("/jobs/{job_id}")
+def job_status(
+    job_id: str,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Status eines Hintergrund-Jobs (``background=true`` bei Migration, Transfer,
+    Regeln anwenden, Spam-/Papierkorb-Purge, Geburtstags-Sync).
+
+    Liefert ``{id, kind, status, result, error}``; status ist
+    ``pending`` → ``running`` → ``done`` | ``error``. Nur der Eigentümer sieht
+    seinen Job (die Registry prüft die user_id); unbekannte/fremde IDs → 404.
+
+    BEWUSST VOR den ``/{account_id}/…``-Routen registriert: FastAPI matcht in
+    Registrierungs-Reihenfolge, so kann ``jobs`` nie als Konto-ID gelesen werden.
+    Der Job lebt nur im Prozessspeicher — nach einem Neustart ist er weg (404)."""
+    job = jobs.get_job(job_id, user.id)
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job nicht gefunden")
+    # user_id ist reine Registry-Interna (die Zugriffsprüfung ist oben schon
+    # erfolgt) und gehört nicht in die Antwort.
+    return {k: v for k, v in job.items() if k != "user_id"}
+
+
 @router.get("/{account_id}/folders")
 def folders(
     account_id: int,
