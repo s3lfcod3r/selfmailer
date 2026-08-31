@@ -121,7 +121,7 @@ def _sync_account(acc: MailAccount) -> None:
             return
         try:
             with Session(engine) as s:
-                res = cache_mod.sync_folder(s, acc, pw, folder)
+                res = cache_mod.sync_folder(s, acc, pw, folder, op="sync-hintergrund")
             if int(res.get("new", 0) or 0) > 0:
                 bus.publish(acc.user_id, {"type": "mail", "account_id": acc.id, "folder": folder})
         except Exception:  # noqa: BLE001 - ein Ordner/Konto darf den Lauf nie kippen

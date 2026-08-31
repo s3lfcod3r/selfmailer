@@ -7,6 +7,8 @@ fällt der Aufrufer auf den Live-Abruf zurück.
 """
 from __future__ import annotations
 
+import logging
+import time
 import datetime as dt
 import json
 import re
@@ -18,6 +20,8 @@ from sqlmodel import Session, select
 
 from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
 from .imap import FLAGGED, SEEN, _detail_dict, _mailbox, _snippet, keywords_of, thread_headers
+
+logger = logging.getLogger(__name__)
 
 # Obergrenze, wie viele (neueste) Mail-Köpfe pro Sync nachgeladen werden.
 # Bewusst nicht zu hoch: ein Lauf bleibt zeitlich beschaenkt; sehr große Ordner
@@ -595,7 +599,7 @@ def hide_uids(session: Session, account_id: int, folder: str, uids: list[str]) -
 
 def sync_folder(
     session: Session, account: MailAccount, password: str, folder: str,
-    cap: int = _SYNC_CAP, *, store_bodies: bool = True,
+    cap: int = _SYNC_CAP, *, store_bodies: bool = True, lock_timeout: float | None = None, op: str = "sync",
 ) -> dict:
     """Gleicht den Cache eines Ordners mit dem Server ab (Delta-Sync).
 
@@ -603,7 +607,10 @@ def sync_folder(
     ``detail_json`` mit ablegen (siehe _DETAIL_CACHE_MAX). Standard an — nur
     abschalten, wenn bewusst nur Kopfzeilen gepflegt werden sollen."""
     fetch_uids: list[str] = []
-    with _mailbox(account, password, folder=folder) as box:
+    _t0 = time.monotonic()
+    with _mailbox(account, password, folder=folder,
+                  lock_timeout=lock_timeout, op=op) as box:
+        _t_lock = time.monotonic()
         try:
             st = box.folder.status(folder, ["UIDVALIDITY", "MESSAGES", "UNSEEN"])
         except Exception:  # noqa: BLE001
@@ -739,8 +746,19 @@ def sync_folder(
         fs.last_sync = now
         session.add(fs)
 
+    _t_db = time.monotonic()
     # Commit ERST NACH dem Verlassen des _mailbox-Blocks → der (kontospezifische) IMAP-
     # Lock wird nicht mehr während eines evtl. langsamen SQLite-Writes gehalten (kürzere
     # Sperre für parallele Nutzeraktionen auf demselben Konto).
     session.commit()
+    # Eine Zeile je Sync im Log: ohne die war bei "Gmail laedt lange" nicht zu
+    # unterscheiden, ob die Zeit im Warten auf die Verbindung, im IMAP-Abruf oder
+    # in der Datenbank steckt. Sichtbar via `docker logs`.
+    _ende = time.monotonic()
+    logger.info(
+        "Sync fertig (account_id=%s, folder=%s): %d Mails im Ordner, %d neu geholt | "
+        "warten %.1fs, IMAP %.1fs, gesamt %.1fs",
+        account.id, folder, total, len(fetch_uids),
+        _t_lock - _t0, _t_db - _t_lock, _ende - _t0,
+    )
     return {"total": total, "unseen": unseen, "new": len(fetch_uids), "ok": True}

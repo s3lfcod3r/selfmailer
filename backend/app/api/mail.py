@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import logging
+import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -280,6 +281,10 @@ def delete_folder(
 # holt. Bewusst klein: der Nutzer soll eine Liste sehen, nicht auf ein ganzes
 # Postfach warten. Der Rest kommt unmittelbar danach im Hintergrund.
 _FIRST_SYNC_CAP = 20
+# Wartezeit auf die Konto-Verbindung fuer INTERAKTIVE Aufrufe. Deutlich kuerzer
+# als _LOCK_TIMEOUT (20 s): wer im Browser einen Ordner oeffnet, soll nicht eine
+# halbe Minute auf einen Hintergrund-Sync warten, sondern sofort weiterarbeiten.
+_UI_LOCK_TIMEOUT = float(os.getenv("SELFMAILER_UI_LOCK_TIMEOUT", "3") or 3)
 
 
 def _fill_folder_async(account_id: int, password: str, folder: str, cap: int, user_id: int) -> None:
@@ -504,7 +509,18 @@ def sync_messages(
     ab. Das Frontend ruft das im Hintergrund auf, nachdem es den Cache gezeigt hat."""
     acc = _account(account_id, user, session)
     try:
-        return cache_mod.sync_folder(session, acc, _account_secret(acc), folder)
+        return cache_mod.sync_folder(
+            session, acc, _account_secret(acc), folder, lock_timeout=_UI_LOCK_TIMEOUT, op="sync-ui"
+        )
+    except imap_mod.ImapBusyError:
+        # Die Verbindung des Kontos ist gerade belegt - typisch, waehrend der
+        # Hintergrund-Dienst dasselbe Konto synchronisiert. Frueher hing die
+        # Anfrage dafuer _LOCK_TIMEOUT (20 s) und endete mit 502: die Oberflaeche
+        # zeigte einen Fehler, obwohl gar nichts kaputt war. Jetzt kommt nach
+        # wenigen Sekunden ein normales Ergebnis mit busy=True zurueck. Das
+        # laufende Sync liefert sein Ergebnis ohnehin per Live-Ereignis nach.
+        logger.info("Sync uebersprungen, Konto beschaeftigt (account_id=%s, folder=%s)", account_id, folder)
+        return {"ok": True, "busy": True, "new": 0}
     except Exception:  # noqa: BLE001
         logger.warning("Sync fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Sync fehlgeschlagen")
