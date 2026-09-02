@@ -1561,7 +1561,7 @@ def sweep_block_folders(
     # Ordnerliste zusammenstellen: Spam (falls vorhanden) + Push-Ordner, aber OHNE
     # den Posteingang (macht apply_rules schon) und OHNE den Papierkorb selbst.
     try:
-        with _mailbox(account, password, op="sweep_block_folders") as box:
+        with _mailbox(account, password, read_fallback=True, op="sweep_block_folders") as box:
             spam = _spam_folder(box)
             trash = _trash_folder(box, "INBOX")
     except Exception:  # noqa: BLE001 - ohne Ordnerliste keinen Sweep, aber nie den Sync kippen
@@ -1582,7 +1582,13 @@ def sweep_block_folders(
     total = 0
     for folder in targets:
         try:
-            with _mailbox(account, password, folder=folder, op="sweep_block_folders") as box:
+            # read_fallback=True: dieser Aufraeum-Lauf ist reine Hintergrundarbeit
+            # und darf die eine Konto-Verbindung nicht blockieren. Am 02.09.2026
+            # gemessen: er hielt sie je Ordner rund 20 s besetzt, waehrend Sync und
+            # Loeschen des Nutzers davor warteten. Auf einer eigenen Kurzverbindung
+            # stoert er niemanden - MOVE und STORE brauchen keine gemeinsame Sitzung.
+            with _mailbox(account, password, folder=folder, read_fallback=True,
+                          op="sweep_block_folders") as box:
                 to_del = [
                     m.uid for m in box.fetch(
                         AND(all=True), reverse=True, mark_seen=False, limit=500, headers_only=True, bulk=True
