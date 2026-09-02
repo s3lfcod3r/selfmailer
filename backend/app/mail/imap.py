@@ -926,6 +926,96 @@ def set_flags(
             box.flag(uid, FLAGGED, flagged)
 
 
+# ---------------------------------------------------------------- CONDSTORE --
+# Warum das hier steht: der Flag-Abgleich holte fuer JEDE gecachte Mail die Flags
+# neu. Am 02.09.2026 an einem Gmail-Konto gemessen: 112 Mails = 14,5 s, also mehr
+# als die Haelfte eines kompletten Syncs - und das alle paar Minuten, obwohl sich
+# fast nie etwas aendert.
+#
+# CONDSTORE (RFC 7162) loest genau das: der Server fuehrt je Postfach einen
+# Zaehler (MODSEQ), der bei jeder Aenderung steigt. Der Client merkt sich den
+# Stand und fragt beim naechsten Mal nur noch "was hat sich seit X geaendert?".
+# Sind keine Flags angefasst worden, kommt eine leere Antwort zurueck - statt 112
+# Datensaetzen. Genau so machen es Thunderbird und die uebrigen ausgewachsenen
+# Mail-Programme; Gmail unterstuetzt CONDSTORE (QRESYNC dagegen nicht).
+#
+# Alles hier ist best effort: kann der Server es nicht, oder passt eine Antwort
+# nicht ins erwartete Muster, wird None geliefert und der Aufrufer macht den
+# vollen Abgleich wie bisher. Ein Sync darf daran NIE scheitern.
+
+_MODSEQ_RE = re.compile(rb"HIGHESTMODSEQ\s+(\d+)")
+_FETCH_UID_RE = re.compile(rb"UID\s+(\d+)")
+_FETCH_FLAGS_RE = re.compile(rb"FLAGS\s+\(([^)]*)\)")
+
+
+def supports_condstore(box: MailBox) -> bool:
+    """Meldet der Server die CONDSTORE-Faehigkeit?"""
+    try:
+        caps = tuple(str(c).upper() for c in (getattr(box.client, "capabilities", ()) or ()))
+        return "CONDSTORE" in caps
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def select_with_modseq(box: MailBox, folder: str) -> int | None:
+    """Ordner MIT CONDSTORE waehlen und den aktuellen MODSEQ-Stand zurueckgeben.
+
+    Ohne das ``(CONDSTORE)`` am SELECT liefert der Server kein HIGHESTMODSEQ.
+    """
+    if not supports_condstore(box):
+        return None
+    try:
+        from imap_tools.utils import encode_folder
+        name = encode_folder(folder)
+        if isinstance(name, bytes):
+            name = name.decode("utf-8", "surrogateescape")
+        typ, _dat = box.client._simple_command("SELECT", name, "(CONDSTORE)")
+        if typ != "OK":
+            return None
+        box.client.state = "SELECTED"
+        # Der Stand steht in einer untagged OK-Antwort: * OK [HIGHESTMODSEQ 42] ...
+        for key in ("OK", "HIGHESTMODSEQ"):
+            for wert in (box.client.untagged_responses.get(key) or []):
+                roh = wert if isinstance(wert, bytes) else str(wert).encode()
+                m = _MODSEQ_RE.search(roh)
+                if m:
+                    return int(m.group(1))
+    except Exception:  # noqa: BLE001 - CONDSTORE ist Kuer, nie Pflicht
+        logger.debug("CONDSTORE-SELECT nicht moeglich (folder=%s)", folder, exc_info=True)
+    return None
+
+
+def flags_changed_since(box: MailBox, modseq: int) -> dict[str, set[str]] | None:
+    """Flags nur der seit ``modseq`` geaenderten Mails: {uid: {flags}}.
+
+    None = nicht ermittelbar (Aufrufer macht den vollen Abgleich).
+    Ein LEERES dict ist ein gueltiges Ergebnis und heisst: nichts geaendert.
+    """
+    if modseq <= 0:
+        return None
+    try:
+        typ, dat = box.client.uid("FETCH", "1:*", "(UID FLAGS) (CHANGEDSINCE %d)" % modseq)
+        if typ != "OK":
+            return None
+        out: dict[str, set[str]] = {}
+        for zeile in dat or []:
+            roh = zeile[0] if isinstance(zeile, tuple) else zeile
+            if not isinstance(roh, (bytes, bytearray)):
+                continue
+            mu = _FETCH_UID_RE.search(roh)
+            mf = _FETCH_FLAGS_RE.search(roh)
+            if not mu:
+                continue
+            flags = set()
+            if mf:
+                flags = {f.decode("ascii", "ignore") for f in mf.group(1).split() if f}
+            out[mu.group(1).decode()] = flags
+        return out
+    except Exception:  # noqa: BLE001
+        logger.debug("CHANGEDSINCE-Fetch fehlgeschlagen", exc_info=True)
+        return None
+
+
 def _trash_folder(box: MailBox, current: str) -> str | None:
     """Findet den Papierkorb: erst per SPECIAL-USE-Flag \\Trash, dann per Namensheuristik."""
     names: list[str] = []

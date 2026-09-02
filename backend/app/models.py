@@ -383,6 +383,10 @@ class FolderSync(SQLModel, table=True):
     total: int = 0
     unseen: int = 0
     last_sync: dt.datetime | None = None
+    # Stand des CONDSTORE-Zaehlers (RFC 7162) beim letzten Flag-Abgleich. Damit
+    # fragt der naechste Sync nur noch "was hat sich seit X geaendert?" statt die
+    # Flags aller Mails zu holen. 0 = unbekannt/nicht unterstuetzt -> voller Abgleich.
+    highest_modseq: int = 0
 
 
 class CachedFolder(SQLModel, table=True):

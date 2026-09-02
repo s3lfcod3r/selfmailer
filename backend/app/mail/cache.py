@@ -21,6 +21,8 @@ from sqlmodel import Session, select
 from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
 from .imap import FLAGGED, SEEN, _detail_dict, _mailbox, _snippet, keywords_of, thread_headers
 
+from . import imap as imap_mod
+
 logger = logging.getLogger(__name__)
 
 # Obergrenze, wie viele (neueste) Mail-Köpfe pro Sync nachgeladen werden.
@@ -746,6 +748,29 @@ def sync_folder(
         # und wäre in der Liste nicht mehr als ungelesen erkennbar.
         _t_flags = time.monotonic()
         _flag_n = 0
+        _flag_weg = "voll"
+
+        # Der schnelle Weg (CONDSTORE, RFC 7162): der Server sagt uns, WAS sich seit
+        # unserem letzten Stand geaendert hat, statt dass wir die Flags aller Mails
+        # neu holen. Bei 112 Mails waren das 14,5 s pro Sync - fast immer fuer
+        # nichts, weil sich Flags selten aendern. Genau so arbeitet Thunderbird.
+        # Schlaegt irgendetwas fehl, faellt der Code auf den vollen Abgleich zurueck.
+        _neuer_modseq = imap_mod.select_with_modseq(box, folder) if do_flags and reliable else None
+        if _neuer_modseq and fs and fs.highest_modseq and _neuer_modseq >= fs.highest_modseq:
+            geaendert = imap_mod.flags_changed_since(box, fs.highest_modseq)
+            if geaendert is not None:
+                _flag_weg = "condstore"
+                _flag_n = len(geaendert)
+                for uid, flags in geaendert.items():
+                    row = cached_by_uid.get(uid)
+                    if not row:
+                        continue
+                    if not row.seen_sticky:
+                        row.seen = SEEN in flags
+                    row.flagged = FLAGGED in flags
+                    session.add(row)
+                do_flags = False          # erledigt - der teure Weg entfaellt
+
         if do_flags and reliable:
             recent = [u for u in server_uids[-_FLAG_WINDOW:] if u in cached_by_uid]
             _flag_n = len(recent)
@@ -770,8 +795,14 @@ def sync_folder(
         _t_flags_ende = time.monotonic()
         if do_flags and reliable and _flag_n:
             _flag_cost[(account.id or 0, folder)] = _t_flags_ende - _t_flags
+        if _flag_weg == "condstore":
+            # Der billige Weg kostet fast nichts - die Drosselung darf ihn nicht
+            # ausbremsen, sonst veralten Flags ohne Grund.
+            _flag_cost.pop((account.id or 0, folder), None)
         if not fs:
             fs = FolderSync(account_id=account.id, folder=folder)
+        if _neuer_modseq:
+            fs.highest_modseq = _neuer_modseq
         fs.uidvalidity = uidvalidity
         fs.total = total
         fs.unseen = unseen
@@ -804,5 +835,6 @@ def sync_folder(
             "flags": int((_t_flags_ende - _t_flags) * 1000),
             "flags_geprueft": _flag_n,
             "flags_intervall_s": int(_intervall),
+            "flags_weg": _flag_weg,
         },
     }

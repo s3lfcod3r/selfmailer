@@ -49,6 +49,9 @@ def _sqlite_pragmas(dbapi_conn, _record) -> None:
 # Additive Spalten, die ggf. in einer älteren DB fehlen (SQLite kennt kein
 # automatisches Hinzufügen über create_all). Tabelle -> [(Spalte, DDL-Typ)].
 _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "foldersync": [
+        ("highest_modseq", "INTEGER DEFAULT 0"),
+    ],
     "user": [
         ("totp_secret", "VARCHAR"),
         ("totp_enabled", "INTEGER DEFAULT 0"),
