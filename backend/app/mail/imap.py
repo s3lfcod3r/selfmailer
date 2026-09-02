@@ -363,7 +363,7 @@ def list_folders(account: MailAccount, password: str) -> list[str]:
     kombinieren und deduplizieren.
     """
     seen: dict[str, None] = {}
-    with _mailbox(account, password, op="list_folders") as box:
+    with _mailbox(account, password, read_fallback=True, op="list_folders") as box:
         attempts = [
             lambda: box.folder.list("", "*"),            # alles ab Root
             lambda: box.folder.list("INBOX", "*"),        # INBOX-Unterordner explizit
@@ -400,7 +400,7 @@ def folder_counts(account: MailAccount, password: str) -> list[dict]:
     # gesehenen Flags behalten (spätere LIST-Varianten überschreiben nicht).
     flags_by_name: dict[str, tuple] = {}
     out: list[dict] = []
-    with _mailbox(account, password, op="folder_counts") as box:
+    with _mailbox(account, password, read_fallback=True, op="folder_counts") as box:
         attempts = [
             lambda: box.folder.list("", "*"),
             lambda: box.folder.list("INBOX", "*"),
@@ -443,7 +443,7 @@ def inbox_unseen(account: MailAccount, password: str, folder: str = "INBOX") -> 
     """Nur die Ungelesen-Zahl EINES Ordners via IMAP STATUS — schnell (1 Login,
     1 STATUS, KEIN Header-Download). Für die Dashboard-Übersicht, damit der
     Live-Abruf nicht in einen vollen Sync großer Postfächer läuft (Timeout)."""
-    with _mailbox(account, password, op="inbox_unseen") as box:
+    with _mailbox(account, password, read_fallback=True, op="inbox_unseen") as box:
         st = box.folder.status(folder, ["UNSEEN"])
         return int(st.get("UNSEEN", 0) or 0)
 
@@ -571,7 +571,7 @@ def collect_thread(
             **thread_headers(msg),
         })
 
-    with _mailbox(account, password, folder=folder, op="collect_thread") as box:
+    with _mailbox(account, password, folder=folder, read_fallback=True, op="collect_thread") as box:
         target = None
         for m in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
             target = m
@@ -613,7 +613,7 @@ def list_messages(
     # offset/limit als Slice (auf die nach Datum absteigende Liste) = Paginierung
     # zum Weiterblättern bei großen Postfächern.
     page = slice(offset, offset + limit)
-    with _mailbox(account, password, folder=folder, op="list_messages") as box:
+    with _mailbox(account, password, folder=folder, read_fallback=True, op="list_messages") as box:
         for msg in box.fetch(AND(all=True), reverse=True, limit=page, mark_seen=False, bulk=True):
             out.append(
                 {
@@ -692,7 +692,7 @@ def search_messages(
             timed_out = True
             break
         try:
-            with _mailbox(account, password, folder=folder, op="search_messages") as box:
+            with _mailbox(account, password, folder=folder, read_fallback=True, op="search_messages") as box:
                 uids = box.uids(search_q)
                 searched += 1
                 if not uids:
@@ -815,7 +815,7 @@ def _detail_dict(msg, account: MailAccount) -> dict:
 
 def get_raw(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> str | None:
     """Rohe RFC822-Quelle einer Mail (Header + Body) für „Original anzeigen"."""
-    with _mailbox(account, password, folder=folder, op="get_raw") as box:
+    with _mailbox(account, password, folder=folder, read_fallback=True, op="get_raw") as box:
         for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
             try:
                 return msg.obj.as_string()
@@ -912,7 +912,7 @@ def get_messages(account: MailAccount, password: str, uids: list[str], folder: s
     if not uids:
         return []
     out: list[dict] = []
-    with _mailbox(account, password, folder=folder, op="get_messages") as box:
+    with _mailbox(account, password, folder=folder, read_fallback=True, op="get_messages") as box:
         for msg in box.fetch(AND(uid=",".join(uids)), mark_seen=False, bulk=True):
             if msg.uid:
                 out.append(_detail_dict(msg, account))
