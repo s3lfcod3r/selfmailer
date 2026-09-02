@@ -90,3 +90,27 @@ def test_hintergrund_aufraeumen_blockiert_nicht():
     assert quelle.count("read_fallback=True") >= 2, (
         "Der Sweep belegt wieder die Konto-Verbindung - Nutzer-Aktionen warten dann darauf"
     )
+
+
+# Reine Leser, die im Hintergrund oder fuer die Anzeige laufen. Sie duerfen die
+# eine Konto-Verbindung nicht monopolisieren - sonst warten Sync und
+# Nutzer-Aktionen darauf. Ueber /mail/pool-status gemessen, nacheinander:
+#   sweep_block_folders/[Gmail]/Spam seit 19.8s
+#   folder_counts/INBOX              seit 16.0s
+HINTERGRUND_LESER = [
+    "folder_counts", "inbox_unseen", "list_folders",
+    "collect_thread", "list_messages", "search_messages", "get_messages",
+]
+
+
+def test_hintergrund_leser_blockieren_nicht():
+    blockierend = []
+    for name in HINTERGRUND_LESER:
+        fn = getattr(imap_mod, name, None)
+        assert fn is not None, f"{name} gibt es nicht mehr - Test anpassen"
+        if "read_fallback=True" not in inspect.getsource(fn):
+            blockierend.append(name)
+    assert not blockierend, (
+        "Diese Leser belegen wieder die Konto-Verbindung; Sync und Loeschen "
+        f"warten dann darauf: {blockierend}"
+    )
