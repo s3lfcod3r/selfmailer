@@ -76,3 +76,17 @@ def test_stuck_schwelle_ueber_lock_timeout():
     """
     assert imap_mod._STUCK_AFTER > imap_mod._LOCK_TIMEOUT * 2
     assert imap_mod._STUCK_AFTER > imap_mod._IMAP_TIMEOUT * 2
+
+
+def test_hintergrund_aufraeumen_blockiert_nicht():
+    """Der Block-Sweep laeuft auf eigener Verbindung.
+
+    Am 02.09.2026 ueber /mail/pool-status gemessen: er hielt die einzige
+    Konto-Verbindung je Ordner rund 20 s besetzt ("sweep_block_folders/
+    [Gmail]/Spam seit 19.8s"), waehrend Sync und Loeschen des Nutzers davor
+    warteten. Reine Hintergrundarbeit darf das nicht.
+    """
+    quelle = inspect.getsource(imap_mod.sweep_block_folders)
+    assert quelle.count("read_fallback=True") >= 2, (
+        "Der Sweep belegt wieder die Konto-Verbindung - Nutzer-Aktionen warten dann darauf"
+    )
