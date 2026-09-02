@@ -62,8 +62,13 @@ _last_sweep: dict[int, float] = {}
 
 
 def _sweep_faellig(account_id: int) -> bool:
-    letzter = _last_sweep.get(account_id, 0.0)
-    if (time.monotonic() - letzter) < _SWEEP_MIN_SECS:
+    # KEIN 0.0 als Startwert: time.monotonic() zaehlt je nach System ab dem Start
+    # und ist auf einem frisch gebooteten Host klein - "jetzt minus 0" waere dann
+    # kleiner als das Intervall, und der erste Sweep liefe nie. Genau das hat die
+    # CI aufgedeckt (dort laeuft der Container seit Sekunden), waehrend es lokal
+    # auf einem seit Tagen laufenden Rechner unauffaellig blieb.
+    letzter = _last_sweep.get(account_id)
+    if letzter is not None and (time.monotonic() - letzter) < _SWEEP_MIN_SECS:
         return False
     _last_sweep[account_id] = time.monotonic()
     return True
