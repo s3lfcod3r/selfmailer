@@ -638,6 +638,9 @@ def sync_folder(
     with _mailbox(account, password, folder=folder,
                   lock_timeout=lock_timeout, op=op) as box:
         _t_lock = time.monotonic()
+        # SOFORT auslesen: imaplib verwirft die ungetaggte SELECT-Antwort, sobald
+        # das naechste Kommando laeuft (gleich darunter das STATUS).
+        _neuer_modseq = imap_mod.read_modseq(box)
         try:
             st = box.folder.status(folder, ["UIDVALIDITY", "MESSAGES", "UNSEEN"])
         except Exception:  # noqa: BLE001
@@ -755,8 +758,7 @@ def sync_folder(
         # neu holen. Bei 112 Mails waren das 14,5 s pro Sync - fast immer fuer
         # nichts, weil sich Flags selten aendern. Genau so arbeitet Thunderbird.
         # Schlaegt irgendetwas fehl, faellt der Code auf den vollen Abgleich zurueck.
-        _neuer_modseq = imap_mod.select_with_modseq(box, folder) if do_flags and reliable else None
-        if _neuer_modseq and fs and fs.highest_modseq and _neuer_modseq >= fs.highest_modseq:
+        if reliable and _neuer_modseq and fs and fs.highest_modseq and _neuer_modseq >= fs.highest_modseq:
             geaendert = imap_mod.flags_changed_since(box, fs.highest_modseq)
             if geaendert is not None:
                 _flag_weg = "condstore"
