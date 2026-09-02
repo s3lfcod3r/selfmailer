@@ -38,6 +38,31 @@ _FLAG_WINDOW = 120
 # und ändert sich selten. Darum höchstens alle N Sekunden — häufige Ordner-
 # wechsel/Polls laufen dann nur noch billig (Status + UID-Diff).
 _FLAG_REFRESH_SECS = 25
+# ... aber NICHT stur alle 25 s: wie teuer der Abgleich ist, haengt komplett vom
+# Konto ab. Gemessen am 02.09.2026:
+#   web.de           43 ms Verbindung,  Abgleich vernachlaessigbar
+#   Gmail (7 Mails)  250 ms Verbindung, Abgleich  0,4 s
+#   Gmail (112 Mails) 8,4 s Verbindung, Abgleich 13,4 s   <-- 51 % des Syncs
+# Bei diesem Konto lief der 13-Sekunden-Abgleich also alle 25 Sekunden und hat
+# die Konto-Verbindung dauerhaft belegt: neue Mails kamen nicht durch, Loeschen
+# meldete "fehlgeschlagen". Darum wartet der naechste Abgleich umso laenger, je
+# teurer der letzte war (Faktor _FLAG_COST_FACTOR). Schnelle Konten bleiben bei
+# den 25 s, teure regeln sich selbst herunter - ohne dass jemand etwas einstellt.
+_FLAG_COST_FACTOR = 20
+# Obergrenze, damit Flags auch bei sehr langsamen Konten nicht ewig veralten.
+_FLAG_REFRESH_MAX = 600.0
+# (account_id, folder) -> Dauer des letzten Flag-Abgleichs in Sekunden.
+# Bewusst nur im Speicher: nach einem Neustart einmal messen ist billiger als
+# ein DB-Feld samt Migration.
+_flag_cost: dict[tuple[int, str], float] = {}
+
+
+def _flag_intervall(account_id: int, folder: str) -> float:
+    """Wie lange muss seit dem letzten Flag-Abgleich vergangen sein?"""
+    letzte = _flag_cost.get((account_id, folder))
+    if letzte is None:
+        return _FLAG_REFRESH_SECS
+    return min(_FLAG_REFRESH_MAX, max(_FLAG_REFRESH_SECS, letzte * _FLAG_COST_FACTOR))
 # Obergrenze für den Volltext, den der Sync gleich mit ablegt (JSON-Länge).
 # Der Fetch lädt die Mail ohnehin KOMPLETT (Snippet + Anhang-Flag brauchen den
 # Body), also kostet das Mitspeichern keine einzige zusätzliche IMAP-Runde — es
@@ -713,7 +738,8 @@ def sync_folder(
         # _FLAG_REFRESH_SECS her ist. Neue/gelöschte Mails oben laufen immer.
         now = dt.datetime.now(dt.timezone.utc)
         prev_sync = _as_utc(fs.last_sync) if fs else None
-        do_flags = prev_sync is None or (now - prev_sync).total_seconds() >= _FLAG_REFRESH_SECS
+        _intervall = _flag_intervall(account.id or 0, folder)
+        do_flags = prev_sync is None or (now - prev_sync).total_seconds() >= _intervall
         # Flags NUR von einer VERTRAUENSWÜRDIGEN Server-Sicht übernehmen. Bei einer
         # kaputten/partiellen Antwort (web.de-Cluster) NICHT anfassen — sonst würde
         # eine echte ungelesene Mail fälschlich als gelesen (oder umgekehrt) markiert
@@ -742,6 +768,8 @@ def sync_folder(
                         session.add(row)
 
         _t_flags_ende = time.monotonic()
+        if do_flags and reliable and _flag_n:
+            _flag_cost[(account.id or 0, folder)] = _t_flags_ende - _t_flags
         if not fs:
             fs = FolderSync(account_id=account.id, folder=folder)
         fs.uidvalidity = uidvalidity
@@ -775,5 +803,6 @@ def sync_folder(
             "imap": int((_t_db - _t_lock) * 1000),
             "flags": int((_t_flags_ende - _t_flags) * 1000),
             "flags_geprueft": _flag_n,
+            "flags_intervall_s": int(_intervall),
         },
     }

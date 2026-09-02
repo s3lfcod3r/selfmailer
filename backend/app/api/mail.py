@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
@@ -132,10 +133,19 @@ def quota(
     """Speicherbelegung des Kontos (IMAP QUOTA) — {used, limit} in Bytes oder
     {supported:false}, wenn der Server keine Quota meldet."""
     acc = _account(account_id, user, session)
+    # Aus dem Cache bedienen, solange er frisch ist. Grund: jede Abfrage baut eine
+    # eigene IMAP-Verbindung auf, und die kostet je nach Konto sehr unterschiedlich
+    # viel - am 02.09.2026 gemessen: web.de 43 ms, ein Gmail-Konto 250 ms, ein
+    # anderes 8,4 s. Fuer eine reine Anzeige (Speicherbalken), die sich im Laufe
+    # von Minuten kaum aendert, ist das nicht zu rechtfertigen: beim Klick durch
+    # acht Konten waren das allein hier ueber eine halbe Minute Wartezeit.
+    cached = _QUOTA_CACHE.get(account_id)
+    if cached and (time.monotonic() - cached[0]) < _QUOTA_TTL:
+        return cached[1]
     q = imap_mod.quota(acc, _account_secret(acc))
-    if not q:
-        return {"supported": False}
-    return {"supported": True, **q}
+    antwort = {"supported": False} if not q else {"supported": True, **q}
+    _QUOTA_CACHE[account_id] = (time.monotonic(), antwort)
+    return antwort
 
 
 @router.get("/{account_id}/folders/counts")
@@ -285,6 +295,11 @@ _FIRST_SYNC_CAP = 20
 # als _LOCK_TIMEOUT (20 s): wer im Browser einen Ordner oeffnet, soll nicht eine
 # halbe Minute auf einen Hintergrund-Sync warten, sondern sofort weiterarbeiten.
 _UI_LOCK_TIMEOUT = float(os.getenv("SELFMAILER_UI_LOCK_TIMEOUT", "3") or 3)
+
+# Speicherbelegung aendert sich langsam - ein paar Minuten alt ist voellig in
+# Ordnung und spart je Abfrage einen kompletten Verbindungsaufbau.
+_QUOTA_TTL = float(os.getenv("SELFMAILER_QUOTA_TTL", "600") or 600)
+_QUOTA_CACHE: dict[int, tuple[float, dict]] = {}
 
 
 def _fill_folder_async(account_id: int, password: str, folder: str, cap: int, user_id: int) -> None:
