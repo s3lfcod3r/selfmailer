@@ -34,17 +34,32 @@ def test_erkennt_condstore_faehigkeit():
     assert not imap_mod.supports_condstore(_FakeBox(_FakeClient(caps=("IMAP4REV1",))))
 
 
-def test_ohne_faehigkeit_kein_modseq():
-    """Server ohne CONDSTORE -> None, Aufrufer macht den vollen Abgleich."""
-    box = _FakeBox(_FakeClient(caps=("IMAP4REV1",)))
-    assert imap_mod.select_with_modseq(box, "INBOX") is None
+def test_ohne_faehigkeit_wird_nichts_eingeschaltet():
+    """Server ohne CONDSTORE: ENABLE wird gar nicht erst gesendet."""
+    class _Zaehler(_FakeClient):
+        gesendet = 0
+
+        def _simple_command(self, *_a):
+            type(self).gesendet += 1
+            return ("OK", [])
+
+    imap_mod.enable_condstore(_FakeBox(_Zaehler(caps=("IMAP4REV1",))))
+    assert _Zaehler.gesendet == 0
+
+    imap_mod.enable_condstore(_FakeBox(_Zaehler(caps=("IMAP4REV1", "CONDSTORE"))))
+    assert _Zaehler.gesendet == 1
 
 
 def test_liest_modseq_aus_der_select_antwort():
-    """So antwortet Gmail auf SELECT ... (CONDSTORE)."""
+    """So antwortet Gmail nach ENABLE CONDSTORE auf ein SELECT."""
     box = _FakeBox(_FakeClient(untagged={"OK": [b"[HIGHESTMODSEQ 715194] Highest"]}))
-    assert imap_mod._MODSEQ_RE.search(b"[HIGHESTMODSEQ 715194] Highest").group(1) == b"715194"
-    assert box is not None
+    assert imap_mod.read_modseq(box) == 715194
+
+
+def test_ohne_modseq_in_der_antwort_kein_wert():
+    """Server ohne CONDSTORE liefert kein HIGHESTMODSEQ -> voller Abgleich."""
+    box = _FakeBox(_FakeClient(untagged={"OK": [b"[READ-WRITE] SELECT completed"]}))
+    assert imap_mod.read_modseq(box) is None
 
 
 def test_parst_geaenderte_flags():

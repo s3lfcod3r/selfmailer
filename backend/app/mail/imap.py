@@ -153,6 +153,9 @@ def _connect(account: MailAccount, login: str, password: str, folder: str) -> Ma
         box.client.sock.settimeout(_IMAP_TIMEOUT)
     except Exception:  # noqa: BLE001 - best effort, falls Socket anders heißt
         pass
+    # Ab hier liefert der Server bei jedem SELECT den MODSEQ-Stand mit, den der
+    # Sync fuer den schnellen Flag-Abgleich braucht (siehe read_modseq).
+    enable_condstore(box)
     return box
 
 
@@ -957,31 +960,36 @@ def supports_condstore(box: MailBox) -> bool:
         return False
 
 
-def select_with_modseq(box: MailBox, folder: str) -> int | None:
-    """Ordner MIT CONDSTORE waehlen und den aktuellen MODSEQ-Stand zurueckgeben.
+def enable_condstore(box: MailBox) -> None:
+    """Einmal je Verbindung: CONDSTORE einschalten (RFC 5161 ENABLE).
 
-    Ohne das ``(CONDSTORE)`` am SELECT liefert der Server kein HIGHESTMODSEQ.
+    Danach liefert JEDES SELECT den aktuellen MODSEQ-Stand von selbst mit. Ohne
+    diesen Schritt muesste man den Ordner ein zweites Mal auswaehlen, nur um an
+    die Zahl zu kommen - bei einem langsamen Konto eine komplette Runde umsonst.
     """
     if not supports_condstore(box):
-        return None
+        return
     try:
-        from imap_tools.utils import encode_folder
-        name = encode_folder(folder)
-        if isinstance(name, bytes):
-            name = name.decode("utf-8", "surrogateescape")
-        typ, _dat = box.client._simple_command("SELECT", name, "(CONDSTORE)")
-        if typ != "OK":
-            return None
-        box.client.state = "SELECTED"
-        # Der Stand steht in einer untagged OK-Antwort: * OK [HIGHESTMODSEQ 42] ...
+        box.client._simple_command("ENABLE", "CONDSTORE")
+    except Exception:  # noqa: BLE001 - Kuer, nie Pflicht
+        logger.debug("ENABLE CONDSTORE nicht moeglich", exc_info=True)
+
+
+def read_modseq(box: MailBox) -> int | None:
+    """Den MODSEQ-Stand aus der letzten SELECT-Antwort ablesen.
+
+    MUSS unmittelbar nach dem Auswaehlen des Ordners aufgerufen werden: imaplib
+    ueberschreibt die ungetaggten Antworten mit jedem weiteren Kommando.
+    """
+    try:
         for key in ("OK", "HIGHESTMODSEQ"):
             for wert in (box.client.untagged_responses.get(key) or []):
                 roh = wert if isinstance(wert, bytes) else str(wert).encode()
                 m = _MODSEQ_RE.search(roh)
                 if m:
                     return int(m.group(1))
-    except Exception:  # noqa: BLE001 - CONDSTORE ist Kuer, nie Pflicht
-        logger.debug("CONDSTORE-SELECT nicht moeglich (folder=%s)", folder, exc_info=True)
+    except Exception:  # noqa: BLE001
+        logger.debug("MODSEQ nicht lesbar", exc_info=True)
     return None
 
 
