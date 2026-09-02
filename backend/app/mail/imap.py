@@ -74,6 +74,16 @@ _LOCK_TIMEOUT = float(os.getenv("SELFMAILER_IMAP_LOCK_TIMEOUT", "20") or 20)
 # (Gmail-Konversation mit vielen Ungelesenen) zu viele IMAP-Logins entstehen → der
 # Provider (Gmail ~15) lehnt mit „too many simultaneous connections" ab.
 _MAX_FALLBACK = max(1, int(os.getenv("SELFMAILER_IMAP_MAX_FALLBACK", "3") or 3))
+# Ab wann gilt ein Sperr-Inhaber als HAENGEND und die Verbindung als verloren?
+# Am 02.09.2026 an einem echten Gmail-Konto beobachtet: die Konto-Verbindung war
+# DAUERHAFT belegt - drei Sync-Versuche im Abstand von 15 s liefen alle in den
+# Lock-Timeout. Ursache ist ein Thread, der in einem IMAP-Lesevorgang haengt, den
+# der Socket-Timeout nicht aufloest (TLS-Verbindung bleibt offen, es kommen nur
+# nie Daten). Ohne Gegenmittel ist das Konto bis zum Container-Neustart tot:
+# kein Sync, kein Loeschen, keine neuen Mails.
+# Grosszuegig ueber _IMAP_TIMEOUT: eine ECHT langsame, aber lebende Operation
+# soll nicht abgeraeumt werden.
+_STUCK_AFTER = float(os.getenv("SELFMAILER_IMAP_STUCK_AFTER", "0") or 0) or max(90.0, _IMAP_TIMEOUT * 4)
 _POOL: dict[str, "_PooledBox"] = {}
 _POOL_LOCK = threading.Lock()
 
@@ -119,6 +129,12 @@ def _log_busy(account: MailAccount, op: str, folder: str, entry: "_PooledBox", w
             "IMAP-Lock-Timeout nach %.1fs (account_id=%s, op=%s, folder=%s) - Inhaber unbekannt",
             waited, account.id, op, folder,
         )
+
+
+def _is_stuck(entry: "_PooledBox") -> bool:
+    """Haelt jemand die Verbindung laenger, als jede gesunde Operation braucht?"""
+    h = entry.holder
+    return bool(h) and (time.monotonic() - h[2]) > _STUCK_AFTER
 
 
 def _pool_key(account: MailAccount, login: str) -> str:
@@ -219,6 +235,19 @@ def _mailbox(
     with _POOL_LOCK:
         entry = _POOL.get(key)
         if entry is None:
+            entry = _POOL[key] = _PooledBox()
+        elif _is_stuck(entry):
+            # Der Eintrag wird NICHT reparatiert, sondern ERSETZT: der haengende
+            # Thread haelt seine eigene Sperre weiter und raeumt sein Objekt selbst
+            # ab, wenn er je zurueckkehrt. Neue Anfragen bekommen derweil einen
+            # frischen Eintrag mit eigener Verbindung - das Konto ist damit sofort
+            # wieder benutzbar, statt bis zum Neustart blockiert zu bleiben.
+            h = entry.holder
+            logger.warning(
+                "IMAP-Verbindung haengt seit %.0fs (account_id=%s, op=%s, folder=%s) - "
+                "Pool-Eintrag wird ersetzt",
+                time.monotonic() - h[2], account.id, h[0], h[1],
+            )
             entry = _POOL[key] = _PooledBox()
 
     # Ist die (eine) Konto-Verbindung gerade belegt (z. B. langsamer Gmail-Hintergrund-
@@ -1031,8 +1060,17 @@ def delete_by_sender(
 
 
 def delete_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> str:
-    """In den Papierkorb verschieben; ist keiner da (oder schon im Papierkorb) -> hart löschen."""
-    with _mailbox(account, password, folder=folder, op="delete_message") as box:
+    """In den Papierkorb verschieben; ist keiner da (oder schon im Papierkorb) -> hart löschen.
+
+    read_fallback=True: Loeschen darf NICHT an einer belegten Konto-Verbindung
+    scheitern. Am 02.09.2026 an einem echten Gmail-Konto gemessen: ein
+    Hintergrund-Sync haelt die Verbindung dort 27 s am Stueck (113 Mails,
+    Flag-Abgleich). Jeder Loeschversuch in diesem Fenster lief in den
+    Lock-Timeout und meldete "Loeschen fehlgeschlagen", obwohl nichts kaputt war.
+    MOVE ist ein in sich abgeschlossenes IMAP-Kommando und braucht keine
+    gemeinsame Sitzung mit anderen Operationen - eine eigene Kurzverbindung ist
+    dafuer voellig ausreichend. Dieselbe Ueberlegung wie bei set_flags."""
+    with _mailbox(account, password, folder=folder, read_fallback=True, op="delete_message") as box:
         trash = _trash_folder(box, folder)
         if trash and trash != folder:
             box.move(uid, trash)
@@ -1043,7 +1081,7 @@ def delete_message(account: MailAccount, password: str, uid: str, folder: str = 
 
 def move_message(account: MailAccount, password: str, uid: str, dest: str, folder: str = "INBOX") -> None:
     _reject_folder_ctrl(dest)
-    with _mailbox(account, password, folder=folder, op="move_message") as box:
+    with _mailbox(account, password, folder=folder, read_fallback=True, op="move_message") as box:
         box.move(uid, dest)
 
 
@@ -1056,7 +1094,7 @@ def delete_messages(account: MailAccount, password: str, uids: list[str], folder
     """
     if not uids:
         return {"result": "none", "count": 0}
-    with _mailbox(account, password, folder=folder, op="delete_messages") as box:
+    with _mailbox(account, password, folder=folder, read_fallback=True, op="delete_messages") as box:
         trash = _trash_folder(box, folder)
         if trash and trash != folder:
             box.move(uids, trash)
@@ -1070,7 +1108,7 @@ def move_messages(account: MailAccount, password: str, uids: list[str], dest: st
     if not uids:
         return {"count": 0}
     _reject_folder_ctrl(dest)
-    with _mailbox(account, password, folder=folder, op="move_messages") as box:
+    with _mailbox(account, password, folder=folder, read_fallback=True, op="move_messages") as box:
         box.move(uids, dest)
         return {"count": len(uids)}
 
