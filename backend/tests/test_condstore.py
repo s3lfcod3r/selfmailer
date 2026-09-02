@@ -50,16 +50,46 @@ def test_ohne_faehigkeit_wird_nichts_eingeschaltet():
     assert _Zaehler.gesendet == 1
 
 
-def test_liest_modseq_aus_der_select_antwort():
+class _FakeFolder:
+    def __init__(self, box):
+        self.box = box
+        self.gesetzt = None
+
+    def set(self, folder, readonly=False):
+        self.gesetzt = folder
+        return ("OK", [])
+
+
+def _box_mit_select(untagged):
+    box = _FakeBox(_FakeClient(untagged=untagged))
+    box.folder = _FakeFolder(box)
+    return box
+
+
+def test_liest_modseq_beim_ordnerwechsel():
     """So antwortet Gmail nach ENABLE CONDSTORE auf ein SELECT."""
-    box = _FakeBox(_FakeClient(untagged={"OK": [b"[HIGHESTMODSEQ 715194] Highest"]}))
+    box = _box_mit_select({"OK": [b"[HIGHESTMODSEQ 715194] Highest"]})
+    imap_mod._select(box, "INBOX")
+    assert box.folder.gesetzt == "INBOX"
     assert imap_mod.read_modseq(box) == 715194
 
 
 def test_ohne_modseq_in_der_antwort_kein_wert():
     """Server ohne CONDSTORE liefert kein HIGHESTMODSEQ -> voller Abgleich."""
-    box = _FakeBox(_FakeClient(untagged={"OK": [b"[READ-WRITE] SELECT completed"]}))
+    box = _box_mit_select({"OK": [b"[READ-WRITE] SELECT completed"]})
+    imap_mod._select(box, "INBOX")
     assert imap_mod.read_modseq(box) is None
+
+
+def test_stand_ueberdauert_weitere_kommandos():
+    """Der Kern: zwischen Auswahl und Auswertung laufen STATUS und UID SEARCH.
+
+    imaplib verwirft die ungetaggten Antworten dabei - der gemerkte Wert nicht.
+    """
+    box = _box_mit_select({"OK": [b"[HIGHESTMODSEQ 715194] Highest"]})
+    imap_mod._select(box, "INBOX")
+    box.client.untagged_responses.clear()          # so wie imaplib es tut
+    assert imap_mod.read_modseq(box) == 715194
 
 
 def test_parst_geaenderte_flags():

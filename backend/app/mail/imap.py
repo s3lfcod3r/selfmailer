@@ -148,14 +148,16 @@ def _connect(account: MailAccount, login: str, password: str, folder: str) -> Ma
         box = MailBox(account.imap_host, port=account.imap_port, timeout=_IMAP_TIMEOUT)
     except TypeError:
         box = MailBox(account.imap_host, port=account.imap_port)
-    box.login(login, password, initial_folder=folder)
+    # OHNE initial_folder anmelden: CONDSTORE muss VOR der ersten Ordnerauswahl
+    # eingeschaltet sein, sonst liefert genau dieses SELECT den MODSEQ-Stand noch
+    # nicht - und der Sync faellt jedes Mal auf den teuren Weg zurueck.
+    box.login(login, password, initial_folder=None)
     try:
         box.client.sock.settimeout(_IMAP_TIMEOUT)
     except Exception:  # noqa: BLE001 - best effort, falls Socket anders heißt
         pass
-    # Ab hier liefert der Server bei jedem SELECT den MODSEQ-Stand mit, den der
-    # Sync fuer den schnellen Flag-Abgleich braucht (siehe read_modseq).
     enable_condstore(box)
+    _select(box, folder or "INBOX")
     return box
 
 
@@ -208,7 +210,7 @@ def _ensure_box(entry: _PooledBox, account: MailAccount, login: str, password: s
         entry.folder = folder
         return box
     if folder and entry.folder != folder:
-        box.folder.set(folder)
+        _select(box, folder)
         entry.folder = folder
     return box
 
@@ -975,22 +977,34 @@ def enable_condstore(box: MailBox) -> None:
         logger.debug("ENABLE CONDSTORE nicht moeglich", exc_info=True)
 
 
-def read_modseq(box: MailBox) -> int | None:
-    """Den MODSEQ-Stand aus der letzten SELECT-Antwort ablesen.
+def _select(box: MailBox, folder: str) -> None:
+    """Ordner auswaehlen und den dabei gemeldeten MODSEQ-Stand festhalten.
 
-    MUSS unmittelbar nach dem Auswaehlen des Ordners aufgerufen werden: imaplib
-    ueberschreibt die ungetaggten Antworten mit jedem weiteren Kommando.
+    Der Stand wird am Box-Objekt gemerkt, weil imaplib die ungetaggten Antworten
+    beim naechsten Kommando verwirft - und zwischen Auswahl und Auswertung liegen
+    im Sync noch STATUS und UID SEARCH. Eine wiederverwendete Pool-Verbindung
+    behaelt ihren Wert so ueber den ganzen Sync.
     """
+    box.folder.set(folder)
+    stand = None
     try:
         for key in ("OK", "HIGHESTMODSEQ"):
             for wert in (box.client.untagged_responses.get(key) or []):
                 roh = wert if isinstance(wert, bytes) else str(wert).encode()
                 m = _MODSEQ_RE.search(roh)
                 if m:
-                    return int(m.group(1))
+                    stand = int(m.group(1))
+                    break
+            if stand:
+                break
     except Exception:  # noqa: BLE001
-        logger.debug("MODSEQ nicht lesbar", exc_info=True)
-    return None
+        logger.debug("MODSEQ nicht lesbar (folder=%s)", folder, exc_info=True)
+    setattr(box, "_sm_modseq", stand)
+
+
+def read_modseq(box: MailBox) -> int | None:
+    """Der beim letzten Ordnerwechsel gemeldete MODSEQ-Stand (None = keiner)."""
+    return getattr(box, "_sm_modseq", None)
 
 
 def flags_changed_since(box: MailBox, modseq: int) -> dict[str, set[str]] | None:
