@@ -385,7 +385,7 @@ def list_folders(account: MailAccount, password: str) -> list[str]:
 def list_uids(account: MailAccount, password: str, folder: str = "INBOX") -> list[str]:
     """Alle UIDs eines Ordners (neueste zuerst). Live-Fallback für "Alle
     auswählen", wenn der Cache nicht greift. Nur UIDs, kein Body."""
-    with _mailbox(account, password, folder=folder, op="list_uids") as box:
+    with _mailbox(account, password, folder=folder, read_fallback=True, op="list_uids") as box:
         return list(reversed([u for u in box.uids() if u]))
 
 
@@ -1100,13 +1100,13 @@ def _spam_folder(box: MailBox) -> str | None:
 def _find_spam_folder(account: MailAccount, password: str) -> str | None:
     """Spam-Ordnernamen ermitteln (eigener kurzer Kontext, damit der Verbindungs-
     Pool den selektierten Ordner sauber verwaltet)."""
-    with _mailbox(account, password, op="_find_spam_folder") as box:
+    with _mailbox(account, password, read_fallback=True, op="_find_spam_folder") as box:
         return _spam_folder(box)
 
 
 def _find_trash_folder(account: MailAccount, password: str) -> str | None:
     """Papierkorb-Ordnernamen ermitteln (analog _find_spam_folder)."""
-    with _mailbox(account, password, op="_find_trash_folder") as box:
+    with _mailbox(account, password, read_fallback=True, op="_find_trash_folder") as box:
         return _trash_folder(box, "INBOX")
 
 
