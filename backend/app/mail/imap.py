@@ -170,6 +170,34 @@ def _close(box: MailBox | None) -> None:
         pass
 
 
+def pool_status() -> list[dict]:
+    """Wer belegt gerade welche Konto-Verbindung, und seit wann?
+
+    Ohne das war bei einem dauerhaft blockierten Konto nicht zu klaeren, WAS die
+    Verbindung haelt - die Antwort stand nur in den Container-Logs, an die man
+    im Zweifel nicht herankommt. Nur Metadaten, keine Zugangsdaten.
+    """
+    jetzt = time.monotonic()
+    out: list[dict] = []
+    with _POOL_LOCK:
+        eintraege = list(_POOL.items())
+    for key, entry in eintraege:
+        # Schluessel ist "<id>:<login>@<host>:<port>" - Login NICHT herausgeben.
+        konto = key.split(":", 1)[0]
+        h = entry.holder
+        out.append({
+            "account_id": int(konto) if konto.isdigit() else None,
+            "belegt": h is not None,
+            "operation": h[0] if h else None,
+            "ordner": h[1] if h else None,
+            "haelt_seit_s": round(jetzt - h[2], 1) if h else None,
+            "gilt_als_haengend": _is_stuck(entry),
+            "verbindung_offen": entry.box is not None,
+            "leerlauf_s": round(jetzt - entry.last_used, 1) if entry.last_used else None,
+        })
+    return out
+
+
 def _reap_idle() -> None:
     """Schließt Verbindungen, die länger als _IDLE_TTL ungenutzt sind.
 
