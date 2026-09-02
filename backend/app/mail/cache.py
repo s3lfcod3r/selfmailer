@@ -718,8 +718,11 @@ def sync_folder(
         # kaputten/partiellen Antwort (web.de-Cluster) NICHT anfassen — sonst würde
         # eine echte ungelesene Mail fälschlich als gelesen (oder umgekehrt) markiert
         # und wäre in der Liste nicht mehr als ungelesen erkennbar.
+        _t_flags = time.monotonic()
+        _flag_n = 0
         if do_flags and reliable:
             recent = [u for u in server_uids[-_FLAG_WINDOW:] if u in cached_by_uid]
+            _flag_n = len(recent)
             if recent:
                 for msg in box.fetch(AND(uid=",".join(recent)), mark_seen=False, headers_only=True, bulk=100):
                     row = cached_by_uid.get(msg.uid or "")
@@ -738,6 +741,7 @@ def sync_folder(
                             row.refs = th["references"]
                         session.add(row)
 
+        _t_flags_ende = time.monotonic()
         if not fs:
             fs = FolderSync(account_id=account.id, folder=folder)
         fs.uidvalidity = uidvalidity
@@ -756,9 +760,20 @@ def sync_folder(
     # in der Datenbank steckt. Sichtbar via `docker logs`.
     _ende = time.monotonic()
     logger.info(
-        "Sync fertig (account_id=%s, folder=%s): %d Mails im Ordner, %d neu geholt | "
-        "warten %.1fs, IMAP %.1fs, gesamt %.1fs",
-        account.id, folder, total, len(fetch_uids),
-        _t_lock - _t0, _t_db - _t_lock, _ende - _t0,
+        "Sync fertig (account_id=%s, folder=%s): %d Mails im Ordner, %d neu geholt, "
+        "%d Flags geprueft | warten %.1fs, IMAP %.1fs (davon Flags %.1fs), gesamt %.1fs",
+        account.id, folder, total, len(fetch_uids), _flag_n,
+        _t_lock - _t0, _t_db - _t_lock, _t_flags_ende - _t_flags, _ende - _t0,
     )
-    return {"total": total, "unseen": unseen, "new": len(fetch_uids), "ok": True}
+    return {
+        "total": total, "unseen": unseen, "new": len(fetch_uids), "ok": True,
+        # Zeiten in Millisekunden mitliefern: ohne Zugriff auf die Container-Logs
+        # ist sonst nicht zu sehen, WO die Zeit steckt. Klein und harmlos.
+        "ms": {
+            "gesamt": int((_ende - _t0) * 1000),
+            "warten": int((_t_lock - _t0) * 1000),
+            "imap": int((_t_db - _t_lock) * 1000),
+            "flags": int((_t_flags_ende - _t_flags) * 1000),
+            "flags_geprueft": _flag_n,
+        },
+    }
