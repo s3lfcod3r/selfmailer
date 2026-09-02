@@ -42,3 +42,19 @@ def test_je_konto_getrennt():
 def test_intervall_deutlich_ueber_dem_takt():
     """Sonst waere die Drosselung wirkungslos."""
     assert sched._SWEEP_MIN_SECS >= sched._INTERVAL
+
+
+def test_erster_lauf_auch_auf_frisch_gestartetem_system():
+    """Regression: mit 0.0 als Startwert lief der erste Sweep nie.
+
+    time.monotonic() zaehlt je nach System ab dem Start. Auf einem frisch
+    gebooteten Host (CI-Container, Unraid nach Neustart) ist der Wert klein,
+    "jetzt minus 0" also kleiner als das Intervall - die Drosselung haette
+    dauerhaft blockiert statt nur gedrosselt.
+    """
+    import time as _t
+    from unittest.mock import patch
+
+    sched._last_sweep.clear()
+    with patch.object(_t, "monotonic", return_value=12.0):   # 12 s Uptime
+        assert sched._sweep_faellig(9) is True
