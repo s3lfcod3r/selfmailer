@@ -46,6 +46,27 @@ _INTERVAL = max(60, int(os.getenv("SELFMAILER_SYNC_INTERVAL", "120") or 120))
 _DAV_INTERVAL = max(30, int(os.getenv("SELFMAILER_DAV_SYNC_INTERVAL", "120") or 120))
 _TICK = min(_INTERVAL, _DAV_INTERVAL)   # Basis-Takt des Loops (kleinstes Intervall)
 _WARM_FOLDERS = ["INBOX"]          # Ordner, deren NACHRICHTEN warmgehalten werden
+# Der Block-Sweep ueber die ZUSATZordner laeuft nicht mehr bei jedem Durchlauf.
+# Am 02.09.2026 an einem Gmail-Konto gemessen (ueber /mail/pool-status): dieses
+# Konto war durchgehend belegt, und zwar nicht vom Sync, sondern von
+# apply_rules und sweep_block_folders. Kein Wunder - der Sweep holt je Ordner
+# bis zu 500 Kopfzeilen, und allein der Verbindungsaufbau kostet dort 8-10 s.
+# Folge: 25 Sync-Versuche in Folge liefen in den Lock-Timeout, neue Mails kamen
+# nicht an, Loeschen meldete "fehlgeschlagen".
+#
+# apply_rules (nur Posteingang) bleibt bei JEDEM Durchlauf - das ist der Teil,
+# der geblockten Spam abfaengt, BEVOR er gepusht wird. Der Sweep raeumt dagegen
+# Spam- und ueberwachte Ordner nach, was ein paar Minuten Zeit hat.
+_SWEEP_MIN_SECS = max(60, int(os.getenv("SELFMAILER_SWEEP_INTERVAL", "900") or 900))
+_last_sweep: dict[int, float] = {}
+
+
+def _sweep_faellig(account_id: int) -> bool:
+    letzter = _last_sweep.get(account_id, 0.0)
+    if (time.monotonic() - letzter) < _SWEEP_MIN_SECS:
+        return False
+    _last_sweep[account_id] = time.monotonic()
+    return True
 _STARTUP_DELAY = 15.0              # nicht direkt beim Boot loslegen
 _BACKUP_HOUR = 3                   # nächtliches DB-Backup ~03:00 Ortszeit
 
@@ -94,7 +115,7 @@ def _sync_account(acc: MailAccount) -> None:
             # Geblockte Absender auch aus Spam + überwachten Ordnern entfernen,
             # BEVOR unten der Push-Check läuft — sonst pingt eine geblockte Mail,
             # die serverseitig in einen anderen Ordner sortiert wurde.
-            if not _stop.is_set():
+            if not _stop.is_set() and _sweep_faellig(acc.id or 0):
                 imap_mod.sweep_block_folders(acc, pw, rules, notify_folders)
     except Exception:  # noqa: BLE001 - Regeln dürfen den Sync nie kippen
         logger.warning("Auto-Regeln fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
