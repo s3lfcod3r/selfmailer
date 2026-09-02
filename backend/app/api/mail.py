@@ -91,6 +91,17 @@ def _account_secret(acc: MailAccount) -> str:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zugangsdaten nicht entschlüsselbar")
 
 
+@router.get("/pool-status")
+def pool_status(user: User = Depends(get_current_user)) -> dict:
+    """Diagnose: Zustand der IMAP-Verbindungen (wer haelt was, seit wann).
+
+    Gedacht fuer die Frage "warum ist dieses Konto dauernd beschaeftigt?" -
+    ohne Zugriff auf die Container-Logs war die nicht zu beantworten.
+    Liefert nur Metadaten, keine Zugangsdaten.
+    """
+    return {"pool": imap_mod.pool_status()}
+
+
 @router.get("/jobs/{job_id}")
 def job_status(
     job_id: str,
