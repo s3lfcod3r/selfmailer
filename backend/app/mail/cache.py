@@ -94,6 +94,39 @@ def _flag_intervall(account_id: int, folder: str) -> float:
     if letzte is None:
         return _FLAG_REFRESH_SECS
     return min(_FLAG_REFRESH_MAX, max(_FLAG_REFRESH_SECS, letzte * _FLAG_COST_FACTOR))
+
+
+# Wie oft trotz CONDSTORE einmal ALLE Flags neu gelesen werden.
+#
+# CONDSTORE meldet nur, was sich SEIT unserem gespeicherten MODSEQ geaendert
+# hat. Was schon falsch im Cache stand, als dieser Stand gesetzt wurde, meldet
+# es nie wieder - es gibt dann keinen Weg mehr, der das je korrigiert. Genau das
+# ist am 03.09.2026 passiert: zwei Mails (uid 2443, 2439) waren auf dem Server
+# ungelesen und im Cache "gelesen", und der Sync meldete stur
+# flags_geprueft=0/flags_weg=condstore. Auch nachdem die eigentliche Ursache
+# (dauerhafte seen_sticky-Sperre) in 1.86.0 behoben war, blieb es so - der
+# reparierende Weg lief einfach nicht mehr.
+#
+# Deshalb: der schnelle Weg bleibt der Normalfall, aber alle 15 Minuten laeuft
+# zusaetzlich der volle Abgleich. Auf dem langsamsten Konto kostet der ~1,4 s.
+_FLAG_FULL_SECS = 900.0
+# (account_id, folder) -> monotonic-Zeit des letzten VOLLEN Abgleichs.
+# Wie _flag_cost bewusst nur im Speicher: nach einem Neustart einmal voll zu
+# lesen ist billiger als ein DB-Feld samt Migration - und heilt Drift sogar
+# schneller.
+_flag_full_at: dict[tuple[int, str], float] = {}
+
+
+def _voller_abgleich_faellig(account_id: int, folder: str) -> bool:
+    """Ist der periodische Voll-Abgleich dran?
+
+    `None`-Pruefung, NICHT `.get(..., 0.0)`: time.monotonic() startet auf einem
+    frisch gebooteten System nahe null, dann waere `jetzt - 0.0 < _FLAG_FULL_SECS`
+    und der erste Voll-Abgleich liefe nie. Genau der Fehler ist am 02.09.2026
+    schon einmal in der Sweep-Drosselung passiert und nur der CI aufgefallen.
+    """
+    letzter = _flag_full_at.get((account_id, folder))
+    return letzter is None or (time.monotonic() - letzter) >= _FLAG_FULL_SECS
 # Obergrenze für den Volltext, den der Sync gleich mit ablegt (JSON-Länge).
 # Der Fetch lädt die Mail ohnehin KOMPLETT (Snippet + Anhang-Flag brauchen den
 # Body), also kostet das Mitspeichern keine einzige zusätzliche IMAP-Runde — es
@@ -803,7 +836,12 @@ def sync_folder(
                         row.seen = SEEN in flags
                     row.flagged = FLAGGED in flags
                     session.add(row)
-                do_flags = False          # erledigt - der teure Weg entfaellt
+                # Erledigt - der teure Weg entfaellt. AUSSER er ist periodisch
+                # faellig: CONDSTORE kann nur nach vorne schauen und wuerde
+                # bestehende Abweichungen sonst fuer immer stehen lassen.
+                do_flags = _voller_abgleich_faellig(account.id or 0, folder)
+                if do_flags:
+                    _flag_weg = "condstore+voll"
 
         if do_flags and reliable:
             recent = [u for u in server_uids[-_FLAG_WINDOW:] if u in cached_by_uid]
@@ -827,9 +865,11 @@ def sync_folder(
                         session.add(row)
 
         _t_flags_ende = time.monotonic()
+        if do_flags and reliable:
+            _flag_full_at[(account.id or 0, folder)] = _t_flags_ende
         if do_flags and reliable and _flag_n:
             _flag_cost[(account.id or 0, folder)] = _t_flags_ende - _t_flags
-        if _flag_weg == "condstore":
+        if _flag_weg == "condstore":   # NUR der reine CONDSTORE-Lauf
             # Der billige Weg kostet fast nichts - die Drosselung darf ihn nicht
             # ausbremsen, sonst veralten Flags ohne Grund.
             _flag_cost.pop((account.id or 0, folder), None)
