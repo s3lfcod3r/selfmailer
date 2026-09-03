@@ -1221,6 +1221,29 @@ def read_modseq(box: MailBox) -> int | None:
     return getattr(box, "_sm_modseq", None)
 
 
+def flag_mengen(box: MailBox) -> tuple[set[str], set[str]] | None:
+    """(ungelesene UIDs, markierte UIDs) des gewaehlten Ordners - ZWEI Kommandos.
+
+    Der Server durchsucht selbst und schickt nur UIDs zurueck. Das ist der
+    einzige Weg, die Flags eines GANZEN Ordners zu erfahren, ohne fuer jede Mail
+    Kopfzeilen zu holen: bei 964 Mails waeren das rund acht Fetch-Runden, hier
+    sind es zwei winzige Antworten - unabhaengig von der Ordnergroesse.
+
+    Bis 1.88.0 deckte der volle Flag-Abgleich nur die neuesten _FLAG_WINDOW (120)
+    Mails ab. Bei einem Postfach mit 964 Mails wurden die Flags aelterer Mails
+    nach dem ersten Einlesen also NIE wieder aufgefrischt: markierte man so eine
+    Mail spaeter woanders als ungelesen, blieb sie hier fuer immer gelesen.
+
+    None = nicht ermittelbar; der Aufrufer laesst die Flags dann in Ruhe.
+    """
+    try:
+        ungelesen = {u for u in box.uids(AND(seen=False)) if u}
+        markiert = {u for u in box.uids(AND(flagged=True)) if u}
+    except Exception:  # noqa: BLE001 - SEARCH nicht unterstuetzt/fehlgeschlagen
+        return None
+    return ungelesen, markiert
+
+
 def flags_changed_since(box: MailBox, modseq: int) -> dict[str, set[str]] | None:
     """Flags nur der seit ``modseq`` geaenderten Mails: {uid: {flags}}.
 
