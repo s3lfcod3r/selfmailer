@@ -27,3 +27,6 @@ frontend/.vite/
 Thumbs.db
 .idea/
 .vscode/
+
+# Release-Artefakt (per Gradle gebaut, gehoert ins GitHub-Release)
+android/*.apk
