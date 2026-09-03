@@ -58,7 +58,22 @@ _WARM_FOLDERS = ["INBOX"]          # Ordner, deren NACHRICHTEN warmgehalten werd
 # der geblockten Spam abfaengt, BEVOR er gepusht wird. Der Sweep raeumt dagegen
 # Spam- und ueberwachte Ordner nach, was ein paar Minuten Zeit hat.
 _SWEEP_MIN_SECS = max(60, int(os.getenv("SELFMAILER_SWEEP_INTERVAL", "900") or 900))
+# Spam-/Papierkorb-Aufraeumen: "loesche, was aelter als N TAGE ist" muss nicht
+# alle zwei Minuten laufen - einmal pro Stunde reicht voellig, und die Auswahl
+# steht ohnehin nur in Tagen zur Verfuegung. Ueber /mail/pool-status gesehen:
+# "_purge_folder seit 6.5s", waehrend der Sync des Nutzers davor wartete.
+_PURGE_MIN_SECS = max(300, int(os.getenv("SELFMAILER_PURGE_INTERVAL", "3600") or 3600))
 _last_sweep: dict[int, float] = {}
+_last_purge: dict[int, float] = {}
+
+
+def _purge_faellig(account_id: int) -> bool:
+    """Aufraeumen nach Tagen - stuendlich genuegt (siehe _PURGE_MIN_SECS)."""
+    letzter = _last_purge.get(account_id)
+    if letzter is not None and (time.monotonic() - letzter) < _PURGE_MIN_SECS:
+        return False
+    _last_purge[account_id] = time.monotonic()
+    return True
 
 
 def _sweep_faellig(account_id: int) -> bool:
@@ -125,13 +140,14 @@ def _sync_account(acc: MailAccount) -> None:
     except Exception:  # noqa: BLE001 - Regeln dürfen den Sync nie kippen
         logger.warning("Auto-Regeln fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
-    if acc.spam_purge_days >= 0 and not _stop.is_set():
+    _purge_dran = _purge_faellig(acc.id or 0)
+    if acc.spam_purge_days >= 0 and _purge_dran and not _stop.is_set():
         try:
             imap_mod.purge_spam(acc, pw, acc.spam_purge_days)
         except Exception:  # noqa: BLE001 - Spam-Purge darf den Sync nie kippen
             logger.warning("Spam-Auto-Purge fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
-    if acc.trash_purge_days >= 0 and not _stop.is_set():
+    if acc.trash_purge_days >= 0 and _purge_dran and not _stop.is_set():
         try:
             imap_mod.purge_trash(acc, pw, acc.trash_purge_days)
         except Exception:  # noqa: BLE001 - Papierkorb-Purge darf den Sync nie kippen

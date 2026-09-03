@@ -58,3 +58,31 @@ def test_erster_lauf_auch_auf_frisch_gestartetem_system():
     sched._last_sweep.clear()
     with patch.object(_t, "monotonic", return_value=12.0):   # 12 s Uptime
         assert sched._sweep_faellig(9) is True
+
+
+def test_purge_laeuft_nicht_alle_zwei_minuten():
+    """"Loesche, was aelter als N TAGE ist" braucht keinen 2-Minuten-Takt.
+
+    Ueber /mail/pool-status gesehen: "_purge_folder seit 6.5s", waehrend der
+    Sync des Nutzers davor wartete - fuer eine Aufraeumarbeit, deren Ergebnis
+    sich frühestens am naechsten Tag aendert.
+    """
+    sched._last_purge.clear()
+    assert sched._purge_faellig(9) is True
+    assert sched._purge_faellig(9) is False
+    assert sched._PURGE_MIN_SECS >= 300
+
+
+def test_purge_je_konto_getrennt():
+    sched._last_purge.clear()
+    assert sched._purge_faellig(9) is True
+    assert sched._purge_faellig(6) is True
+
+
+def test_purge_erster_lauf_auf_frischem_system():
+    """Gleiche Falle wie beim Sweep: 0.0 als Startwert waere ein Dauerblock."""
+    import time as _t
+    from unittest.mock import patch
+    sched._last_purge.clear()
+    with patch.object(_t, "monotonic", return_value=9.0):
+        assert sched._purge_faellig(9) is True

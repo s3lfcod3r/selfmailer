@@ -1117,7 +1117,7 @@ def _purge_folder(account: MailAccount, password: str, folder: str | None, older
     """
     if older_than_days < 0 or not folder:
         return {"deleted": 0}
-    with _mailbox(account, password, folder=folder, op="_purge_folder") as box:
+    with _mailbox(account, password, folder=folder, read_fallback=True, op="_purge_folder") as box:
         if older_than_days == 0:
             criteria = AND(all=True)
         else:
