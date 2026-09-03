@@ -885,6 +885,36 @@ def sync_folder(
                 if do_flags:
                     _flag_weg = "condstore+voll"
 
+        # GANZER Ordner per SEARCH - zwei winzige Kommandos statt Kopfzeilen fuer
+        # jede Mail. Der Kopfzeilen-Abgleich darunter deckt nur die neuesten
+        # _FLAG_WINDOW (120) ab; bei einem Postfach mit 964 Mails wurden die
+        # Flags aelterer Mails nach dem ersten Einlesen nie wieder aufgefrischt
+        # (web.de, 03.09.2026: Server meldete 53 ungelesen, der Cache kannte 8).
+        _flag_such_n = None
+        if do_flags and reliable:
+            mengen = imap_mod.flag_mengen(box)
+            if mengen is not None:
+                ungelesen_uids, markiert_uids = mengen
+                _flag_such_n = len(ungelesen_uids)
+                # Plausibilitaet gegen die STATUS-Zahl desselben Ordners. Ohne das
+                # waere eine leere/abgeschnittene SEARCH-Antwort nicht von
+                # "nichts ungelesen" zu unterscheiden - und wuerde den ganzen
+                # Ordner still auf gelesen setzen. Lieber gar nichts anfassen.
+                if _flag_such_n == unseen:
+                    for uid, row in cached_by_uid.items():
+                        if not _sticky_aktiv(row, now):
+                            row.seen = uid not in ungelesen_uids
+                        row.flagged = uid in markiert_uids
+                        session.add(row)
+                else:
+                    logger.info(
+                        "SEARCH-Flags verworfen, passen nicht zum Ordner-Status "
+                        "(account_id=%s, folder=%s, search=%s, status=%s)",
+                        account.id, folder, _flag_such_n, unseen,
+                    )
+
+        # Kopfzeilen der neuesten Mails: liefert zusaetzlich Schlagworte und traegt
+        # bei Altbestand die Thread-Kopfzeilen nach - das kann SEARCH nicht.
         if do_flags and reliable:
             recent = [u for u in server_uids[-_FLAG_WINDOW:] if u in cached_by_uid]
             _flag_n = len(recent)
@@ -949,7 +979,7 @@ def sync_folder(
             "warten": int((_t_lock - _t0) * 1000),
             "imap": int((_t_db - _t_lock) * 1000),
             "flags": int((_t_flags_ende - _t_flags) * 1000),
-            "flags_geprueft": _flag_n,
+            "flags_geprueft": _flag_n, "flags_suche": _flag_such_n,
             "flags_intervall_s": int(_intervall),
             "flags_weg": _flag_weg,
         },

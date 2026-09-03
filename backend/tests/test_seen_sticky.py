@@ -67,15 +67,23 @@ def test_sperre_ist_kurz_genug_um_nicht_zu_schaden():
     assert 5.0 <= cache_mod._STICKY_SECS <= 300.0
 
 
-def test_beide_abgleich_wege_respektieren_den_ablauf():
-    """CONDSTORE-Weg UND Vollabgleich muessen die Ablaufpruefung benutzen.
+def test_jeder_abgleich_weg_respektiert_den_ablauf():
+    """JEDER Weg, der `seen` vom Server uebernimmt, muss den Ablauf pruefen.
 
-    Bliebe einer von beiden bei `row.seen_sticky`, waere die Sperre dort
-    weiterhin ein Dauerschloss -- der Fehler also nur halb behoben.
+    Es sind drei: der CONDSTORE-Weg, der SEARCH-Weg ueber den ganzen Ordner
+    (seit 1.89.0) und der Kopfzeilen-Abgleich der neuesten Mails. Bliebe einer
+    davon bei `row.seen_sticky`, waere die Sperre dort weiterhin ein
+    Dauerschloss -- der Fehler also nur teilweise behoben.
+
+    Gezaehlt wird gegen die Zuweisungen selbst, nicht gegen eine feste Zahl:
+    kommt ein vierter Weg dazu, faellt der Test auf, statt stillzuhalten.
     """
     quelle = inspect.getsource(cache_mod.sync_folder)
-    assert quelle.count("_sticky_aktiv(") == 2, (
-        "nicht beide Flag-Abgleich-Wege pruefen den Ablauf"
+    zuweisungen = quelle.count("row.seen = ")
+    assert zuweisungen >= 3, "es gibt weniger Uebernahme-Stellen als erwartet"
+    assert quelle.count("_sticky_aktiv(") == zuweisungen, (
+        f"{zuweisungen} Stellen uebernehmen `seen` vom Server, aber nur "
+        f"{quelle.count('_sticky_aktiv(')} pruefen den Ablauf"
     )
     assert "not row.seen_sticky" not in quelle, (
         "irgendwo wird die Sperre wieder ohne Ablauf geprueft"
