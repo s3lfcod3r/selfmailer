@@ -265,24 +265,47 @@ def _reap_idle() -> None:
 
 
 def _ensure_box(conn: _Conn, account: MailAccount, login: str, password: str, folder: str) -> MailBox:
+    """Die Verbindung einer Pool-Stelle nutzbar machen - ohne NOOP-Rundreise.
+
+    Hier stand bis 1.85.0 ein ``box.client.noop()`` als Lebenszeichen-Pruefung
+    bei JEDER Wiederverwendung. Das kostete eine komplette IMAP-Rundreise: auf
+    einem normalen Konto ~170 ms, auf einem langsamen Gmail-Konto am
+    03.09.2026 gemessene ~2,8 s - und zwar bei jeder einzelnen Operation.
+
+    Die Pruefung war den Preis nicht wert:
+    - Sie garantiert nichts. Die Verbindung kann zwischen NOOP und echtem
+      Kommando genauso sterben.
+    - Was wirklich schuetzt, ist _IDLE_TTL: alles, was laenger als 240 s
+      ungenutzt war, wird ohnehin geschlossen und neu aufgebaut. Server halten
+      IMAP-Verbindungen laut RFC 3501 mindestens 30 min - eine Verbindung, die
+      vor weniger als vier Minuten noch geantwortet hat, lebt praktisch immer.
+    - Stirbt sie doch (Serverneustart, Netzaussetzer), scheitert das echte
+      Kommando. ``_mailbox`` verwirft die Verbindung dann und gibt den Fehler
+      weiter; der naechste Versuch baut neu auf. Eine Operation schlaegt also
+      einmal fehl statt jede Operation langsam zu sein.
+
+    Das SELECT unten ist der eine Fall, den wir GRATIS abfangen koennen: es ist
+    ein echtes Kommando, das hier sowieso laeuft, also noch vor dem ``yield``
+    in ``_mailbox``. Scheitert es, bauen wir einmal neu auf und machen weiter -
+    der Aufrufer merkt nichts.
+    """
     box = conn.box
-    if box is not None:
-        if time.monotonic() - conn.last_used > _IDLE_TTL:
-            _close(box)
-            box = conn.box = None
-        else:
-            try:
-                box.client.noop()  # lebt die Verbindung noch?
-            except Exception:  # noqa: BLE001 - tote Verbindung -> neu aufbauen
-                _close(box)
-                box = conn.box = None
+    if box is not None and time.monotonic() - conn.last_used > _IDLE_TTL:
+        _close(box)
+        box = conn.box = None
     if box is None:
         box = _connect(account, login, password, folder)
         conn.box = box
         conn.folder = folder
         return box
     if folder and conn.folder != folder:
-        _select(box, folder)
+        try:
+            _select(box, folder)
+        except Exception:  # noqa: BLE001 - Verbindung tot -> einmal neu aufbauen
+            _close(box)
+            conn.box = None
+            box = _connect(account, login, password, folder)
+            conn.box = box
         conn.folder = folder
     return box
 
