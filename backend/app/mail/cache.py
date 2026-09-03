@@ -59,6 +59,35 @@ _FLAG_REFRESH_MAX = 600.0
 _flag_cost: dict[tuple[int, str], float] = {}
 
 
+# Wie lange die Gelesen-Entscheidung des Nutzers einen Sync ueberstimmt.
+# Der Zweck ist EIN Rennen: der Nutzer klickt "gelesen", gleichzeitig laeuft ein
+# Sync, der den alten Serverstand mitbringt und den Klick wieder wegschreibt.
+# Das ist in Sekunden vorbei - danach ist der Server die Wahrheit.
+#
+# Bis 1.85.0 galt die Sperre DAUERHAFT, und die Migration setzte sie beim Anlegen
+# der Spalte fuer jede damals gelesene Mail. Wer eine solche Mail spaeter in der
+# Gmail-App als ungelesen markierte, sah das in SelfMailer nie wieder (am
+# 03.09.2026 an uid 2443 und 2439 nachgewiesen: Server ungelesen, Cache gelesen).
+# Gegen flatternde Server (web.de) schuetzt das `reliable`-Gate weiter unten -
+# dafuer war diese Sperre nie noetig.
+_STICKY_SECS = 60.0
+
+
+def _sticky_aktiv(row: CachedMessage, jetzt: dt.datetime | None = None) -> bool:
+    """Ist die Nutzer-Entscheidung dieser Zeile noch juenger als _STICKY_SECS?
+
+    Ohne Zeitstempel gilt sie als abgelaufen. Genau das heilt den Altbestand aus
+    der alten Migration von selbst - ohne Daten-Reparatur.
+    """
+    if not row.seen_sticky:
+        return False
+    gesetzt = _as_utc(row.seen_sticky_at)
+    if gesetzt is None:
+        return False
+    jetzt = jetzt or dt.datetime.now(dt.timezone.utc)
+    return (jetzt - gesetzt).total_seconds() < _STICKY_SECS
+
+
 def _flag_intervall(account_id: int, folder: str) -> float:
     """Wie lange muss seit dem letzten Flag-Abgleich vergangen sein?"""
     letzte = _flag_cost.get((account_id, folder))
@@ -447,6 +476,7 @@ def _set_row_seen(session: Session, account_id: int, row: CachedMessage, seen: b
         _adjust_cached_unseen(session, account_id, row.folder, -1 if seen else 1)
         row.seen = seen
     row.seen_sticky = True
+    row.seen_sticky_at = dt.datetime.now(dt.timezone.utc)
     session.add(row)
 
 
@@ -516,7 +546,9 @@ def set_flags_bulk(
     vals: dict = {}
     if seen is not None:
         vals["seen"] = seen
-        vals["seen_sticky"] = True   # Nutzer-Entscheidung → gegen Sync-Überschreibung sperren
+        # Nutzer-Entscheidung → kurzzeitig gegen Sync-Überschreibung sperren.
+        vals["seen_sticky"] = True
+        vals["seen_sticky_at"] = dt.datetime.now(dt.timezone.utc)
     if flagged is not None:
         vals["flagged"] = flagged
     uids = [u for u in uids if u]
@@ -767,7 +799,7 @@ def sync_folder(
                     row = cached_by_uid.get(uid)
                     if not row:
                         continue
-                    if not row.seen_sticky:
+                    if not _sticky_aktiv(row, now):
                         row.seen = SEEN in flags
                     row.flagged = FLAGGED in flags
                     session.add(row)
@@ -781,7 +813,7 @@ def sync_folder(
                     row = cached_by_uid.get(msg.uid or "")
                     if row:
                         # Vom Nutzer selbst gesetzten Gelesen-Status NICHT überschreiben.
-                        if not row.seen_sticky:
+                        if not _sticky_aktiv(row, now):
                             row.seen = SEEN in msg.flags
                         row.flagged = FLAGGED in msg.flags
                         row.keywords = " ".join(keywords_of(msg))
