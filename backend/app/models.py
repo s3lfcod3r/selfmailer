@@ -377,7 +377,17 @@ class CachedMessage(SQLModel, table=True):
     # sie nicht wieder rein, wenn ein flatternder Server (web.de) sie noch listet.
     # Wird endgültig entfernt, sobald der Server die UID über mehrere Syncs nicht
     # mehr liefert (miss_count) — also wenn die Löschung wirklich durchgezogen ist.
+    #
+    # Zeitlich begrenzt (_HIDDEN_SECS), und zwar aus einem konkreten Anlass: Am
+    # 03.09.2026 lag uid 2445 dauerhaft unsichtbar im Posteingang eines
+    # Gmail-Kontos (Server 104 Mails, Liste 103). SelfMailer hielt sie für
+    # gelöscht, Gmail listete sie weiter — und miss_count räumt eine solche Zeile
+    # NUR auf, wenn der Server die UID nicht mehr liefert. Er lieferte sie ja.
+    # Ein Marker ohne Ablauf also, dieselbe Fehlerklasse wie die frühere
+    # Dauersperre bei seen_sticky.
     hidden: bool = False
+    # Wann ausgeblendet wurde. NULL = abgelaufen (heilt den Altbestand von selbst).
+    hidden_at: dt.datetime | None = None
 
 
 class FolderSync(SQLModel, table=True):

@@ -87,6 +87,8 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("seen_sticky_at", "DATETIME"),
         # Vom Nutzer gelöscht/verschoben → ausgeblendet (Anti-„kommt wieder"-Tombstone).
         ("hidden", "INTEGER DEFAULT 0"),
+        # Wann ausgeblendet wurde. NULL = abgelaufen (siehe _HIDDEN_SECS).
+        ("hidden_at", "DATETIME"),
     ],
     "cachedfolder": [("special", "VARCHAR")],
     "calendarevent": [
