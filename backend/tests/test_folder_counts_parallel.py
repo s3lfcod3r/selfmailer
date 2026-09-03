@@ -91,11 +91,15 @@ def test_arbeit_wird_wirklich_verteilt(monkeypatch):
     boxen = _stelle(monkeypatch, helfer_bekommen_verbindung=True)
     imap_mod.folder_counts(_konto(), "geheim")
 
-    assert len(boxen) == imap_mod._COUNT_WORKERS, "es wurden keine Helfer gestartet"
+    # Nicht die Zahl der Boxen pruefen: seit die LIST-Varianten ebenfalls
+    # parallel laufen, gehoert eine davon dem Ordnerlisten-Helfer. Es zaehlt,
+    # wie sich die STATUS-Aufrufe verteilen.
     beteiligt = [b for b in boxen if b.aufrufe]
     assert len(beteiligt) >= 2, (
         "alle STATUS liefen auf einer Verbindung - der Umbau ist wirkungslos"
     )
+    groesste = max(len(b.aufrufe) for b in beteiligt)
+    assert groesste < len(NAMEN), "eine Verbindung hat trotzdem alles allein gemacht"
 
 
 def test_ohne_freie_verbindung_zaehlt_der_aufrufer_alles_selbst(monkeypatch):
