@@ -102,7 +102,7 @@ _POOL_EXTRA = max(0, int(os.getenv("SELFMAILER_IMAP_POOL_EXTRA", "2") or 2))
 _COUNT_WORKERS = max(1, int(os.getenv("SELFMAILER_COUNT_WORKERS", "3") or 3))
 # Helfer sind Zugabe, kein Muss: bekommen sie nicht schnell eine Verbindung,
 # zaehlt der Aufrufer allein weiter - langsamer, aber nie unvollstaendig.
-_COUNT_HELPER_WAIT = 2.0
+_HELPER_WAIT = 2.0
 
 _WAIT_TICK = 0.05
 
@@ -414,29 +414,78 @@ def quota(account: MailAccount, password: str) -> dict | None:
     return None
 
 
-def list_folders(account: MailAccount, password: str) -> list[str]:
-    """Listet Ordner robust: viele Server (z. B. web.de/Courier) zeigen INBOX-
-    Unterordner nicht beim einfachen LIST "" "*". Daher mehrere Strategien
-    kombinieren und deduplizieren.
+def _liste_ordner(account: MailAccount, password: str, box: MailBox) -> dict[str, tuple]:
+    """Ordnernamen -> LIST-Flags, robust ueber mehrere LIST-Varianten.
+
+    Viele Server (z. B. web.de/Courier) zeigen INBOX-Unterordner beim einfachen
+    LIST "" "*" nicht - daher die zweite Variante. Beide sind voneinander
+    unabhaengig und laufen deshalb NEBENEINANDER: auf einem Konto, das je
+    IMAP-Kommando rund zwei Sekunden braucht, halbiert das die Wartezeit. Am
+    03.09.2026 gemessen: die reine Ordnerliste eines Gmail-Kontos brauchte
+    5,9 s - mehr als die Haelfte der kompletten Zaehler-Abfrage.
+
+    Die dritte Variante (nur abonnierte) ist Notnagel fuer Server, bei denen
+    beide nichts liefern. Sie ist eine Teilmenge der ersten und lief bisher
+    trotzdem jedes Mal mit - eine ganze Runde umsonst.
+
+    Reihenfolge zaehlt: die ZUERST gesehenen Flags gewinnen, spaetere Varianten
+    ueberschreiben sie nicht.
     """
-    seen: dict[str, None] = {}
+    roh: dict[int, list[tuple[str, tuple]]] = {}
+
+    def hole(nr: int, bx: MailBox, *args, **kw) -> None:
+        try:
+            roh[nr] = [
+                (f.name, tuple(getattr(f, "flags", ()) or ()))
+                for f in bx.folder.list(*args, **kw) if f.name
+            ]
+        except Exception:  # noqa: BLE001 - einzelne LIST-Variante darf scheitern
+            roh[nr] = []
+
+    def helfer() -> None:
+        try:
+            with _mailbox(
+                account, password, read_fallback=True,
+                lock_timeout=_HELPER_WAIT, op="list_folders-helfer",
+            ) as b:
+                hole(2, b, "INBOX", "*")
+        except Exception:  # noqa: BLE001 - keine Verbindung frei
+            roh.pop(2, None)
+
+    t = None
+    if _POOL_ENABLED and account.id is not None:
+        t = threading.Thread(target=helfer, daemon=True)
+        t.start()
+
+    hole(1, box, "", "*")
+    if t is not None:
+        t.join(timeout=_LOCK_TIMEOUT)
+    # Kam der Helfer nicht durch (keine freie Verbindung), holt der Aufrufer die
+    # Variante selbst nach - langsamer, aber nie mit fehlenden Ordnern.
+    if 2 not in roh:
+        hole(2, box, "INBOX", "*")
+
+    out: dict[str, tuple] = {}
+    for nr in (1, 2):
+        for name, flags in roh.get(nr, ()):
+            out.setdefault(name, flags)
+    if not out:
+        hole(3, box, "", "*", subscribed_only=True)
+        for name, flags in roh.get(3, ()):
+            out.setdefault(name, flags)
+    return out
+
+
+def _sortiere_ordner(namen) -> list[str]:
+    """INBOX immer zuerst, Rest alphabetisch (case-insensitiv)."""
+    return sorted(namen, key=lambda n: (n.upper() != "INBOX", n.lower()))
+
+
+def list_folders(account: MailAccount, password: str) -> list[str]:
+    """Listet Ordner robust ueber mehrere LIST-Varianten (siehe _liste_ordner)."""
     with _mailbox(account, password, read_fallback=True, op="list_folders") as box:
-        attempts = [
-            lambda: box.folder.list("", "*"),            # alles ab Root
-            lambda: box.folder.list("INBOX", "*"),        # INBOX-Unterordner explizit
-            lambda: box.folder.list("", "*", subscribed_only=True),  # abonnierte
-        ]
-        for attempt in attempts:
-            try:
-                for f in attempt():
-                    if f.name:
-                        seen.setdefault(f.name, None)
-            except Exception:  # noqa: BLE001 - einzelne LIST-Variante darf scheitern
-                continue
-    names = list(seen) or ["INBOX"]
-    # INBOX immer zuerst, Rest alphabetisch (case-insensitiv).
-    names.sort(key=lambda n: (n.upper() != "INBOX", n.lower()))
-    return names
+        namen = _liste_ordner(account, password, box)
+    return _sortiere_ordner(namen) or ["INBOX"]
 
 
 def list_uids(account: MailAccount, password: str, folder: str = "INBOX") -> list[str]:
@@ -483,14 +532,14 @@ def _count_helfer(
 ) -> None:
     """Helfer-Thread mit EIGENER Verbindung aus dem Pool.
 
-    Bekommt er innerhalb von _COUNT_HELPER_WAIT keine, gibt er auf - der
+    Bekommt er innerhalb von _HELPER_WAIT keine, gibt er auf - der
     Aufrufer zaehlt dann eben alles selbst. Ein Helfer darf nie dazu fuehren,
     dass ein Zaehler fehlt.
     """
     try:
         with _mailbox(
             account, password, read_fallback=True,
-            lock_timeout=_COUNT_HELPER_WAIT, op="folder_counts-helfer",
+            lock_timeout=_HELPER_WAIT, op="folder_counts-helfer",
         ) as box:
             _zaehl_ab(box, aufgaben, ergebnis, lock)
     except Exception:  # noqa: BLE001 - keine Verbindung frei / Verbindung tot
@@ -504,27 +553,10 @@ def folder_counts(account: MailAccount, password: str) -> list[dict]:
     Verbindungen des Kontos. Der Aufrufer zaehlt auf seiner eigenen immer mit,
     damit die Liste auch dann vollstaendig wird, wenn kein Helfer zum Zug kommt.
     """
-    seen: dict[str, None] = {}
-    # Flags je Ordnername fuer die SPECIAL-USE-Erkennung. Beim Dedup die ZUERST
-    # gesehenen Flags behalten (spaetere LIST-Varianten ueberschreiben nicht).
-    flags_by_name: dict[str, tuple] = {}
     with _mailbox(account, password, read_fallback=True, op="folder_counts") as box:
-        attempts = [
-            lambda: box.folder.list("", "*"),
-            lambda: box.folder.list("INBOX", "*"),
-            lambda: box.folder.list("", "*", subscribed_only=True),
-        ]
-        for attempt in attempts:
-            try:
-                for f in attempt():
-                    if f.name:
-                        seen.setdefault(f.name, None)
-                        if f.name not in flags_by_name:
-                            flags_by_name[f.name] = tuple(getattr(f, "flags", ()) or ())
-            except Exception:  # noqa: BLE001
-                continue
-        names = list(seen) or ["INBOX"]
-        names.sort(key=lambda n: (n.upper() != "INBOX", n.lower()))
+        # Flags je Ordner fuer die SPECIAL-USE-Erkennung.
+        flags_by_name = _liste_ordner(account, password, box)
+        names = _sortiere_ordner(flags_by_name) or ["INBOX"]
         specials = {n: _folder_special(n, flags_by_name.get(n, ())) for n in names}
 
         aufgaben: queue.Queue = queue.Queue()
