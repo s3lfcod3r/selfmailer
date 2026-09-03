@@ -80,8 +80,11 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # Wie oft in Folge kein Server-Treffer mehr (gegen flatternde Cluster-Server):
         # erst nach mehreren Fehlläufen wird die Mail wirklich aus dem Cache entfernt.
         ("miss_count", "INTEGER DEFAULT 0"),
-        # Nutzer hat den Gelesen-Status selbst gesetzt → Sync überschreibt ihn nicht.
+        # Nutzer hat den Gelesen-Status selbst gesetzt → Sync überschreibt ihn
+        # kurzzeitig nicht (siehe _STICKY_SECS in mail/cache.py).
         ("seen_sticky", "INTEGER DEFAULT 0"),
+        # Wann die Sperre gesetzt wurde. NULL = abgelaufen.
+        ("seen_sticky_at", "DATETIME"),
         # Vom Nutzer gelöscht/verschoben → ausgeblendet (Anti-„kommt wieder"-Tombstone).
         ("hidden", "INTEGER DEFAULT 0"),
     ],
@@ -143,11 +146,14 @@ def _ensure_columns() -> None:
                     conn.execute(
                         text(f"UPDATE {table} SET {name} = '' WHERE {name} IS NULL")
                     )
-                # Einmaliger Backfill: bereits gelesene Mails sofort schützen, damit
-                # sie nach dem Update nicht durch einen flatternden Sync wieder auf
-                # ungelesen springen. Läuft nur beim ERSTEN Anlegen der Spalte.
-                if just_added and table == "cachedmessage" and name == "seen_sticky":
-                    conn.execute(text("UPDATE cachedmessage SET seen_sticky = seen"))
+                # Hier stand bis 1.85.0 ein Backfill `SET seen_sticky = seen`, der
+                # jede damals gelesene Mail dauerhaft gegen Server-Updates sperrte.
+                # Am 03.09.2026 fiel auf, was das anrichtet: zwei Mails, die auf dem
+                # Gmail-Server ungelesen waren, blieben im Cache für immer "gelesen"
+                # und fehlten im Badge. Der Backfill ist weg; seit 1.86.0 laeuft die
+                # Sperre ohnehin nach _STICKY_SECS ab, und Zeilen ohne
+                # seen_sticky_at gelten sofort als abgelaufen — der Altbestand heilt
+                # sich also selbst, ohne Daten-Reparatur.
 
 
 # Zusammengesetzte Indizes für die Hot-Path-Queries. Die einzelnen

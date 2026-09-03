@@ -358,9 +358,20 @@ class CachedMessage(SQLModel, table=True):
     # nicht schon, wenn ein einzelner Sync sie kurz nicht sieht.
     miss_count: int = 0
     # Der Nutzer hat den Gelesen-Status SELBST gesetzt (geöffnet / (un)gelesen
-    # markiert) → authoritativ. Ein Sync darf ihn dann NICHT mehr überschreiben
-    # (flatternde Server melden sonst gelesene Mails wieder als ungelesen).
+    # markiert). Schützt NUR das Rennen zwischen dem Klick und einem gleichzeitig
+    # laufenden Sync, der den alten Serverstand mitbringt — deshalb zeitlich
+    # begrenzt (_STICKY_SECS), NICHT dauerhaft.
+    #
+    # Bis 1.85.0 war das ein Dauerschloss, und die Migration setzte es beim Anlegen
+    # der Spalte für JEDE damals gelesene Mail. Ergebnis: markierte man so eine Mail
+    # später in der Gmail-App als ungelesen, erfuhr SelfMailer das nie — am
+    # 03.09.2026 an zwei echten Mails nachgewiesen (Server: ungelesen, Cache:
+    # gelesen). Gegen flatternde Server (web.de) schützt das `reliable`-Gate im
+    # Sync, dafür braucht es diese Sperre nicht.
     seen_sticky: bool = False
+    # Wann die Sperre gesetzt wurde. NULL = abgelaufen. Damit heilen die
+    # Altbestands-Zeilen aus der alten Migration von selbst, ohne Daten-Reparatur.
+    seen_sticky_at: dt.datetime | None = None
     # Vom Nutzer gelöscht/verschoben → in DIESEM Ordner ausgeblendet, aber NICHT aus
     # dem Cache entfernt. So erkennt der Sync die Mail als bereits bekannt und holt
     # sie nicht wieder rein, wenn ein flatternder Server (web.de) sie noch listet.
