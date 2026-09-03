@@ -58,7 +58,7 @@ def test_sync_weicht_bewusst_NICHT_aus():
 
 def test_haengende_verbindung_wird_erkannt():
     """Eine Verbindung, die jemand ewig haelt, macht das Konto nicht dauerhaft unbrauchbar."""
-    entry = imap_mod._PooledBox()
+    entry = imap_mod._Conn()
     assert imap_mod._is_stuck(entry) is False, "ohne Inhaber nichts zu tun"
 
     import time

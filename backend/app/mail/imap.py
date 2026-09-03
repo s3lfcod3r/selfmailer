@@ -69,11 +69,6 @@ _IMAP_TIMEOUT = float(os.getenv("SELFMAILER_IMAP_TIMEOUT", "15") or 15)
 # lange, sollen konkurrierende Anfragen nicht ewig hängen, sondern nach dieser
 # Zeit mit 503 abbrechen (ImapBusyError).
 _LOCK_TIMEOUT = float(os.getenv("SELFMAILER_IMAP_LOCK_TIMEOUT", "20") or 20)
-# Obergrenze gleichzeitiger „Ausweich"-Kurzverbindungen je Konto (read_fallback), wenn
-# die Pool-Verbindung belegt ist. Ohne Deckel könnten bei vielen parallelen Öffnungen
-# (Gmail-Konversation mit vielen Ungelesenen) zu viele IMAP-Logins entstehen → der
-# Provider (Gmail ~15) lehnt mit „too many simultaneous connections" ab.
-_MAX_FALLBACK = max(1, int(os.getenv("SELFMAILER_IMAP_MAX_FALLBACK", "3") or 3))
 # Ab wann gilt ein Sperr-Inhaber als HAENGEND und die Verbindung als verloren?
 # Am 02.09.2026 an einem echten Gmail-Konto beobachtet: die Konto-Verbindung war
 # DAUERHAFT belegt - drei Sync-Versuche im Abstand von 15 s liefen alle in den
@@ -84,23 +79,46 @@ _MAX_FALLBACK = max(1, int(os.getenv("SELFMAILER_IMAP_MAX_FALLBACK", "3") or 3))
 # Grosszuegig ueber _IMAP_TIMEOUT: eine ECHT langsame, aber lebende Operation
 # soll nicht abgeraeumt werden.
 _STUCK_AFTER = float(os.getenv("SELFMAILER_IMAP_STUCK_AFTER", "0") or 0) or max(90.0, _IMAP_TIMEOUT * 4)
-_POOL: dict[str, "_PooledBox"] = {}
+# Mehrere Verbindungen je Konto - genau wie Thunderbird & Co. (dort Standard 5).
+# VORHER hielt SelfMailer nur EINE, und alles serialisierte sich darauf: Sync,
+# Loeschen, Ordnerzaehler, Aufraeumen. Bei schnellen Servern faellt das nie auf;
+# bei einem Konto mit 8-10 s Verbindungsaufbau wurde daraus am 02.09.2026 eine
+# Dauerblockade (25 Sync-Versuche in Folge im Lock-Timeout, "Loeschen
+# fehlgeschlagen"). Mehrere WIEDERVERWENDETE Verbindungen loesen beides: kein
+# Warten in der Schlange und kein teurer Neuaufbau je Aktion.
+_POOL_SIZE = max(1, int(os.getenv("SELFMAILER_IMAP_POOL_SIZE", "3") or 3))
+# Nutzer-Aktionen (read_fallback=True) duerfen dieses Kontingent ueberziehen:
+# Loeschen oder eine Mail oeffnen soll nie warten, nur weil im Hintergrund
+# synchronisiert wird. Gmail erlaubt ~15 gleichzeitige Verbindungen je Konto -
+# 3+2 bleibt mit Abstand darunter.
+_POOL_EXTRA = max(0, int(os.getenv("SELFMAILER_IMAP_POOL_EXTRA", "2") or 2))
+# Takt, in dem auf eine frei werdende Verbindung geprueft wird.
+_WAIT_TICK = 0.05
+
+_POOL: dict[str, list["_Conn"]] = {}
 _POOL_LOCK = threading.Lock()
 
 
-class _PooledBox:
-    __slots__ = ("box", "lock", "last_used", "folder", "fallback_sem", "holder")
+class _Conn:
+    """EINE IMAP-Verbindung im Pool eines Kontos."""
+
+    __slots__ = ("box", "lock", "last_used", "folder", "holder")
 
     def __init__(self) -> None:
         self.box: MailBox | None = None
-        self.lock = threading.RLock()
+        # Lock, NICHT RLock: ein RLock ist wiedereintrittsfaehig, derselbe Thread
+        # bekaeme dieselbe Verbindung also ein zweites Mal - zwei Operationen
+        # wuerden sich eine Verbindung teilen und sich gegenseitig den
+        # ausgewaehlten Ordner wegziehen. Das faellt im Betrieb nicht auf, es
+        # liefert einfach falsche Mails. Verschachtelte _mailbox-Aufrufe gibt es
+        # nicht (per AST geprueft); traete je einer auf, bekaeme er ueber
+        # _greife_zu eine ZWEITE Verbindung statt eines Deadlocks.
+        self.lock = threading.Lock()
         self.last_used = 0.0
         self.folder: str | None = None
-        # Begrenzt parallele Kurzverbindungen bei belegtem Pool-Lock (read_fallback).
-        self.fallback_sem = threading.BoundedSemaphore(_MAX_FALLBACK)
-        # (Operation, Ordner, Startzeit) des aktuellen Sperr-Inhabers - nur fuer
-        # die Diagnose. Ohne das steht bei einem Lock-Timeout nur "belegt" im Log,
-        # aber nicht, WOVON: genau diese Frage war bei Gmail nicht zu beantworten.
+        # (Operation, Ordner, Startzeit) des aktuellen Nutzers - nur fuer die
+        # Diagnose ueber pool_status(). Ohne das stand bei einem blockierten Konto
+        # nirgends, WAS es blockiert.
         self.holder: tuple[str, str, float] | None = None
 
 
@@ -111,29 +129,24 @@ _WAIT_LOG_S = 1.0
 def _log_wait(account: MailAccount, op: str, folder: str, waited: float) -> None:
     if waited >= _WAIT_LOG_S:
         logger.info(
-            "IMAP-Lock nach %.1fs frei (account_id=%s, op=%s, folder=%s)",
+            "IMAP-Verbindung nach %.1fs frei (account_id=%s, op=%s, folder=%s)",
             waited, account.id, op, folder,
         )
 
 
-def _log_busy(account: MailAccount, op: str, folder: str, entry: "_PooledBox", waited: float) -> None:
-    h = entry.holder
-    if h:
-        logger.warning(
-            "IMAP-Lock-Timeout nach %.1fs (account_id=%s, op=%s, folder=%s) - "
-            "gehalten von op=%s folder=%s seit %.1fs",
-            waited, account.id, op, folder, h[0], h[1], time.monotonic() - h[2],
-        )
-    else:
-        logger.warning(
-            "IMAP-Lock-Timeout nach %.1fs (account_id=%s, op=%s, folder=%s) - Inhaber unbekannt",
-            waited, account.id, op, folder,
-        )
+def _log_busy(account: MailAccount, op: str, folder: str, conns: list["_Conn"], waited: float) -> None:
+    belegt = [f"{c.holder[0]}/{c.holder[1]} seit {time.monotonic() - c.holder[2]:.0f}s"
+              for c in conns if c.holder]
+    logger.warning(
+        "Alle %d IMAP-Verbindungen belegt, Timeout nach %.1fs (account_id=%s, op=%s, "
+        "folder=%s) - in Benutzung: %s",
+        len(conns), waited, account.id, op, folder, ", ".join(belegt) or "unbekannt",
+    )
 
 
-def _is_stuck(entry: "_PooledBox") -> bool:
-    """Haelt jemand die Verbindung laenger, als jede gesunde Operation braucht?"""
-    h = entry.holder
+def _is_stuck(conn: "_Conn") -> bool:
+    """Haelt jemand diese Verbindung laenger, als jede gesunde Operation braucht?"""
+    h = conn.holder
     return bool(h) and (time.monotonic() - h[2]) > _STUCK_AFTER
 
 
@@ -171,76 +184,138 @@ def _close(box: MailBox | None) -> None:
 
 
 def pool_status() -> list[dict]:
-    """Wer belegt gerade welche Konto-Verbindung, und seit wann?
+    """Wer belegt gerade welche Verbindung, und seit wann?
 
-    Ohne das war bei einem dauerhaft blockierten Konto nicht zu klaeren, WAS die
-    Verbindung haelt - die Antwort stand nur in den Container-Logs, an die man
-    im Zweifel nicht herankommt. Nur Metadaten, keine Zugangsdaten.
+    Damit waren am 02.09.2026 drei Blockade-Ursachen ueberhaupt erst auffindbar
+    (Block-Sweep, Ordnerzaehler, Papierkorb-Aufraeumen). Nur Metadaten, keine
+    Zugangsdaten - der Pool-Schluessel enthaelt Login und Mailserver.
     """
     jetzt = time.monotonic()
     out: list[dict] = []
     with _POOL_LOCK:
-        eintraege = list(_POOL.items())
-    for key, entry in eintraege:
-        # Schluessel ist "<id>:<login>@<host>:<port>" - Login NICHT herausgeben.
+        eintraege = [(k, list(v)) for k, v in _POOL.items()]
+    for key, conns in eintraege:
         konto = key.split(":", 1)[0]
-        h = entry.holder
-        out.append({
-            "account_id": int(konto) if konto.isdigit() else None,
-            "belegt": h is not None,
-            "operation": h[0] if h else None,
-            "ordner": h[1] if h else None,
-            "haelt_seit_s": round(jetzt - h[2], 1) if h else None,
-            "gilt_als_haengend": _is_stuck(entry),
-            "verbindung_offen": entry.box is not None,
-            "leerlauf_s": round(jetzt - entry.last_used, 1) if entry.last_used else None,
-        })
+        for nr, c in enumerate(conns, 1):
+            h = c.holder
+            out.append({
+                "account_id": int(konto) if konto.isdigit() else None,
+                "verbindung": nr,
+                "von": len(conns),
+                "belegt": h is not None,
+                "operation": h[0] if h else None,
+                "ordner": h[1] if h else None,
+                "haelt_seit_s": round(jetzt - h[2], 1) if h else None,
+                "gilt_als_haengend": _is_stuck(c),
+                "verbindung_offen": c.box is not None,
+                "leerlauf_s": round(jetzt - c.last_used, 1) if c.last_used else None,
+            })
     return out
 
 
 def _reap_idle() -> None:
-    """Schließt Verbindungen, die länger als _IDLE_TTL ungenutzt sind.
+    """Schliesst Verbindungen, die laenger als _IDLE_TTL ungenutzt sind.
 
-    Nur Einträge, deren Lock gerade frei ist (non-blocking), damit das Aufräumen
-    nie eine laufende Operation stört."""
+    Nur solche, deren Sperre gerade frei ist (non-blocking) - das Aufraeumen darf
+    nie eine laufende Operation stoeren. Leere Pools werden entfernt, damit ein
+    geloeschtes Konto keine Karteileiche hinterlaesst.
+    """
     now = time.monotonic()
     with _POOL_LOCK:
         keys = list(_POOL)
     for key in keys:
-        entry = _POOL.get(key)
-        if entry is None or now - entry.last_used <= _IDLE_TTL:
-            continue
-        if entry.lock.acquire(blocking=False):
+        with _POOL_LOCK:
+            conns = list(_POOL.get(key, ()))
+        uebrig = []
+        for c in conns:
+            if now - c.last_used <= _IDLE_TTL:
+                uebrig.append(c)
+                continue
+            if not c.lock.acquire(blocking=False):
+                uebrig.append(c)          # in Benutzung -> in Ruhe lassen
+                continue
             try:
-                if entry.box is not None and now - entry.last_used > _IDLE_TTL:
-                    _close(entry.box)
-                    entry.box = None
-                    entry.folder = None
+                if c.box is not None and now - c.last_used > _IDLE_TTL:
+                    _close(c.box)
+                    c.box = None
+                    c.folder = None
+                # Die erste Verbindung bleibt als leeres Gerippe stehen (billig und
+                # spart beim naechsten Zugriff das Anlegen); weitere fliegen raus.
+                if not uebrig:
+                    uebrig.append(c)
             finally:
-                entry.lock.release()
+                c.lock.release()
+        with _POOL_LOCK:
+            if key in _POOL:
+                if uebrig:
+                    _POOL[key] = uebrig
+                else:
+                    _POOL.pop(key, None)
 
 
-def _ensure_box(entry: _PooledBox, account: MailAccount, login: str, password: str, folder: str) -> MailBox:
-    box = entry.box
+def _ensure_box(conn: _Conn, account: MailAccount, login: str, password: str, folder: str) -> MailBox:
+    box = conn.box
     if box is not None:
-        if time.monotonic() - entry.last_used > _IDLE_TTL:
+        if time.monotonic() - conn.last_used > _IDLE_TTL:
             _close(box)
-            box = entry.box = None
+            box = conn.box = None
         else:
             try:
                 box.client.noop()  # lebt die Verbindung noch?
             except Exception:  # noqa: BLE001 - tote Verbindung -> neu aufbauen
                 _close(box)
-                box = entry.box = None
+                box = conn.box = None
     if box is None:
         box = _connect(account, login, password, folder)
-        entry.box = box
-        entry.folder = folder
+        conn.box = box
+        conn.folder = folder
         return box
-    if folder and entry.folder != folder:
+    if folder and conn.folder != folder:
         _select(box, folder)
-        entry.folder = folder
+        conn.folder = folder
     return box
+
+
+def _greife_zu(key: str, folder: str, limit: int) -> "_Conn | None":
+    """Eine freie Verbindung belegen - oder eine neue anlegen, wenn Platz ist.
+
+    Bevorzugt eine Verbindung, die den gewuenschten Ordner schon ausgewaehlt hat:
+    das spart ein SELECT, und bei einem langsamen Konto ist jede eingesparte
+    Runde spuerbar. Gibt die BELEGTE Verbindung zurueck (Sperre gehalten) oder
+    None, wenn gerade alle in Benutzung sind.
+    """
+    with _POOL_LOCK:
+        conns = _POOL.setdefault(key, [])
+
+        # Haengende Verbindungen aussortieren: der haengende Thread haelt seine
+        # eigene Sperre weiter und raeumt sein Objekt selbst ab. Wir nehmen sie
+        # nur aus dem Pool, damit sie niemanden mehr aufhaelt.
+        haenger = [c for c in conns if _is_stuck(c)]
+        if haenger:
+            for c in haenger:
+                h = c.holder
+                logger.warning(
+                    "IMAP-Verbindung haengt seit %.0fs (op=%s, folder=%s) - aus dem Pool entfernt",
+                    time.monotonic() - h[2], h[0], h[1],
+                )
+                conns.remove(c)
+
+        # 1) Freie mit passendem Ordner, 2) irgendeine freie
+        for passend in (True, False):
+            for c in conns:
+                if passend and c.folder != folder:
+                    continue
+                if c.lock.acquire(blocking=False):
+                    return c
+
+        # 3) Platz im Kontingent -> neue Verbindung anlegen. Der Aufbau selbst
+        #    passiert BEWUSST ausserhalb dieser Sperre (er kann Sekunden dauern).
+        if len(conns) < limit:
+            c = _Conn()
+            c.lock.acquire()
+            conns.append(c)
+            return c
+    return None
 
 
 @contextmanager
@@ -248,14 +323,19 @@ def _mailbox(
     account: MailAccount, password: str, folder: str = "INBOX", *, read_fallback: bool = False,
     lock_timeout: float | None = None, op: str = "?",
 ) -> Iterator[MailBox]:
-    """``lock_timeout``: eigene Wartezeit auf das Konto-Lock (Default _LOCK_TIMEOUT).
-    Interaktive Aufrufe setzen das kurz - sie sollen die Oberflaeche nicht
-    minutenlang blockieren, sondern schnell sagen "gerade beschaeftigt".
-    ``op``: Kurzname der Operation, erscheint im Diagnose-Log als Sperr-Inhaber."""
+    """Eine IMAP-Verbindung des Kontos ausleihen.
+
+    ``read_fallback``: Nutzer-Aktionen (Mail oeffnen, loeschen, Flags) duerfen das
+    normale Kontingent um _POOL_EXTRA ueberziehen - sie sollen nie warten, nur
+    weil im Hintergrund synchronisiert wird.
+    ``lock_timeout``: eigene Wartezeit (Default _LOCK_TIMEOUT). Interaktive
+    Aufrufe setzen das kurz und melden lieber schnell "gerade beschaeftigt".
+    ``op``: Kurzname der Operation, erscheint in pool_status() und im Log.
+    """
     login = account.auth_user or account.email
     _reject_folder_ctrl(folder)  # CRLF-/Steuerzeichen-Schutz für JEDE Ordnerauswahl
 
-    # Pool aus (oder Konto ohne id) -> altes Verhalten: öffnen, nutzen, schließen.
+    # Pool aus (oder Konto ohne id) -> oeffnen, nutzen, schliessen.
     if not _POOL_ENABLED or account.id is None:
         box = _connect(account, login, password, folder)
         try:
@@ -265,71 +345,37 @@ def _mailbox(
         return
 
     key = _pool_key(account, login)
-    with _POOL_LOCK:
-        entry = _POOL.get(key)
-        if entry is None:
-            entry = _POOL[key] = _PooledBox()
-        elif _is_stuck(entry):
-            # Der Eintrag wird NICHT reparatiert, sondern ERSETZT: der haengende
-            # Thread haelt seine eigene Sperre weiter und raeumt sein Objekt selbst
-            # ab, wenn er je zurueckkehrt. Neue Anfragen bekommen derweil einen
-            # frischen Eintrag mit eigener Verbindung - das Konto ist damit sofort
-            # wieder benutzbar, statt bis zum Neustart blockiert zu bleiben.
-            h = entry.holder
-            logger.warning(
-                "IMAP-Verbindung haengt seit %.0fs (account_id=%s, op=%s, folder=%s) - "
-                "Pool-Eintrag wird ersetzt",
-                time.monotonic() - h[2], account.id, h[0], h[1],
-            )
-            entry = _POOL[key] = _PooledBox()
+    limit = _POOL_SIZE + (_POOL_EXTRA if read_fallback else 0)
+    frist = lock_timeout if lock_timeout is not None else _LOCK_TIMEOUT
 
-    # Ist die (eine) Konto-Verbindung gerade belegt (z. B. langsamer Gmail-Hintergrund-
-    # Sync)? Bei einem LESEzugriff (read_fallback, z. B. Mail öffnen) NICHT bis zu
-    # _LOCK_TIMEOUT warten und dann 503 — das fühlte sich als „Konto beschäftigt / lädt
-    # ewig" an —, sondern SOFORT eine frische Kurzverbindung öffnen (Pool umgehen,
-    # danach schließen). So bleibt die Oberfläche flüssig, auch während im Hintergrund
-    # synchronisiert wird. Für schreibende/serialisierungspflichtige Operationen bleibt
-    # es beim serialisierten Pool-Lock.
-    if read_fallback:
-        if not entry.lock.acquire(blocking=False):
-            # Pool belegt → BEGRENZTE frische Kurzverbindung (Semaphore gegen "too many
-            # connections"). Ist auch das Kontingent erschöpft, doch auf den Pool-Lock
-            # warten (bis _LOCK_TIMEOUT, dann 503) statt endlos neue Verbindungen zu öffnen.
-            if entry.fallback_sem.acquire(blocking=False):
-                box = _connect(account, login, password, folder)
-                try:
-                    yield box
-                finally:
-                    _close(box)
-                    entry.fallback_sem.release()
-                return
-            _wait0 = time.monotonic()
-            if not entry.lock.acquire(timeout=(lock_timeout if lock_timeout is not None else _LOCK_TIMEOUT)):
-                _log_busy(account, op, folder, entry, time.monotonic() - _wait0)
-                raise ImapBusyError()
-            _log_wait(account, op, folder, time.monotonic() - _wait0)
-    else:
-        _wait0 = time.monotonic()
-        if not entry.lock.acquire(timeout=(lock_timeout if lock_timeout is not None else _LOCK_TIMEOUT)):
-            _log_busy(account, op, folder, entry, time.monotonic() - _wait0)
+    wait0 = time.monotonic()
+    conn = _greife_zu(key, folder, limit)
+    while conn is None:
+        if time.monotonic() - wait0 >= frist:
+            with _POOL_LOCK:
+                belegte = list(_POOL.get(key, ()))
+            _log_busy(account, op, folder, belegte, time.monotonic() - wait0)
             raise ImapBusyError()
-        _log_wait(account, op, folder, time.monotonic() - _wait0)
-    entry.holder = (op, folder, time.monotonic())
+        time.sleep(_WAIT_TICK)
+        conn = _greife_zu(key, folder, limit)
+    _log_wait(account, op, folder, time.monotonic() - wait0)
+
+    conn.holder = (op, folder, time.monotonic())
     try:
-        # _ensure_box MUSS im try stehen: scheitert es, nachdem entry.box gesetzt
+        # _ensure_box MUSS im try stehen: scheitert es, nachdem conn.box gesetzt
         # wurde (z. B. folder.set wirft), liefe sonst kein Cleanup.
-        box = _ensure_box(entry, account, login, password, folder)
+        box = _ensure_box(conn, account, login, password, folder)
         yield box
-        entry.last_used = time.monotonic()
+        conn.last_used = time.monotonic()
     except Exception:
-        # Verbindung könnte nach einem Fehler in unklarem Zustand sein -> verwerfen.
-        _close(entry.box)
-        entry.box = None
-        entry.folder = None
+        # Verbindung koennte nach einem Fehler in unklarem Zustand sein -> verwerfen.
+        _close(conn.box)
+        conn.box = None
+        conn.folder = None
         raise
     finally:
-        entry.holder = None
-        entry.lock.release()
+        conn.holder = None
+        conn.lock.release()
         _reap_idle()
 
 
