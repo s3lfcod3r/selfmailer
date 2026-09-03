@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import re
 from html import unescape
 import threading
@@ -93,6 +94,16 @@ _POOL_SIZE = max(1, int(os.getenv("SELFMAILER_IMAP_POOL_SIZE", "3") or 3))
 # 3+2 bleibt mit Abstand darunter.
 _POOL_EXTRA = max(0, int(os.getenv("SELFMAILER_IMAP_POOL_EXTRA", "2") or 2))
 # Takt, in dem auf eine frei werdende Verbindung geprueft wird.
+# Ordnerzaehler parallel: wie viele Verbindungen sich das Zaehlen teilen duerfen
+# (inklusive der des Aufrufers). Am 03.09.2026 gemessen: die Live-Zaehler eines
+# Gmail-Kontos brauchten 18,7 s - laenger als der komplette Sync -, weil je Ordner
+# EIN STATUS nacheinander lief. Solange es nur eine Verbindung je Konto gab, war
+# das gar nicht anders moeglich.
+_COUNT_WORKERS = max(1, int(os.getenv("SELFMAILER_COUNT_WORKERS", "3") or 3))
+# Helfer sind Zugabe, kein Muss: bekommen sie nicht schnell eine Verbindung,
+# zaehlt der Aufrufer allein weiter - langsamer, aber nie unvollstaendig.
+_COUNT_HELPER_WAIT = 2.0
+
 _WAIT_TICK = 0.05
 
 _POOL: dict[str, list["_Conn"]] = {}
@@ -435,17 +446,68 @@ def list_uids(account: MailAccount, password: str, folder: str = "INBOX") -> lis
         return list(reversed([u for u in box.uids() if u]))
 
 
-def folder_counts(account: MailAccount, password: str) -> list[dict]:
-    """Wie list_folders, aber mit Ungelesen-/Gesamt-Zählern je Ordner (IMAP STATUS).
+def _status_of(box: MailBox, name: str, special: str) -> tuple[int, int]:
+    """(ungelesen, gesamt) eines Ordners - (0, 0), wenn STATUS scheitert.
 
-    Pro Ordner ein STATUS-Aufruf; bei sehr vielen Ordnern entsprechend langsamer.
-    Fehler bei einzelnen Ordnern werden geschluckt (Zähler dann 0).
+    KEIN teures STATUS fuer:
+     - Noselect-Container (Backslash-Flag) (z. B. Gmail "[Gmail]") - nicht selektierbar.
+     - virtuelle Gmail-Label-Ordner (Alle Nachrichten/Wichtig/Markiert): reine
+       Sichten auf schon gezaehlte Mails -> kein Badge noetig; ihr STATUS ist bei
+       Gmail zudem langsam/riesig. Ordner bleibt gelistet und ueber die Liste
+       selbst oeffenbar (dann Live-Load).
+    """
+    if special == "noselect" or special in _VIRTUAL_GMAIL_KINDS:
+        return 0, 0
+    try:
+        st = box.folder.status(name, ["MESSAGES", "UNSEEN"])
+        return int(st.get("UNSEEN", 0) or 0), int(st.get("MESSAGES", 0) or 0)
+    except Exception:  # noqa: BLE001 - einzelner STATUS darf scheitern
+        return 0, 0
+
+
+def _zaehl_ab(box: MailBox, aufgaben: "queue.Queue", ergebnis: dict, lock: threading.Lock) -> None:
+    """Ordner aus der Warteschlange zaehlen, bis sie leer ist."""
+    while True:
+        try:
+            name, special = aufgaben.get_nowait()
+        except queue.Empty:
+            return
+        werte = _status_of(box, name, special)
+        with lock:
+            ergebnis[name] = werte
+
+
+def _count_helfer(
+    account: MailAccount, password: str, aufgaben: "queue.Queue",
+    ergebnis: dict, lock: threading.Lock,
+) -> None:
+    """Helfer-Thread mit EIGENER Verbindung aus dem Pool.
+
+    Bekommt er innerhalb von _COUNT_HELPER_WAIT keine, gibt er auf - der
+    Aufrufer zaehlt dann eben alles selbst. Ein Helfer darf nie dazu fuehren,
+    dass ein Zaehler fehlt.
+    """
+    try:
+        with _mailbox(
+            account, password, read_fallback=True,
+            lock_timeout=_COUNT_HELPER_WAIT, op="folder_counts-helfer",
+        ) as box:
+            _zaehl_ab(box, aufgaben, ergebnis, lock)
+    except Exception:  # noqa: BLE001 - keine Verbindung frei / Verbindung tot
+        return
+
+
+def folder_counts(account: MailAccount, password: str) -> list[dict]:
+    """Wie list_folders, aber mit Ungelesen-/Gesamt-Zaehlern je Ordner (IMAP STATUS).
+
+    Pro Ordner ein STATUS - die verteilen sich auf bis zu _COUNT_WORKERS
+    Verbindungen des Kontos. Der Aufrufer zaehlt auf seiner eigenen immer mit,
+    damit die Liste auch dann vollstaendig wird, wenn kein Helfer zum Zug kommt.
     """
     seen: dict[str, None] = {}
-    # Flags je Ordnername für die SPECIAL-USE-Erkennung. Beim Dedup die ZUERST
-    # gesehenen Flags behalten (spätere LIST-Varianten überschreiben nicht).
+    # Flags je Ordnername fuer die SPECIAL-USE-Erkennung. Beim Dedup die ZUERST
+    # gesehenen Flags behalten (spaetere LIST-Varianten ueberschreiben nicht).
     flags_by_name: dict[str, tuple] = {}
-    out: list[dict] = []
     with _mailbox(account, password, read_fallback=True, op="folder_counts") as box:
         attempts = [
             lambda: box.folder.list("", "*"),
@@ -463,26 +525,49 @@ def folder_counts(account: MailAccount, password: str) -> list[dict]:
                 continue
         names = list(seen) or ["INBOX"]
         names.sort(key=lambda n: (n.upper() != "INBOX", n.lower()))
-        for name in names:
-            flags = flags_by_name.get(name, ())
-            special = _folder_special(name, flags)
-            unseen = total = 0
-            # KEIN teures STATUS für:
-            #  - \Noselect-Container (z. B. Gmail "[Gmail]") — nicht selektierbar.
-            #  - virtuelle Gmail-Label-Ordner (Alle Nachrichten/Wichtig/Markiert): reine
-            #    Sichten auf schon gezählte Mails → kein Badge nötig; ihr STATUS ist bei
-            #    Gmail zudem langsam/riesig und hielt die (eine) Konto-Verbindung lange
-            #    besetzt → Mail-Öffnen wurde träge ("Konto beschäftigt"). Ordner bleibt
-            #    gelistet und über die Liste selbst öffenbar (dann Live-Load).
-            if special != "noselect" and special not in _VIRTUAL_GMAIL_KINDS:
-                try:
-                    st = box.folder.status(name, ["MESSAGES", "UNSEEN"])
-                    total = int(st.get("MESSAGES", 0) or 0)
-                    unseen = int(st.get("UNSEEN", 0) or 0)
-                except Exception:  # noqa: BLE001 - einzelner STATUS darf scheitern
-                    pass
-            out.append({"name": name, "unseen": unseen, "total": total, "special": special})
-    return out
+        specials = {n: _folder_special(n, flags_by_name.get(n, ())) for n in names}
+
+        aufgaben: queue.Queue = queue.Queue()
+        for n in names:
+            aufgaben.put((n, specials[n]))
+        ergebnis: dict[str, tuple[int, int]] = {}
+        lock = threading.Lock()
+
+        # Nur so viele Helfer, wie es ueberhaupt teure STATUS-Aufrufe gibt.
+        teuer = sum(
+            1 for n in names
+            if specials[n] != "noselect" and specials[n] not in _VIRTUAL_GMAIL_KINDS
+        )
+        anzahl = 0
+        if _POOL_ENABLED and account.id is not None:
+            anzahl = max(0, min(_COUNT_WORKERS - 1, teuer - 1))
+        helfer = [
+            threading.Thread(
+                target=_count_helfer,
+                args=(account, password, aufgaben, ergebnis, lock),
+                daemon=True,
+            )
+            for _ in range(anzahl)
+        ]
+        for t in helfer:
+            t.start()
+
+        _zaehl_ab(box, aufgaben, ergebnis, lock)
+        for t in helfer:
+            t.join(timeout=_LOCK_TIMEOUT)
+
+        # Was ein haengender Helfer liegen liess, holt der Aufrufer nach: ein
+        # fehlender Zaehler waere ein falsches Badge, kein leeres.
+        for n in names:
+            if n not in ergebnis:
+                ergebnis[n] = _status_of(box, n, specials[n])
+
+    with lock:
+        werte = dict(ergebnis)
+    return [
+        {"name": n, "unseen": werte[n][0], "total": werte[n][1], "special": specials[n]}
+        for n in names
+    ]
 
 
 def inbox_unseen(account: MailAccount, password: str, folder: str = "INBOX") -> int:
