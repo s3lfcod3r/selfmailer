@@ -88,6 +88,37 @@ def _sticky_aktiv(row: CachedMessage, jetzt: dt.datetime | None = None) -> bool:
     return (jetzt - gesetzt).total_seconds() < _STICKY_SECS
 
 
+# Wie lange ein Loesch-Tombstone eine Mail ausblendet, obwohl der Server sie
+# noch listet.
+#
+# Zweck ist ein kurzes Nachwehen: ein flatternder Server (web.de) liefert eine
+# gerade geloeschte Mail noch ein paar Syncs lang mit, und ohne den Tombstone
+# taeuchte sie in der Liste wieder auf. Nach _MISS_LIMIT (5) Syncs ohne
+# Server-Treffer fliegt die Zeile ohnehin ganz raus.
+#
+# Ohne Ablauf ist der Tombstone aber eine Falle: liefert der Server die Mail
+# DAUERHAFT weiter (weil die Loeschung gar nicht durchging), raeumt miss_count
+# nie auf - er zaehlt ja nur, wenn die UID fehlt. Genau so lag am 03.09.2026
+# uid 2445 unsichtbar im Posteingang eines Gmail-Kontos: Server 104 Mails,
+# Liste 103, die Mail selbst per /messages/<uid> problemlos abrufbar.
+_HIDDEN_SECS = 600.0
+
+
+def _tombstone_aktiv(row: CachedMessage, jetzt: dt.datetime | None = None) -> bool:
+    """Blendet dieser Tombstone die Mail noch aus?
+
+    Ohne Zeitstempel gilt er als abgelaufen - damit taucht der Altbestand beim
+    naechsten Sync von selbst wieder auf, ohne Daten-Reparatur.
+    """
+    if not row.hidden:
+        return False
+    gesetzt = _as_utc(row.hidden_at)
+    if gesetzt is None:
+        return False
+    jetzt = jetzt or dt.datetime.now(dt.timezone.utc)
+    return (jetzt - gesetzt).total_seconds() < _HIDDEN_SECS
+
+
 def _flag_intervall(account_id: int, folder: str) -> float:
     """Wie lange muss seit dem letzten Flag-Abgleich vergangen sein?"""
     letzte = _flag_cost.get((account_id, folder))
@@ -683,8 +714,10 @@ def hide_uids(session: Session, account_id: int, folder: str, uids: list[str]) -
             CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid.in_(uids)
         )
     ).all()
+    jetzt = dt.datetime.now(dt.timezone.utc)
     for r in rows:
         r.hidden = True
+        r.hidden_at = jetzt
         session.add(r)
     session.commit()
 
@@ -745,10 +778,19 @@ def sync_folder(
         # Verschwundene NICHT sofort löschen — erst nach _MISS_LIMIT Syncs in Folge
         # ohne Treffer (Härtung gegen flatternde Server). Wieder aufgetauchte Mails
         # setzen den Zähler zurück.
+        _jetzt = dt.datetime.now(dt.timezone.utc)
         for uid, row in list(cached_by_uid.items()):
             if uid in server_set:
                 if row.miss_count:
                     row.miss_count = 0
+                    session.add(row)
+                # Der Server listet die Mail weiterhin und der Tombstone ist
+                # abgelaufen: die Loeschung ist offensichtlich nicht durchgegangen.
+                # Dann gehoert die Mail zurueck in die Liste - sonst bliebe sie
+                # fuer immer unsichtbar (uid 2445, 03.09.2026).
+                if row.hidden and reliable and not _tombstone_aktiv(row, _jetzt):
+                    row.hidden = False
+                    row.hidden_at = None
                     session.add(row)
             elif reliable:
                 row.miss_count = (row.miss_count or 0) + 1
