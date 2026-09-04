@@ -8,6 +8,7 @@ fällt der Aufrufer auf den Live-Abruf zurück.
 from __future__ import annotations
 
 import logging
+import os
 import time
 import datetime as dt
 import json
@@ -141,6 +142,16 @@ def _flag_intervall(account_id: int, folder: str) -> float:
 # Deshalb: der schnelle Weg bleibt der Normalfall, aber alle 15 Minuten laeuft
 # zusaetzlich der volle Abgleich. Auf dem langsamsten Konto kostet der ~1,4 s.
 _FLAG_FULL_SECS = 900.0
+
+# ROLLBACK am 03.09.2026 abends: der ordnerweite SEARCH-Abgleich ist per Default
+# AUS. Er war fachlich richtig (er schloss den blinden Fleck bei alten Mails),
+# hat aber im Betrieb eine Anzeige erzeugt, die der Nutzer zu Recht als kaputt
+# empfand: der Zaehler meldete ungelesene Mails, die in der Liste nicht
+# auftauchten. Vorrang hat, dass Zahl und Liste zueinander passen.
+#
+# Der Code bleibt samt Tests stehen, damit die Untersuchung morgen ohne
+# Wiederaufbau weitergehen kann: SELFMAILER_FLAG_SEARCH=1 schaltet ihn an.
+_FLAG_SEARCH_ENABLED = os.getenv("SELFMAILER_FLAG_SEARCH", "0").strip().lower() in {"1", "true", "yes"}
 # (account_id, folder) -> monotonic-Zeit des letzten VOLLEN Abgleichs.
 # Wie _flag_cost bewusst nur im Speicher: nach einem Neustart einmal voll zu
 # lesen ist billiger als ein DB-Feld samt Migration - und heilt Drift sogar
@@ -891,7 +902,7 @@ def sync_folder(
         # Flags aelterer Mails nach dem ersten Einlesen nie wieder aufgefrischt
         # (web.de, 03.09.2026: Server meldete 53 ungelesen, der Cache kannte 8).
         _flag_such_n = None
-        if do_flags and reliable:
+        if _FLAG_SEARCH_ENABLED and do_flags and reliable:
             mengen = imap_mod.flag_mengen(box)
             if mengen is not None:
                 ungelesen_uids, markiert_uids = mengen
