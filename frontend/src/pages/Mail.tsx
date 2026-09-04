@@ -1693,10 +1693,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     .filter((m) => ftResults !== null || !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
     .filter((m) => !filter?.from || m.from.toLowerCase().includes(filter.from.toLowerCase()))
     .filter((m) => !filter?.subject || m.subject.toLowerCase().includes(filter.subject.toLowerCase()))
-    // Nur noch fuer die Volltext-Trefferliste noetig: die kommt von /search und
-    // kennt den Ungelesen-Filter nicht. Fuer die normale Liste hat der Server
-    // bereits gefiltert, hier ist es dann wirkungslos.
-    .filter((m) => !filter?.unread || !m.seen)
+    // NUR fuer die Volltext-Trefferliste: die kommt von /search und kennt den
+    // Ungelesen-Filter nicht. Fuer die normale Liste hat der Server schon
+    // gefiltert -- und hier zusaetzlich zu filtern waere nicht etwa wirkungslos,
+    // sondern schaedlich: beim Oeffnen setzt die Oberflaeche sofort seen=true,
+    // die Zeile passt dann nicht mehr und verschwindet einem unter den Fingern.
+    // Genau das ist am 04.09.2026 passiert ("teilweise wieder verschwunden").
+    // Eine Mail, die man gerade liest, bleibt stehen, bis die Liste neu laedt.
+    .filter((m) => ftResults === null || !filter?.unread || !m.seen)
     .filter((m) => !filter?.starred || m.flagged)
     .filter((m) => !filter?.attachments || m.has_attachments)
     .filter((m) => !labelFilter || (m.labels ?? []).includes(labelFilter))
