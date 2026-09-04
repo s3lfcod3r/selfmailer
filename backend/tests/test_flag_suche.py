@@ -117,3 +117,29 @@ def test_kopfzeilen_abgleich_bleibt_erhalten():
     quelle = inspect.getsource(cache_mod.sync_folder)
     assert "_FLAG_WINDOW" in quelle, "der Kopfzeilen-Abgleich ist verschwunden"
     assert "row.keywords = " in quelle, "Schlagworte werden nicht mehr gepflegt"
+
+
+def test_search_abgleich_ist_per_default_aus():
+    """ROLLBACK vom 03.09.2026 abends -- festgehalten, damit er nicht aus Versehen kippt.
+
+    Der ordnerweite Abgleich war fachlich richtig, hat aber im Betrieb eine
+    Anzeige erzeugt, die der Nutzer zu Recht als kaputt empfand: der Zaehler
+    meldete ungelesene Mails, die in der Liste nicht auftauchten. Bis das
+    geklaert ist, gilt: Zahl und Liste muessen zueinander passen, auch wenn die
+    Zahl dadurch alte Aenderungen verpasst.
+
+    Wer ihn wieder anschaltet, muss diesen Test bewusst anfassen -- und dabei
+    ueber die Konsequenz stolpern.
+    """
+    assert cache_mod._FLAG_SEARCH_ENABLED is False, (
+        "der ordnerweite SEARCH-Abgleich ist wieder per Default an"
+    )
+
+
+def test_schalter_ist_ueber_env_wieder_einschaltbar():
+    """Der Code bleibt stehen, damit die Untersuchung ohne Wiederaufbau weitergeht."""
+    quelle = inspect.getsource(cache_mod)
+    assert "SELFMAILER_FLAG_SEARCH" in quelle, "kein Weg mehr, ihn einzuschalten"
+    assert "_FLAG_SEARCH_ENABLED and do_flags" in quelle, (
+        "der Schalter haengt nicht mehr vor dem SEARCH-Abgleich"
+    )
