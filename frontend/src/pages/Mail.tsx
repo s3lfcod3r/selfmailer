@@ -777,8 +777,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Sortier-Zusatz für alle Listenabrufe: markierte Mails oben anheften.
   // Serverseitig, damit es auch über Seitengrenzen hinweg gilt.
   const pinParam = pinFlagged ? "&pin_flagged=1" : "";
+  // "Ungelesen" filtert der SERVER, nicht der Browser. Vorher siebte der Filter
+  // unten nur die geladene Seite (PAGE_SIZE = 50) — bei einem Postfach mit 965
+  // Mails und 34 ungelesenen weiter hinten zeigte er deshalb NICHTS an, obwohl
+  // der Zaehler daneben 34 meldete (03.09.2026, web.de). Stern und Label laufen
+  // aus genau demselben Grund serverseitig.
+  const unreadParam = filter?.unread ? "&unread=1" : "";
   function fetchPage(acc: number, fol: string, p: number) {
-    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${PAGE_SIZE}&offset=${(p - 1) * PAGE_SIZE}${pinParam}`);
+    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${PAGE_SIZE}&offset=${(p - 1) * PAGE_SIZE}${pinParam}${unreadParam}`);
   }
   // Holt den ganzen Ordner (bis Cache-Tiefe) für Suche ODER Label-Filter — von
   // loadAllForSearch und von bgSync genutzt, damit beide dieselbe Menge liefern.
@@ -787,7 +793,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function fetchAllForSearch(acc: number, fol: string) {
     const lf = labelFilterRef.current;
     const lbl = lf ? `&label=${encodeURIComponent(lf)}` : "";
-    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${SEARCH_LIMIT}${pinParam}${lbl}`);
+    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${SEARCH_LIMIT}${pinParam}${lbl}${unreadParam}`);
   }
   // Ordnerwechsel/Neuladen: immer auf Seite 1, Auswahl zurücksetzen.
   function reload() {
@@ -911,7 +917,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     // weil dabei Mails von anderen Seiten nach vorn rutschen können).
     // labelFilter mit in den Deps: an/aus lädt die (gefilterte) Ganzliste bzw. Seite 1.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sel?.acc, sel?.folder, searchActive, pinFlagged, labelFilter]);
+    // filter?.unread mit in den Deps: der Filter laeuft serverseitig, an/aus muss
+    // also Seite 1 neu holen — sonst bliebe die alte, ungefilterte Liste stehen.
+  }, [sel?.acc, sel?.folder, searchActive, pinFlagged, labelFilter, filter?.unread]);
 
   // Speicherbelegung (Quota) des aktiven Kontos laden — nur Anzeige, nie blockierend.
   // Ist die Anzeige in den Einstellungen aus, wird gar nicht erst abgefragt.
@@ -1685,6 +1693,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     .filter((m) => ftResults !== null || !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
     .filter((m) => !filter?.from || m.from.toLowerCase().includes(filter.from.toLowerCase()))
     .filter((m) => !filter?.subject || m.subject.toLowerCase().includes(filter.subject.toLowerCase()))
+    // Nur noch fuer die Volltext-Trefferliste noetig: die kommt von /search und
+    // kennt den Ungelesen-Filter nicht. Fuer die normale Liste hat der Server
+    // bereits gefiltert, hier ist es dann wirkungslos.
     .filter((m) => !filter?.unread || !m.seen)
     .filter((m) => !filter?.starred || m.flagged)
     .filter((m) => !filter?.attachments || m.has_attachments)
@@ -1828,7 +1839,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   );
 
   // Gesamtzahl/Seitenzahl des aktiven Ordners aus den Zählern (IMAP STATUS).
-  const folderTotal = (foldersByAcc[activeId ?? -1] || []).find((f) => f.name === folder)?.total ?? 0;
+  const folderEntry = (foldersByAcc[activeId ?? -1] || []).find((f) => f.name === folder);
+  // Bei aktivem Ungelesen-Filter bestimmt die Ungelesen-Zahl die Seitenzahl —
+  // sonst blaetterte man durch leere Seiten, weil der Server ja schon filtert.
+  const folderTotal = (filter?.unread ? folderEntry?.unseen : folderEntry?.total) ?? 0;
   const totalPages = Math.max(1, Math.ceil(folderTotal / PAGE_SIZE));
   const allSelected = visible.length > 0 && visible.every((m) => selected.has(m.uid));
   function toggleSelectAll() {

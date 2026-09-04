@@ -387,6 +387,7 @@ def messages(
     offset: int = Query(default=0, ge=0),
     pin_flagged: bool = Query(default=False),
     label: str = Query(default="", max_length=64),
+    unread: bool = Query(default=False),
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[dict]:
@@ -411,12 +412,17 @@ def messages(
             cache_mod.sync_folder(session, acc, pw, folder, cap=_FIRST_SYNC_CAP)
             _fill_folder_async(account_id, pw, folder, max(limit, 50), user.id)
         msgs = cache_mod.read_messages(
-            session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged, keyword=kw
+            session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged,
+            keyword=kw, unread=unread,
         )
         # Self-heal: 1. Seite leer, obwohl der Ordner Mails hat (z. B. nach dem
         # Löschen der einzigen gecachten Seite) -> live nachsyncen und erneut lesen.
         # Nur OHNE Label-Filter — ein leeres Label-Ergebnis ist ein legitimer Zustand.
-        if not msgs and offset == 0 and not kw:
+        # "unread" wie "kw" ausnehmen: ein leeres Ergebnis ist hier ein voellig
+        # legitimer Zustand (nichts ungelesen). Ohne diese Ausnahme wuerde die
+        # Selbstheilung live nachladen und am Ende die UNGEFILTERTE Liste liefern —
+        # der Nutzer saehe beim Filter "ungelesen" also alle Mails.
+        if not msgs and offset == 0 and not kw and not unread:
             cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
             msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged)
             if not msgs:
@@ -428,9 +434,12 @@ def messages(
             # NICHT still schlucken: sonst sieht ein echter Cache-Bug aus wie „kein Treffer".
             logger.warning("Label-Filter fehlgeschlagen (account_id=%s, folder=%s)", account_id, folder, exc_info=True)
             return []
-        return _pin_flagged_first(
-            imap_mod.list_messages(acc, _account_secret(acc), folder=folder, limit=limit, offset=offset), pin_flagged
-        )
+        live = imap_mod.list_messages(acc, _account_secret(acc), folder=folder, limit=limit, offset=offset)
+        if unread:
+            # Auch der Notfall-Weg muss den Filter einhalten, sonst kippt er bei
+            # einem Cache-Fehler unbemerkt in "alle Mails anzeigen".
+            live = [m for m in live if not m.get("seen")]
+        return _pin_flagged_first(live, pin_flagged)
 
 
 @router.get("/{account_id}/counterparts")

@@ -238,7 +238,7 @@ def has_cache(session: Session, account_id: int, folder: str) -> bool:
 
 def read_messages(
     session: Session, account_id: int, folder: str, limit: int = 50, offset: int = 0,
-    *, pin_flagged: bool = False, keyword: str = "",
+    *, pin_flagged: bool = False, keyword: str = "", unread: bool = False,
 ) -> list[dict]:
     """Kopfzeilen eines Ordners, neueste zuerst.
 
@@ -247,7 +247,12 @@ def read_messages(
     auf Seite 1. Eine Frontend-Sortierung könnte immer nur die geladene Seite
     umsortieren.
     ``keyword``: nur Mails mit diesem Label (IMAP-Keyword) — über den GANZEN Ordner-
-    Cache (alle Seiten), damit der Label-Filter nicht nur die geladene Seite trifft."""
+    Cache (alle Seiten), damit der Label-Filter nicht nur die geladene Seite trifft.
+    ``unread``: nur ungelesene — aus demselben Grund SERVERSEITIG. Bis 1.90.0 hat das
+    Frontend dafür die geladene Seite (50 Zeilen) durchsucht. Am 03.09.2026 fiel auf,
+    was das anrichtet: web.de meldete 34 ungelesene Mails im Posteingang, der Filter
+    "ungelesen" zeigte NICHTS — die 34 lagen unter 965 Mails weiter hinten, also
+    außerhalb der geladenen Seite. Der Zähler war richtig, nur unerreichbar."""
     order = [CachedMessage.sort_date.desc(), CachedMessage.id.desc()]
     if pin_flagged:
         order.insert(0, CachedMessage.flagged.desc())
@@ -258,6 +263,8 @@ def read_messages(
             CachedMessage.hidden == False,  # noqa: E712 - ausgeblendete (gelöschte) nicht zeigen
         )
     )
+    if unread:
+        stmt = stmt.where(CachedMessage.seen == False)  # noqa: E712
     if keyword:
         # Wort-genau gegen die leerzeichen-getrennten Keywords matchen (kein Teilstring:
         # "Shelly" darf nicht "ShellyPro" treffen) → mit Leerzeichen umrahmt vergleichen.
