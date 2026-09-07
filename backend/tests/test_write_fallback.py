@@ -50,7 +50,7 @@ def test_sync_weicht_bewusst_NICHT_aus():
     assert "read_fallback" in quelle, "Der Ausweich-Mechanismus fehlt"
 
     from app.mail import cache as cache_mod
-    sync_quelle = inspect.getsource(cache_mod.sync_folder)
+    sync_quelle = inspect.getsource(cache_mod._sync_folder_unlocked)
     assert "read_fallback=True" not in sync_quelle, (
         "sync_folder darf NICHT ausweichen - sonst laufen zwei Syncs parallel"
     )
