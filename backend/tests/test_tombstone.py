@@ -72,7 +72,7 @@ def test_sync_hebt_abgelaufenen_tombstone_auf():
     Steht die Aufhebung im falschen Zweig (bei den verschwundenen Mails), waere
     sie wirkungslos - und der Fehler bliebe unbemerkt bestehen.
     """
-    quelle = inspect.getsource(cache_mod.sync_folder)
+    quelle = inspect.getsource(cache_mod._sync_folder_unlocked)
     assert "_tombstone_aktiv(" in quelle, "der Ablauf wird im Sync gar nicht geprueft"
 
     # Die Aufhebung muss VOR dem elif-Zweig stehen, also im "uid in server_set"-Fall.
@@ -86,7 +86,7 @@ def test_aufhebung_nur_bei_vertrauenswuerdiger_serversicht():
     """Bei einer kaputten/partiellen Antwort (web.de-Cluster) nichts anfassen -
     sonst kaeme eine geloeschte Mail ausgerechnet dann zurueck, wenn der Server
     gerade unzuverlaessig ist."""
-    quelle = inspect.getsource(cache_mod.sync_folder)
+    quelle = inspect.getsource(cache_mod._sync_folder_unlocked)
     zeile = [z for z in quelle.splitlines() if "_tombstone_aktiv(" in z]
     assert zeile, "Aufruf nicht gefunden"
     assert "reliable" in zeile[0], "die Aufhebung prueft die Server-Sicht nicht"
