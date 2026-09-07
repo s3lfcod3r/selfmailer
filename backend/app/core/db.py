@@ -1,6 +1,7 @@
 """SQLite-Engine und Session-Handling."""
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterator
 
@@ -8,6 +9,8 @@ from sqlalchemy import event, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from .config import get_settings
+
+logger = logging.getLogger(__name__)
 
 _settings = get_settings()
 _db_path = _settings.db_path
@@ -166,9 +169,10 @@ _INDEXES: list[str] = [
     # Listenanzeige + recent_unseen: WHERE account_id, folder ORDER BY sort_date DESC
     "CREATE INDEX IF NOT EXISTS ix_cm_acc_folder_sort "
     "ON cachedmessage (account_id, folder, sort_date DESC)",
-    # Einzelmail (Detail/Flags/Löschen): WHERE account_id, folder, uid
-    "CREATE INDEX IF NOT EXISTS ix_cm_acc_folder_uid "
-    "ON cachedmessage (account_id, folder, uid)",
+    # Einzelmail (Detail/Flags/Löschen): WHERE account_id, folder, uid — deckt der
+    # UNIQUE-Index ux_cm_acc_folder_uid ab (in _run_one_time_backfills v2 angelegt,
+    # NACH dem einmaligen Entdoppeln; ein UNIQUE-Index auf noch doppelten Alt-Zeilen
+    # würde beim Anlegen scheitern). Darum hier bewusst KEIN separater Index mehr.
     # Cross-Folder-Gelesen-Propagation (Gmail-Kopien) + Dublettencheck: WHERE account_id, message_id.
     # Läuft bei JEDEM Gelesen-Markieren → ohne Index Full-Scan über alle gecachten Zeilen.
     "CREATE INDEX IF NOT EXISTS ix_cm_acc_mid "
@@ -199,6 +203,27 @@ def init_db() -> None:
     _run_one_time_backfills()
 
 
+# v2-Backfill: doppelte Cache-Zeilen entfernen, dann UNIQUE-Index. Als Konstanten,
+# damit der Test genau dieselben Statements prüft wie der Startup-Pfad.
+# Behalten wird pro (account_id, folder, uid) die Zeile mit Nutzer-Zustand
+# (hidden/seen_sticky), sonst die kleinste id. Leere uid bleibt unangetastet
+# (dürfte es nicht geben, sync überspringt sie) — nie echte Mails kollabieren.
+_DEDUP_CACHE_SQL = (
+    "DELETE FROM cachedmessage WHERE uid != '' AND id NOT IN ("
+    "  SELECT keep_id FROM ("
+    "    SELECT id AS keep_id, ROW_NUMBER() OVER ("
+    "      PARTITION BY account_id, folder, uid "
+    "      ORDER BY (COALESCE(hidden,0) + COALESCE(seen_sticky,0)) DESC, id ASC"
+    "    ) AS rn FROM cachedmessage WHERE uid != ''"
+    "  ) WHERE rn = 1"
+    ")"
+)
+_UNIQUE_CM_INDEX_SQL = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_cm_acc_folder_uid "
+    "ON cachedmessage (account_id, folder, uid)"
+)
+
+
 def _run_one_time_backfills() -> None:
     """Einmalige Daten-Reparaturen, gesteuert über PRAGMA user_version (jeder Schritt
     läuft nur einmal pro DB)."""
@@ -211,9 +236,30 @@ def _run_one_time_backfills() -> None:
             with Session(engine) as s:
                 backfill_sort_dates(s)
         except Exception:  # noqa: BLE001 - Reparatur darf den Start nie blockieren
-            pass
+            logger.warning("Sortier-Datum-Backfill (v1) fehlgeschlagen", exc_info=True)
         with engine.begin() as conn:
             conn.execute(text("PRAGMA user_version = 1"))
+        ver = 1
+    if ver < 2:
+        # v2: Doppelte Cache-Zeilen entfernen und einen UNIQUE-Index auf
+        # (account_id, folder, uid) anlegen. Duplikate konnten vor dem Fix
+        # entstehen, wenn zwei Syncs denselben Ordner gleichzeitig abglichen
+        # (kein UNIQUE-Constraint, kein Upsert). Reihenfolge ist zwingend: ERST
+        # entdoppeln, DANN den UNIQUE-Index — auf noch doppelten Zeilen würde das
+        # CREATE UNIQUE INDEX scheitern. Beim Entdoppeln die Zeile behalten, die
+        # NUTZER-ZUSTAND trägt (hidden/seen_sticky), sonst die kleinste id — damit
+        # kein selbst gesetzter Gelesen-/Ausgeblendet-Status verloren geht. Zeilen
+        # mit leerer uid (dürfte es nicht geben, sync überspringt sie) bleiben
+        # unangetastet, um nie echte Mails zu kollabieren.
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(_DEDUP_CACHE_SQL))
+                conn.execute(text(_UNIQUE_CM_INDEX_SQL))
+                # Alt-Index (nicht-unique) ist durch den UNIQUE-Index abgelöst.
+                conn.execute(text("DROP INDEX IF EXISTS ix_cm_acc_folder_uid"))
+                conn.execute(text("PRAGMA user_version = 2"))
+        except Exception:  # noqa: BLE001 - Reparatur darf den Start nie blockieren
+            logger.warning("Cache-Entdoppelung/UNIQUE-Index (v2) fehlgeschlagen", exc_info=True)
 
 
 def get_session() -> Iterator[Session]:
