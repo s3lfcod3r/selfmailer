@@ -77,7 +77,7 @@ def test_sync_uebernimmt_nur_bei_passender_status_zahl():
     ganze Ordner still auf gelesen gesetzt -- also genau die Datenzerstoerung,
     gegen die der ganze Umbau von heute laeuft.
     """
-    quelle = inspect.getsource(cache_mod.sync_folder)
+    quelle = inspect.getsource(cache_mod._sync_folder_unlocked)
     assert "flag_mengen(" in quelle, "der SEARCH-Abgleich fehlt im Sync"
 
     # Die Uebernahme muss hinter einem Vergleich mit der STATUS-Zahl stehen.
@@ -98,7 +98,7 @@ def test_sync_deckt_alle_gecachten_mails_ab():
     Stuende dort wieder `server_uids[-_FLAG_WINDOW:]`, waere der web.de-Fehler
     zurueck -- ohne dass irgendetwas fehlschlaegt.
     """
-    quelle = inspect.getsource(cache_mod.sync_folder)
+    quelle = inspect.getsource(cache_mod._sync_folder_unlocked)
     block = quelle.split("flag_mengen(")[1].split("Kopfzeilen der neuesten")[0]
     assert "cached_by_uid.items()" in block, (
         "der SEARCH-Abgleich laeuft nicht ueber alle gecachten Mails"
@@ -114,7 +114,7 @@ def test_kopfzeilen_abgleich_bleibt_erhalten():
     Der Kopfzeilen-Abgleich der neuesten Mails darf also nicht wegfallen, nur
     weil die Flags jetzt woanders herkommen.
     """
-    quelle = inspect.getsource(cache_mod.sync_folder)
+    quelle = inspect.getsource(cache_mod._sync_folder_unlocked)
     assert "_FLAG_WINDOW" in quelle, "der Kopfzeilen-Abgleich ist verschwunden"
     assert "row.keywords = " in quelle, "Schlagworte werden nicht mehr gepflegt"
 

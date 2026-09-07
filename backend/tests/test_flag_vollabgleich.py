@@ -77,7 +77,7 @@ def test_condstore_schaltet_den_vollen_weg_nicht_mehr_dauerhaft_ab():
     bestehende Abweichung je korrigiert -- und der Fehler waere zurueck, ohne
     dass irgendetwas fehlschlaegt.
     """
-    quelle = inspect.getsource(cache_mod.sync_folder)
+    quelle = inspect.getsource(cache_mod._sync_folder_unlocked)
     assert "do_flags = False" not in quelle, (
         "CONDSTORE schaltet den vollen Abgleich wieder dauerhaft ab"
     )

@@ -757,6 +757,25 @@ def collect_thread(
             **thread_headers(msg),
         })
 
+    def collect_in(box: MailBox, fol: str) -> None:
+        """Sammelt die Betreff-Treffer des GERADE ausgewählten Ordners ``fol``.
+
+        Erwartet, dass ``box`` bereits auf ``fol`` selektiert ist — es wird hier
+        KEIN Ordnerwechsel gemacht (siehe Kommentar am Aufrufer)."""
+        uids = box.uids(AND(subject=base))
+        sel = uids[-per_folder:]
+        if not sel:
+            return
+        for m in box.fetch(AND(uid=",".join(sel)), mark_seen=False, bulk=True):
+            add(fol, m)
+
+    # Ausgangsordner: eine Session, in der wir NICHT den Ordner wechseln.
+    # (Früher schaltete diese Funktion per box.folder.set() nacheinander durch
+    # mehrere Ordner derselben Pool-Verbindung — die Verbindung landete danach mit
+    # einem conn.folder im Pool, das nicht dem real selektierten Ordner entsprach.
+    # Ein nachfolgender Zugriff bekam sie als "passend" ohne SELECT und arbeitete
+    # still im falschen Ordner. Deshalb jetzt je Ordner eine eigene kurze Session,
+    # genau wie search_messages.)
     with _mailbox(account, password, folder=folder, read_fallback=True, op="collect_thread") as box:
         target = None
         for m in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
@@ -768,23 +787,22 @@ def collect_thread(
         if not base:
             add(folder, target)  # ohne sinnvollen Betreff nur die eine Mail
             return out
-        sent = _sent_folder(box)
-        folders: list[str] = []
-        for f in (folder, sent, "INBOX"):
-            if f and f not in folders:
-                folders.append(f)
-        for fol in folders:
-            try:
-                box.folder.set(fol)
-                uids = box.uids(AND(subject=base))
-                sel = uids[-per_folder:]
-                if not sel:
-                    continue
-                for m in box.fetch(AND(uid=",".join(sel)), mark_seen=False, bulk=True):
-                    add(fol, m)
-            except Exception:  # noqa: BLE001 - einzelner Ordner darf die Sammlung nicht kippen
-                logger.warning("Thread-Suche in %r fehlgeschlagen (account_id=%s)", fol, account.id, exc_info=True)
-                continue
+        sent = _sent_folder(box)  # nur LIST, kein SELECT — Ordner bleibt folder
+        collect_in(box, folder)   # Ausgangsordner ist bereits selektiert
+
+    # Restliche Ordner je in EIGENER Session (kein Ordnerwechsel auf einer
+    # geteilten Pool-Verbindung).
+    rest: list[str] = []
+    for f in (sent, "INBOX"):
+        if f and f != folder and f not in rest:
+            rest.append(f)
+    for fol in rest:
+        try:
+            with _mailbox(account, password, folder=fol, read_fallback=True, op="collect_thread") as box:
+                collect_in(box, fol)
+        except Exception:  # noqa: BLE001 - einzelner Ordner darf die Sammlung nicht kippen
+            logger.warning("Thread-Suche in %r fehlgeschlagen (account_id=%s)", fol, account.id, exc_info=True)
+            continue
     return out
 
 

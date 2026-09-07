@@ -13,6 +13,7 @@ import time
 import datetime as dt
 import json
 import re
+import threading
 from email.utils import parsedate_to_datetime
 
 from imap_tools import AND
@@ -740,15 +741,59 @@ def hide_uids(session: Session, account_id: int, folder: str, uids: list[str]) -
     session.commit()
 
 
+# Eine Sperre je (account_id, folder), damit NIE zwei Syncs denselben Ordner
+# gleichzeitig abgleichen. Vorher konnten Scheduler und ein interaktiver
+# messages()-Aufruf (oder Web-Tab + App) parallel laufen: beide lasen denselben
+# Cache-Stand, bestimmten unabhaengig dieselben "neuen" UIDs und legten dieselbe
+# Mail DOPPELT an (kein UNIQUE-Constraint, kein Upsert). Der IMAP-Verbindungspool
+# (3+2 je Konto) macht diese Parallelitaet real. Verschiedene Ordner/Konten
+# blockieren sich NICHT gegenseitig (eigener Lock je Schluessel). sync_folder ruft
+# sich nicht selbst auf -> ein einfacher Lock genuegt (keine Reentranz noetig).
+_FOLDER_LOCKS: dict[tuple[int, str], threading.Lock] = {}
+_FOLDER_LOCKS_GUARD = threading.Lock()
+
+
+def _folder_lock(account_id: int, folder: str) -> threading.Lock:
+    key = (account_id, folder)
+    with _FOLDER_LOCKS_GUARD:
+        lock = _FOLDER_LOCKS.get(key)
+        if lock is None:
+            lock = _FOLDER_LOCKS[key] = threading.Lock()
+        return lock
+
+
 def sync_folder(
     session: Session, account: MailAccount, password: str, folder: str,
     cap: int = _SYNC_CAP, *, store_bodies: bool = True, lock_timeout: float | None = None, op: str = "sync",
 ) -> dict:
     """Gleicht den Cache eines Ordners mit dem Server ab (Delta-Sync).
 
+    Serialisiert ueber eine Sperre je (Konto, Ordner) gegen parallele Doppel-Syncs
+    desselben Ordners (sonst Duplikate im Cache, siehe _folder_lock). Die eigentliche
+    Arbeit steckt in ``_sync_folder_unlocked``.
+
     ``store_bodies``: den beim Fetch ohnehin geladenen Volltext gleich als
     ``detail_json`` mit ablegen (siehe _DETAIL_CACHE_MAX). Standard an — nur
     abschalten, wenn bewusst nur Kopfzeilen gepflegt werden sollen."""
+    if account.id is None:
+        # Ohne Konto-id gibt es keinen sinnvollen Sperr-Schluessel (und keinen Cache
+        # zum Schuetzen) -> direkt durchreichen.
+        return _sync_folder_unlocked(
+            session, account, password, folder, cap,
+            store_bodies=store_bodies, lock_timeout=lock_timeout, op=op,
+        )
+    with _folder_lock(account.id, folder):
+        return _sync_folder_unlocked(
+            session, account, password, folder, cap,
+            store_bodies=store_bodies, lock_timeout=lock_timeout, op=op,
+        )
+
+
+def _sync_folder_unlocked(
+    session: Session, account: MailAccount, password: str, folder: str,
+    cap: int = _SYNC_CAP, *, store_bodies: bool = True, lock_timeout: float | None = None, op: str = "sync",
+) -> dict:
+    """Kernlogik von sync_folder. NUR unter der (Konto, Ordner)-Sperre aufrufen."""
     fetch_uids: list[str] = []
     _t0 = time.monotonic()
     with _mailbox(account, password, folder=folder,

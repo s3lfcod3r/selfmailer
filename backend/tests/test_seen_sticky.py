@@ -78,7 +78,7 @@ def test_jeder_abgleich_weg_respektiert_den_ablauf():
     Gezaehlt wird gegen die Zuweisungen selbst, nicht gegen eine feste Zahl:
     kommt ein vierter Weg dazu, faellt der Test auf, statt stillzuhalten.
     """
-    quelle = inspect.getsource(cache_mod.sync_folder)
+    quelle = inspect.getsource(cache_mod._sync_folder_unlocked)
     zuweisungen = quelle.count("row.seen = ")
     assert zuweisungen >= 3, "es gibt weniger Uebernahme-Stellen als erwartet"
     assert quelle.count("_sticky_aktiv(") == zuweisungen, (
