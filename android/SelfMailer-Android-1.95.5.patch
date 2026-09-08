@@ -1,0 +1,264 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -27,8 +27,8 @@ android {
+         targetSdk = 34
+         // versionCode MUSS bei jedem Release steigen, sonst lehnt Android die APK
+         // als Update ab (und der SelfStore bietet sie nicht an).
+-        versionCode = 104
+-        versionName = "1.95.1"
++        versionCode = 105
++        versionName = "1.95.5"
+     }
+     signingConfigs {
+         // Debug-Keystore (Passwort "android" ist Android-Standard, kein Secret).
+diff --git a/app/src/main/java/com/selfmailer/app/Api.kt b/app/src/main/java/com/selfmailer/app/Api.kt
+--- a/app/src/main/java/com/selfmailer/app/Api.kt
++++ b/app/src/main/java/com/selfmailer/app/Api.kt
+@@ -131,10 +131,13 @@ class Api(private val baseUrl: String) {
+                 (if (label.isNotEmpty()) "&label=${enc(label)}" else ""), null))
+             .toHeaders()
+
+-    fun sync(accountId: Int, folder: String) {
+-        try { req("POST", "/api/v1/mail/$accountId/sync?folder=${enc(folder)}", null) }
++    fun sync(accountId: Int, folder: String): SyncOutcome {
++        return try {
++            val result = JSONObject(req("POST", "/api/v1/mail/$accountId/sync?folder=${enc(folder)}", null))
++            if (result.optBoolean("busy", false)) SyncOutcome.BUSY else SyncOutcome.SUCCESS
++        }
+         catch (e: kotlinx.coroutines.CancellationException) { throw e }
+-        catch (_: Exception) {}
++        catch (_: Exception) { SyncOutcome.ERROR }
+     }
+
+     /** Gesprächspartner je Thread (normalisierter Betreff → From) über den ganzen
+diff --git a/app/src/main/java/com/selfmailer/app/MainActivity.kt b/app/src/main/java/com/selfmailer/app/MainActivity.kt
+--- a/app/src/main/java/com/selfmailer/app/MainActivity.kt
++++ b/app/src/main/java/com/selfmailer/app/MainActivity.kt
+@@ -182,6 +182,7 @@ class MainActivity : AppCompatActivity() {
+     private var listOffset = 0
+     private var hasMore by mutableStateOf(false)
+     private var syncing by mutableStateOf(false)
++    private val syncBackoff = SyncBackoff { android.os.SystemClock.elapsedRealtime() }
+     private var selectedUids by mutableStateOf<Set<String>>(emptySet())
+     private var showMovePicker by mutableStateOf(false)
+     private var searchOpen by mutableStateOf(false)
+@@ -333,7 +334,6 @@ class MainActivity : AppCompatActivity() {
+
+     // Vordergrund-Poll: normaler 25-s-Takt, bei Dauerfehler exponentiell bis max 5 Min.
+     private val POLL_BASE_INTERVAL_MS = 25_000L
+-    private val POLL_MAX_INTERVAL_MS = 300_000L
+
+     // Biometrie: Gesicht ODER Fingerabdruck ODER Geräte-PIN zum Öffnen.
+     private val authTypes = BiometricManager.Authenticators.BIOMETRIC_WEAK or
+@@ -509,15 +509,14 @@ class MainActivity : AppCompatActivity() {
+         pollJob = lifecycleScope.launch {
+             // Bei Dauerfehler (z. B. Server offline) den 25-s-Takt exponentiell strecken,
+             // damit nicht endlos gefeuert wird; nach einem erfolgreichen Durchlauf zurücksetzen.
+-            var backoffMs = POLL_BASE_INTERVAL_MS
+             while (true) {
+-                delay(backoffMs)
++                delay(POLL_BASE_INTERVAL_MS)
+                 if (!foreground || prefs.token == null) continue
+                 if (phase != "shell" || tab != "mail" || selectedUids.isNotEmpty()) continue
+                 val acc = activeAccount ?: continue
+                 val folder = activeFolder ?: continue
+                 try {
+-                    withContext(Dispatchers.IO) { api.sync(acc.id, folder.name) }
++                    if (syncFolder(acc.id, folder.name) != SyncOutcome.SUCCESS) continue
+                     // Nur übernehmen, wenn immer noch dasselbe Postfach offen ist.
+                     if (activeAccount?.id == acc.id && activeFolder?.name == folder.name &&
+                         phase == "shell" && tab == "mail" && selectedUids.isEmpty()) {
+@@ -527,12 +526,11 @@ class MainActivity : AppCompatActivity() {
+                         loadAccountUnseen()
+                         refreshActiveFolders()
+                     }
+-                    backoffMs = POLL_BASE_INTERVAL_MS  // Erfolg → normaler Takt
+                 } catch (e: kotlinx.coroutines.CancellationException) {
+                     throw e
+                 } catch (_: Exception) {
+-                    // Fehler → Takt verdoppeln (gedeckelt), erst danach neu versuchen.
+-                    backoffMs = (backoffMs * 2).coerceAtMost(POLL_MAX_INTERVAL_MS)
++                    // Cache/UI failure: keep the displayed list. IMAP busy/error
++                    // cooldowns are recorded separately by syncFolder.
+                 }
+             }
+         }
+@@ -540,6 +538,18 @@ class MainActivity : AppCompatActivity() {
+
+     private fun stopForegroundPoll() { pollJob?.cancel(); pollJob = null }
+
++    private suspend fun syncFolder(account: Int, folder: String, manual: Boolean = false): SyncOutcome? {
++        val ticket = syncBackoff.begin(SyncKey(account, folder), manual) ?: return null
++        return try {
++            val result = withContext(Dispatchers.IO) { api.sync(account, folder) }
++            syncBackoff.finish(ticket, result)
++            result
++        } catch (e: kotlinx.coroutines.CancellationException) {
++            syncBackoff.cancel(ticket)
++            throw e
++        }
++    }
++
+     // ---- Live-Sync (SSE) -------------------------------------------------
+     private fun startEventStream() {
+         if (eventSource != null) return
+@@ -852,6 +862,7 @@ class MainActivity : AppCompatActivity() {
+             try { oldApi.unregisterDevice(oldToken, oldBinding) } catch (_: Exception) {}
+         }
+         pendingDeletes.clear(); deletingCount = 0
++        syncBackoff.clear(); syncing = false
+         accounts = emptyList(); folders = emptyList(); messages = emptyList()
+         openMsg = null; activeAccount = null; activeFolder = null
+         openThread = null; threadDetails = emptyMap(); selectedUids = emptySet()
+@@ -1146,6 +1157,7 @@ class MainActivity : AppCompatActivity() {
+         val epoch = ++listEpoch
+         val label = labelFilter
+         activeFolder = folder; listOffset = 0; messages = emptyList(); clearSelect()
++        syncing = false
+         bg {
+             val first = fetchList(acc, folder, pageSize)
+             // Nur übernehmen, wenn Konto UND Ordner noch aktiv sind (sonst hat der Nutzer
+@@ -1154,14 +1166,18 @@ class MainActivity : AppCompatActivity() {
+             messages = first; listOffset = first.size; hasMore = labelFilter == null && first.size >= pageSize
+             if (sync) {
+                 syncing = true
+-                withContext(Dispatchers.IO) { api.sync(acc.id, folder.name) }
+-                val refreshed = try { fetchList(acc, folder, maxOf(pageSize, messages.size)) }
+-                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+-                    catch (_: Exception) { first }
+-                if (listCurrent(acc, folder, epoch, label)) {
+-                    acceptMessages(refreshed); listOffset = refreshed.size; hasMore = labelFilter == null && refreshed.size >= pageSize
++                try {
++                    if (syncFolder(acc.id, folder.name, manual = true) == SyncOutcome.SUCCESS) {
++                        val refreshed = try { fetchList(acc, folder, maxOf(pageSize, messages.size)) }
++                            catch (e: kotlinx.coroutines.CancellationException) { throw e }
++                            catch (_: Exception) { first }
++                        if (listCurrent(acc, folder, epoch, label)) {
++                            acceptMessages(refreshed); listOffset = refreshed.size; hasMore = labelFilter == null && refreshed.size >= pageSize
++                        }
++                    }
++                } finally {
++                    if (listCurrent(acc, folder, epoch, label)) syncing = false
+                 }
+-                syncing = false
+             }
+         }
+     }
+diff --git a/app/src/main/java/com/selfmailer/app/SyncBackoff.kt b/app/src/main/java/com/selfmailer/app/SyncBackoff.kt
+new file mode 100644
+--- /dev/null
++++ b/app/src/main/java/com/selfmailer/app/SyncBackoff.kt
+@@ -0,0 +1,38 @@
++package com.selfmailer.app
++
++enum class SyncOutcome { SUCCESS, BUSY, ERROR }
++data class SyncKey(val account: Int, val folder: String)
++data class SyncTicket(val key: SyncKey, val serial: Long)
++
++/** UI-thread-owned; per-folder cooldown and in-flight guard, no stored mail data. */
++class SyncBackoff(private val now: () -> Long) {
++    private data class State(val failures: Int, val next: Long)
++    private val states = linkedMapOf<SyncKey, State>()
++    private val pending = mutableMapOf<SyncKey, Long>()
++    private var serial = 0L
++
++    fun begin(key: SyncKey, manual: Boolean = false): SyncTicket? {
++        if (pending.containsKey(key) || (!manual && now() < (states[key]?.next ?: 0L))) return null
++        val ticket = SyncTicket(key, ++serial)
++        pending[key] = ticket.serial
++        return ticket
++    }
++
++    fun finish(ticket: SyncTicket, outcome: SyncOutcome) {
++        if (pending[ticket.key] != ticket.serial) return
++        pending.remove(ticket.key)
++        if (outcome == SyncOutcome.SUCCESS) { states.remove(ticket.key); return }
++        val failures = ((states[ticket.key]?.failures ?: 0) + 1).coerceAtMost(8)
++        val maximum = if (outcome == SyncOutcome.BUSY) 120_000L else 300_000L
++        val delay = (25_000L * (1L shl (failures - 1))).coerceAtMost(maximum)
++        states.remove(ticket.key)
++        states[ticket.key] = State(failures, now() + delay)
++        while (states.size > 128) states.remove(states.keys.first())
++    }
++
++    fun cancel(ticket: SyncTicket) {
++        if (pending[ticket.key] == ticket.serial) pending.remove(ticket.key)
++    }
++
++    fun clear() { states.clear(); pending.clear() }
++}
+diff --git a/app/src/test/java/com/selfmailer/app/SyncBackoffTest.kt b/app/src/test/java/com/selfmailer/app/SyncBackoffTest.kt
+new file mode 100644
+--- /dev/null
++++ b/app/src/test/java/com/selfmailer/app/SyncBackoffTest.kt
+@@ -0,0 +1,69 @@
++package com.selfmailer.app
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class SyncBackoffTest {
++    private val key = SyncKey(9, "INBOX")
++
++    @Test fun busyDoesNotCountAsSuccessAndWaitsFromCompletion() {
++        var now = 1000L
++        val policy = SyncBackoff { now }
++        val ticket = policy.begin(key)!!
++        now += 3000
++        policy.finish(ticket, SyncOutcome.BUSY)
++        now += 24999
++        assertNull(policy.begin(key))
++        now++
++        assertNotNull(policy.begin(key))
++    }
++
++    @Test fun busyBackoffGrowsAndIsBounded() {
++        var now = 1000L
++        val policy = SyncBackoff { now }
++        for (delay in listOf(25000L, 50000L, 100000L, 120000L, 120000L)) {
++            policy.finish(policy.begin(key)!!, SyncOutcome.BUSY)
++            now += delay - 1
++            assertNull(policy.begin(key))
++            now++
++        }
++        assertNotNull(policy.begin(key))
++    }
++
++    @Test fun manualRetryBypassesCooldownButNeverDuplicatesPendingWork() {
++        val policy = SyncBackoff { 1000L }
++        val first = policy.begin(key)!!
++        assertNull(policy.begin(key, manual = true))
++        policy.finish(first, SyncOutcome.BUSY)
++        assertNull(policy.begin(key))
++        val retry = policy.begin(key, manual = true)!!
++        policy.finish(retry, SyncOutcome.SUCCESS)
++        assertNotNull(policy.begin(key))
++    }
++
++    @Test fun stateIsSeparatedByAccountAndFolder() {
++        val policy = SyncBackoff { 1000L }
++        policy.finish(policy.begin(key)!!, SyncOutcome.ERROR)
++        assertNotNull(policy.begin(key.copy(account = 10)))
++        assertNotNull(policy.begin(key.copy(folder = "Sent")))
++        assertNull(policy.begin(key))
++    }
++
++    @Test fun cancellationReleasesPendingWithoutInventingSuccessOrFailure() {
++        val policy = SyncBackoff { 1000L }
++        policy.cancel(policy.begin(key)!!)
++        assertNotNull(policy.begin(key))
++    }
++
++    @Test fun logoutAndLateCompletionCannotTouchNewRequests() {
++        val policy = SyncBackoff { 1000L }
++        val old = policy.begin(key)!!
++        policy.clear()
++        val current = policy.begin(key)!!
++        policy.finish(old, SyncOutcome.BUSY)
++        policy.cancel(old)
++        assertNull(policy.begin(key))
++        policy.finish(current, SyncOutcome.SUCCESS)
++        assertNotNull(policy.begin(key))
++    }
++}

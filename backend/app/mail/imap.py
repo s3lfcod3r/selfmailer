@@ -16,6 +16,7 @@ from email.message import EmailMessage
 
 from fastapi import HTTPException, status
 from imap_tools import MailBox, AND
+from imap_tools.utils import encode_folder
 
 from ..models import MailAccount
 from ..core.config import get_settings
@@ -43,10 +44,20 @@ def mailbox_generation(box: MailBox, folder: str, expected: int | None = None) -
     Eine fehlende/ungültige Serverantwort ist bei erwarteter Generation nicht
     sicher genug für eine UID-basierte Aktion. Nie nach einem Fehler weiterschreiben.
     """
-    try:
-        actual = int(box.folder.status(folder, ["UIDVALIDITY"]).get("UIDVALIDITY", 0) or 0)
-    except Exception:
-        actual = 0
+    # One-shot evidence from a SELECT in THIS checkout, on THIS connection.
+    # Reused connections without a fresh SELECT still perform the STATUS check.
+    selected = getattr(box, "_sm_selected_generation", None)
+    setattr(box, "_sm_selected_generation", None)
+    if (selected and selected[0] == folder and
+            getattr(box.client, "state", None) == "SELECTED" and box.folder.get() == folder):
+        actual = selected[1]
+        timing.mark("generation_source", "select")
+    else:
+        timing.mark("generation_source", "status")
+        try:
+            actual = int(box.folder.status(folder, ["UIDVALIDITY"]).get("UIDVALIDITY", 0) or 0)
+        except Exception:
+            actual = 0
     if expected is not None and (expected <= 0 or actual != expected):
         raise HTTPException(409, "Postfach hat sich geändert oder konnte nicht verifiziert werden. Ordner neu laden.")
     return actual
@@ -115,7 +126,9 @@ _POOL_EXTRA = max(0, int(os.getenv("SELFMAILER_IMAP_POOL_EXTRA", "2") or 2))
 # Gmail-Kontos brauchten 18,7 s - laenger als der komplette Sync -, weil je Ordner
 # EIN STATUS nacheinander lief. Solange es nur eine Verbindung je Konto gab, war
 # das gar nicht anders moeglich.
-_COUNT_WORKERS = max(1, int(os.getenv("SELFMAILER_COUNT_WORKERS", "3") or 3))
+# Leave one normal slot available for the active folder's sync. Interactive
+# reads/writes also retain their separate extra slots.
+_COUNT_WORKERS = max(1, min(int(os.getenv("SELFMAILER_COUNT_WORKERS", "2") or 2), max(1, _POOL_SIZE - 1)))
 # Helfer sind Zugabe, kein Muss: bekommen sie nicht schnell eine Verbindung,
 # zaehlt der Aufrufer allein weiter - langsamer, aber nie unvollstaendig.
 _HELPER_WAIT = 2.0
@@ -251,7 +264,6 @@ def _connect(account: MailAccount, login: str, password: str, folder: str) -> Ma
         except Exception:  # noqa: BLE001 - best effort, falls Socket anders heißt
             pass
         _refresh_capabilities(box)
-        enable_condstore(box)
         _select(box, folder or "INBOX")
     except Exception:
         # The pool does not own this box yet. Release a failed setup locally,
@@ -398,6 +410,8 @@ def _ensure_box(conn: _Conn, account: MailAccount, login: str, password: str, fo
     der Aufrufer merkt nichts.
     """
     box = conn.box
+    if box is not None:
+        setattr(box, "_sm_selected_generation", None)
     if box is not None and time.monotonic() - conn.last_used > _IDLE_TTL:
         _close(box)
         box = conn.box = None
@@ -1366,22 +1380,6 @@ def supports_condstore(box: MailBox) -> bool:
         return False
 
 
-def enable_condstore(box: MailBox) -> None:
-    """Einmal je Verbindung: CONDSTORE einschalten (RFC 5161 ENABLE).
-
-    Danach liefert JEDES SELECT den aktuellen MODSEQ-Stand von selbst mit. Ohne
-    diesen Schritt muesste man den Ordner ein zweites Mal auswaehlen, nur um an
-    die Zahl zu kommen - bei einem langsamen Konto eine komplette Runde umsonst.
-    """
-    if not supports_condstore(box):
-        return
-    try:
-        with timing.phase("condstore"):
-            box.client._simple_command("ENABLE", "CONDSTORE")
-    except Exception:  # noqa: BLE001 - Kuer, nie Pflicht
-        logger.debug("ENABLE CONDSTORE nicht moeglich", exc_info=True)
-
-
 @timing.measured("select")
 def _select(box: MailBox, folder: str) -> None:
     """Ordner auswaehlen und den dabei gemeldeten MODSEQ-Stand festhalten.
@@ -1391,7 +1389,35 @@ def _select(box: MailBox, folder: str) -> None:
     im Sync noch STATUS und UID SEARCH. Eine wiederverwendete Pool-Verbindung
     behaelt ihren Wert so ueber den ganzen Sync.
     """
-    box.folder.set(folder)
+    _reject_folder_ctrl(folder)
+    setattr(box, "_sm_selected_generation", None)
+    setattr(box, "_sm_modseq", None)
+    # select() resets imaplib's responses/state itself. Encode the complete
+    # folder name first; only a fixed protocol option is appended (RFC 7162).
+    extended = supports_condstore(box) and not getattr(box, "_sm_condstore_rejected", False)
+    if extended:
+        try:
+            result = box.client.select(encode_folder(folder) + b" (CONDSTORE)")
+        except imaplib.IMAP4.abort:
+            raise  # A dead/desynchronised connection must never continue.
+        except imaplib.IMAP4.error:
+            result = ("BAD", [])
+        if result[0] == "OK":
+            # Same bookkeeping as imap_tools.folder.set after successful select.
+            box.folder._current_folder = folder
+            timing.mark("condstore_mode", "select")
+        else:
+            setattr(box, "_sm_condstore_rejected", True)
+            timing.mark("condstore_mode", "fallback")
+            box.folder.set(folder)  # Only retry selection, never FETCH/STORE/MOVE.
+    else:
+        box.folder.set(folder)
+    raw_generation = getattr(box.client, "untagged_responses", {}).get("UIDVALIDITY", [])
+    if (isinstance(raw_generation, (list, tuple)) and len(raw_generation) == 1 and
+            isinstance(raw_generation[0], bytes) and re.fullmatch(rb"[1-9][0-9]{0,9}", raw_generation[0])):
+        generation = int(raw_generation[0])
+        if generation <= 0xFFFFFFFF:
+            setattr(box, "_sm_selected_generation", (folder, generation))
     stand = None
     try:
         for key in ("OK", "HIGHESTMODSEQ"):
