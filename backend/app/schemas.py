@@ -333,14 +333,17 @@ class NoteUpdate(BaseModel):
     pinned: bool | None = None
 
 
-class NoteOut(BaseModel):
+class NoteSummary(BaseModel):
     id: int
     title: str
-    body: str
     color: str
     pinned: bool
     created_at: dt.datetime
     updated_at: dt.datetime
+
+
+class NoteOut(NoteSummary):
+    body: str
 
 
 # ---- Vorlagen / Textbausteine -------------------------------------------

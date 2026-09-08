@@ -1,6 +1,8 @@
 import type { Dict } from "./types";
 
 export const nl: Dict = {
+  "notes.unsaved": "Niet-opgeslagen wijzigingen in deze notitie verwerpen?",
+  "notes.noResults": "Geen overeenkomende notities.",
   // Common
   "common.loading": "Laden…",
   "common.add": "Toevoegen",

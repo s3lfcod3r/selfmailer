@@ -1,6 +1,8 @@
 import type { Dict } from "./types";
 
 export const sv: Dict = {
+  "notes.unsaved": "Kasta osparade ändringar i den här anteckningen?",
+  "notes.noResults": "Inga matchande anteckningar.",
   // Common
   "common.loading": "Laddar…",
   "common.add": "Lägg till",

@@ -13,6 +13,36 @@ def test_notes_crud(client, admin):
     assert r.status_code == 204
 
 
+def test_note_summaries_search_body_without_returning_it(client, admin):
+    body = "synthetic-private-body needle_%\\end"
+    created = client.post("/api/v1/notes", headers=admin, json={"title": "Summary test", "body": body}).json()
+    nid = created["id"]
+    summaries = client.get("/api/v1/notes/summaries", headers=admin, params={"q": "needle_%\\end"})
+    assert summaries.status_code == 200, summaries.text
+    assert [n["id"] for n in summaries.json()] == [nid]
+    assert all("body" not in n for n in summaries.json())
+    assert body not in summaries.text
+    # Explicit detail is owned; old Android full-list clients remain compatible.
+    assert client.get(f"/api/v1/notes/{nid}", headers=admin).json()["body"] == body
+    assert any(n["id"] == nid and n["body"] == body for n in client.get("/api/v1/notes", headers=admin).json())
+    assert client.get("/api/v1/notes/summaries", headers=admin, params={"q": "needle_Xend"}).json() == []
+    assert client.get("/api/v1/notes/summaries", headers=admin, params={"q": "x" * 201}).status_code == 422
+
+
+def test_note_summary_wildcards_are_literal_and_title_search_is_case_insensitive(client, admin):
+    nid = client.post("/api/v1/notes", headers=admin, json={"title": "UniqueSummaryMixedCASE", "body": "without wildcard"}).json()["id"]
+    assert all(n["id"] != nid for n in client.get("/api/v1/notes/summaries", headers=admin, params={"q": "%"}).json())
+    assert all(n["id"] != nid for n in client.get("/api/v1/notes/summaries", headers=admin, params={"q": "_"}).json())
+    rows = client.get("/api/v1/notes/summaries", headers=admin, params={"q": "uniquesummarymixedcase"}).json()
+    assert [n["id"] for n in rows] == [nid]
+
+
+def test_note_summary_and_detail_require_authentication(client):
+    client.cookies.clear()
+    assert client.get("/api/v1/notes/summaries").status_code == 401
+    assert client.get("/api/v1/notes/1").status_code == 401
+
+
 def test_calendar_crud(client, admin):
     r = client.post("/api/v1/calendar/events", headers=admin, json={
         "title": "Termin", "start": "2026-07-01T10:00:00", "end": "2026-07-01T11:00:00",

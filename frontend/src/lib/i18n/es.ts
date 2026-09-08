@@ -1,6 +1,8 @@
 import type { Dict } from "./types";
 
 export const es: Dict = {
+  "notes.unsaved": "¿Descartar los cambios sin guardar de esta nota?",
+  "notes.noResults": "No hay notas coincidentes.",
   // Común
   "common.loading": "Cargando…",
   "common.add": "Añadir",

@@ -27,11 +27,64 @@ const messageKey = original('src/lib/mailIdentity.ts', 'messageKey', {});
 const messageGeneration = original('src/lib/mailIdentity.ts', 'messageGeneration', {});
 const withoutPendingDeletes = original('src/lib/mailIdentity.ts', 'withoutPendingDeletes', { messageKey, Date });
 const flush = () => new Promise(resolve => setImmediate(resolve));
+const cacheExports = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, 'src/lib/requestCache.ts'), 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText, { exports: cacheExports, Map, Promise, Date, Math });
+const { RequestCache } = cacheExports;
 function deferred() {
   let resolve, reject;
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
+
+function threadHarness() {
+  const state = { result: null, calls: [], pending: [] };
+  const environment = {
+    activeId: 1, folder: 'INBOX', encodeURIComponent, messageGeneration,
+    threadReqRef: { current: 0 }, threadCacheRef: { current: new RequestCache() },
+    listContextRef: { current: 'account1' }, selRef: { current: { acc: 1, folder: 'INBOX' } },
+    api: { get: url => { const d = deferred(); state.calls.push(url); state.pending.push(d); return d.promise; } },
+    sameMsg: (a, b) => a.uid === b.uid && a.folder === b.folder,
+    mergeThread: (base, extra) => [...base, ...extra],
+    groupThreads: messages => [{ messages }],
+    setOpenThread: result => { state.result = result; },
+  };
+  const latest = { uid: '42', folder: 'INBOX', uidvalidity: 100, account_id: 1 };
+  return { state, environment, conv: { latest, messages: [latest], count: 2 }, augment: original(page, 'augmentThread', environment) };
+}
+
+test('thread augmentation shares in-flight work and caches quick reopenings', async () => {
+  const { state, conv, augment } = threadHarness();
+  augment(conv); augment(conv); await flush();
+  assert.equal(state.calls.length, 1);
+  assert.ok(state.calls[0].includes('uidvalidity=100'));
+  state.pending[0].resolve([{ uid: 'sent-1', folder: 'Sent' }]); await flush();
+  assert.equal(state.result.messages.length, 2);
+  augment(conv); await flush(); assert.equal(state.calls.length, 1);
+});
+
+test('late thread augmentation cannot reopen a closed thread or replace another account', async () => {
+  for (const change of ['close', 'account']) {
+    const { state, conv, augment, environment } = threadHarness();
+    augment(conv); await flush();
+    if (change === 'close') environment.threadReqRef.current++;
+    else { environment.selRef.current = { acc: 2, folder: 'INBOX' }; environment.listContextRef.current = 'account2'; }
+    state.pending[0].resolve([{ uid: 'sent-1', folder: 'Sent' }]); await flush();
+    assert.equal(state.result, null);
+  }
+});
+
+test('closing a thread advances its request guard; mutations invalidate cache', () => {
+  const { environment } = threadHarness();
+  let clears = 0;
+  const env = { ...environment, setOpenThreadRaw() {}, invalidateThreadCache: () => clears++ };
+  const update = original(page, 'setOpenThread', env);
+  update(null); assert.equal(environment.threadReqRef.current, 1);
+  update(previous => previous); assert.equal(clears, 1);
+  original(page, 'setMessages', { ...env, setMessagesRaw() {} })([]);
+  assert.equal(clears, 2);
+});
 function listHarness() {
   const state = { messages: [], errors: [], loading: [], pending: [] };
   const common = {
@@ -208,6 +261,30 @@ test('failed delete restores the row and keeps the error visible', async () => {
   assert.equal(state.errors.at(-1), 'Gmail offline');
   assert.equal(state.deleting, 0);
   assert.equal(state.badges, 0);
+});
+
+
+test('failed delete restores the same thread despite cache invalidation, but never reopens a closed thread', async () => {
+  for (const changed of [false, true]) {
+    const { env, state, row, response } = deletionHarness();
+    const companion = { ...row, uid: '8' };
+    state.thread = { messages: [row, companion], latest: companion, count: 2 };
+    env.openThread = state.thread;
+    env.threadCacheRef = { current: new RequestCache() };
+    env.invalidateThreadCache = original(page, 'invalidateThreadCache', env);
+    env.setMessagesRaw = update => { state.messages = update(state.messages); };
+    env.setOpenThreadRaw = update => { state.thread = update(state.thread); };
+    env.setMessages = original(page, 'setMessages', env);
+    env.setOpenThread = original(page, 'setOpenThread', env);
+    const action = original(page, 'deleteOptimistically', env)(row, 1, 'INBOX');
+    assert.equal(state.thread.messages.length, 1);
+    if (changed) env.setOpenThread(null);
+    response.reject(new Error('offline'));
+    await action;
+    assert.equal(state.messages.length, 1);
+    if (changed) assert.equal(state.thread, null);
+    else assert.equal(state.thread.messages.length, 2);
+  }
 });
 
 test('failed delete never restores old rows into a switched account or new generation', async () => {

@@ -10,6 +10,7 @@ import { messageGeneration, messageKey, withoutPendingDeletes } from "../lib/mai
 import { groupThreads, normalizeSubject, type Conversation } from "../lib/threads";
 import DOMPurify from "dompurify";
 import { useMenuDismiss } from "../lib/useMenuDismiss";
+import { RequestCache } from "../lib/requestCache";
 
 type Sel = { acc: number; folder: string };
 
@@ -319,7 +320,7 @@ const UnifiedRow = memo(function UnifiedRow({ m, onOpen, noSubject }: { m: UMsg;
   );
 });
 
-export function Mail({ search = "", filter, pollMin = 5, blockImages = true, darkMail = true, pinFlagged = false, conversationView = false, showQuota = true, showMbox = true, onUnseenChange }: { search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; pinFlagged?: boolean; conversationView?: boolean; showQuota?: boolean; showMbox?: boolean; onUnseenChange?: (total: number) => void }) {
+export function Mail({ active = true, search = "", filter, pollMin = 5, blockImages = true, darkMail = true, pinFlagged = false, conversationView = false, showQuota = true, showMbox = true, onUnseenChange }: { active?: boolean; search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; pinFlagged?: boolean; conversationView?: boolean; showQuota?: boolean; showMbox?: boolean; onUnseenChange?: (total: number) => void }) {
   const { t, lang } = useLang();
   const de = lang === "de";
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -342,6 +343,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const pendingDeletesRef = useRef<Map<string, number>>(new Map());
   const [deleting, setDeleting] = useState(0);
   function setMessages(update: MsgHeader[] | ((previous: MsgHeader[]) => MsgHeader[])) {
+    invalidateThreadCache();
     setMessagesRaw(previous => {
       const next = typeof update === "function" ? update(previous) : update;
       return withoutPendingDeletes(next, pendingDeletesRef.current, selRef.current?.acc ?? -1, selRef.current?.folder ?? "");
@@ -353,6 +355,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Thread offen, zeigt die Lesespalte den gestapelten Verlauf statt einer Einzelmail.
   const [openThread, setOpenThreadRaw] = useState<Conversation | null>(null);
   function setOpenThread(update: Conversation | null | ((previous: Conversation | null) => Conversation | null)) {
+    if (update === null) threadReqRef.current++;
+    else if (typeof update === "function") invalidateThreadCache();
     setOpenThreadRaw(previous => {
       const next = typeof update === "function" ? update(previous) : update;
       if (!next) return null;
@@ -764,6 +768,15 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Antworten): eine langsame Antwort darf einen inzwischen anderen offenen Thread
   // nicht überschreiben.
   const threadReqRef = useRef(0);
+  const threadCacheRef = useRef(new RequestCache<MsgHeader[]>());
+  function invalidateThreadCache() {
+    threadCacheRef.current.clear();
+    threadReqRef.current++;
+  }
+  useEffect(() => {
+    invalidateThreadCache();
+    return () => invalidateThreadCache();
+  }, [activeId, folder, conversationView, active]);
   // Sequenzzähler je (Konto,Ordner) für bgSync: überlappende Sync-Aufrufe
   // (Polling + 20-s-Refresh + SSE) laufen sonst parallel und schreiben in
   // beliebiger Reihenfolge zurück. Nur die JÜNGSTE Antwort pro (acc,folder)
@@ -1225,6 +1238,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       return;
     }
     setOpen(null);
+    openSeqRef.current++;
+    setOpening(false);
     setOpenThread(conv);
     setMobilePane("read");
     augmentThread(conv);
@@ -1237,9 +1252,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const acc = activeId;
     const req = ++threadReqRef.current;
     const fol = conv.latest.folder || folder;
-    api.get<MsgHeader[]>(`/mail/${acc}/thread?folder=${encodeURIComponent(fol)}&uid=${encodeURIComponent(conv.latest.uid)}${messageGeneration(conv.latest)}`)
+    const context = listContextRef.current;
+    const url = `/mail/${acc}/thread?folder=${encodeURIComponent(fol)}&uid=${encodeURIComponent(conv.latest.uid)}${messageGeneration(conv.latest)}`;
+    threadCacheRef.current.get(url, () => api.get<MsgHeader[]>(url))
       .then((extra) => {
-        if (req !== threadReqRef.current) return;          // ein anderer Thread ist inzwischen offen
+        if (req !== threadReqRef.current || context !== listContextRef.current || selRef.current?.acc !== acc) return;
         if (!extra || extra.length === 0) return;
         const merged = mergeThread(conv.messages, extra.map((m) => ({ ...m, account_id: acc })));
         if (merged.length <= conv.messages.length) return; // nichts Neues dazugekommen
@@ -1500,7 +1517,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     // Keep completed tombstones briefly too: a list response started before DELETE
     // may arrive after its acknowledgement. Generation remains part of the key.
     for (const [old, expiry] of pendingDeletesRef.current) if (expiry <= Date.now()) pendingDeletesRef.current.delete(old);
-    const context = listContextRef.current, oldThread = openThread, threadRequest = threadReqRef.current;
+    const context = listContextRef.current, oldThread = openThread;
     pendingDeletesRef.current.set(key, Infinity);
     setDeleting(n => n + 1);
     setErr("");
@@ -1511,6 +1528,9 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         setOpen(null); setMobilePane("list");
       }
     }
+    // Optimistic updates invalidate augmentation themselves. Capture the guard
+    // afterwards so a failed DELETE can still restore this same open thread.
+    const threadRequest = threadReqRef.current;
     try {
       await api.del(`/mail/${acc}/messages/${m.uid}?folder=${encodeURIComponent(fol)}${messageGeneration(m)}`);
       pendingDeletesRef.current.set(key, Date.now() + 120_000);
@@ -1519,10 +1539,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       pendingDeletesRef.current.delete(key);
       setErr((e as Error).message);
       if (selRef.current?.acc === acc && listContextRef.current === context) {
+        const restoreThread = oldThread && threadReqRef.current === threadRequest;
         if (selRef.current.folder === fol) {
           setMessages(ms => ms.some(x => x.uid === m.uid) || (ms.length > 0 && !ms.some(x => x.uidvalidity === m.uidvalidity)) ? ms : [...ms, m]);
         }
-        if (oldThread && threadReqRef.current === threadRequest) setOpenThread(oldThread);
+        if (restoreThread) setOpenThread(oldThread);
       }
     } finally { setDeleting(n => n - 1); }
   }
@@ -1532,6 +1553,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Fassung (mit aktuellem open/activeId/…), damit keine veralteten Closures greifen.
   const hotkeyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   hotkeyRef.current = (e: KeyboardEvent) => {
+    if (!active || e.defaultPrevented || (e.target instanceof Element && e.target.closest("dialog, [role='dialog']"))) return;
     if (draft !== null || popup) return;                 // Schreibfenster/Popup offen → aus
     const el = e.target as HTMLElement | null;
     const tag = el?.tagName;

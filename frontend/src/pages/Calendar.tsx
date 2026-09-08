@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type CalEvent, type Contact, type DavAccount, type GcalCalendar, type Task } from "../lib/api";
 import { useLang, dateLocale, type Lang, type TFunc } from "../lib/i18n";
 import { useMenuDismiss } from "../lib/useMenuDismiss";
+import { Modal } from "../components/Modal";
 
 const EMPTY = { title: "", location: "", description: "", start: "", end: "", all_day: false, target: "local", calendarId: "" };
 type Form = typeof EMPTY;
@@ -525,34 +526,34 @@ export function Calendar() {
       )}
 
       {creating && (
-        <div className="modal-backdrop" onClick={() => setCreating(false)}>
+        <Modal label={editId != null ? t("cal.edit") : t("cal.new")} onClose={() => { if (!busy) setCreating(false); }}>
           <form className="modal card stack" onClick={(e) => e.stopPropagation()} onSubmit={add}>
             <div className="topbar">
               <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{editId != null ? t("cal.edit") : t("cal.new")}</h2>
-              <button type="button" className="ghost" onClick={() => setCreating(false)}>✕</button>
+              <button type="button" className="ghost" disabled={busy} aria-label={t("cal.close")} onClick={() => setCreating(false)}>✕</button>
             </div>
-            <input placeholder={t("cal.title")} value={form.title} onChange={(e) => set("title", e.target.value)} autoFocus required />
-            <input placeholder={t("cal.location")} value={form.location} onChange={(e) => set("location", e.target.value)} />
+            <input data-modal-focus aria-label={t("cal.title")} placeholder={t("cal.title")} value={form.title} onChange={(e) => set("title", e.target.value)} autoFocus required />
+            <input aria-label={t("cal.location")} placeholder={t("cal.location")} value={form.location} onChange={(e) => set("location", e.target.value)} />
             <label className="row" style={{ gap: "0.45rem", cursor: "pointer" }}>
               <input type="checkbox" checked={form.all_day} onChange={(e) => toggleAllDay(e.target.checked)} />
               {t("cal.allDay")}
             </label>
             <div className="row">
-              <label className="label" style={{ minWidth: 56 }}>{t("cal.start")}</label>
-              <input type={form.all_day ? "date" : "datetime-local"} value={form.start} onChange={(e) => set("start", e.target.value)} required />
+              <label htmlFor="cal-event-start" className="label" style={{ minWidth: 56 }}>{t("cal.start")}</label>
+              <input id="cal-event-start" type={form.all_day ? "date" : "datetime-local"} value={form.start} onChange={(e) => set("start", e.target.value)} required />
             </div>
             <div className="row">
-              <label className="label" style={{ minWidth: 56 }}>{t("cal.end")}</label>
-              <input type={form.all_day ? "date" : "datetime-local"} value={form.end} onChange={(e) => set("end", e.target.value)} required />
+              <label htmlFor="cal-event-end" className="label" style={{ minWidth: 56 }}>{t("cal.end")}</label>
+              <input id="cal-event-end" type={form.all_day ? "date" : "datetime-local"} value={form.end} onChange={(e) => set("end", e.target.value)} required />
             </div>
-            <textarea placeholder={t("cal.description")} value={form.description} onChange={(e) => set("description", e.target.value)} rows={8} style={{ minHeight: "11rem" }} />
+            <textarea aria-label={t("cal.description")} placeholder={t("cal.description")} value={form.description} onChange={(e) => set("description", e.target.value)} rows={8} style={{ minHeight: "11rem" }} />
 
             {/* Ziel-Kalender direkt wählbar (Lokal + alle beschreibbaren Google-Kalender).
                 Beim Bearbeiten nur, wenn der Termin umzielbar ist (nicht fremdes CalDAV). */}
             {gcalAccounts.length > 0 && canRetarget && (
               <div className="row">
-                <label className="label" style={{ minWidth: 56 }}>{t("cal.saveIn")}</label>
-                <select
+                <label htmlFor="cal-event-target" className="label" style={{ minWidth: 56 }}>{t("cal.saveIn")}</label>
+                <select id="cal-event-target"
                   value={form.target === "local" ? "local" : `${form.target}::${form.calendarId}`}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -579,11 +580,11 @@ export function Calendar() {
             {err && <div className="err">{err}</div>}
             <div className="row">
               <span className="grow" />
-              <button type="button" className="ghost" onClick={() => setCreating(false)}>{t("common.cancel")}</button>
+              <button type="button" className="ghost" disabled={busy} onClick={() => setCreating(false)}>{t("common.cancel")}</button>
               <button className="primary" disabled={busy}>{editId != null ? t("common.save") : t("common.add")}</button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
 
       {dayOpen && (() => {
@@ -591,11 +592,11 @@ export function Calendar() {
         const bds = birthdaysByDay[dayOpen] ?? [];
         const dateLabel = new Date(dayOpen + "T12:00:00").toLocaleDateString(dateLocale(lang), { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
         return (
-          <div className="modal-backdrop" onClick={() => setDayOpen(null)}>
+          <Modal label={dateLabel} onClose={() => setDayOpen(null)}>
             <div className="modal card stack" onClick={(e) => e.stopPropagation()}>
               <div className="topbar">
                 <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{dateLabel}{evs.length > 0 ? <span className="muted" style={{ fontWeight: 400, fontSize: "0.85rem" }}> ({evs.length})</span> : null}</h2>
-                <button className="ghost" onClick={() => setDayOpen(null)}>✕</button>
+                <button className="ghost" aria-label={t("cal.close")} onClick={() => setDayOpen(null)}>✕</button>
               </div>
               <div className="stack" style={{ gap: "0.4rem", maxHeight: "50vh", overflowY: "auto" }}>
                 {bds.map((b, i) => (
@@ -617,16 +618,16 @@ export function Calendar() {
                 <button className="primary" onClick={() => openCreate(new Date(dayOpen + "T12:00:00"))}>＋ {t("cal.newEvent")}</button>
               </div>
             </div>
-          </div>
+          </Modal>
         );
       })()}
 
       {detail && (
-        <div className="modal-backdrop" onClick={() => setDetail(null)}>
+        <Modal label={detail.title} onClose={() => { if (!busy) setDetail(null); }}>
           <div className="modal card stack" onClick={(e) => e.stopPropagation()}>
             <div className="topbar">
               <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{detail.title}</h2>
-              <button className="ghost" onClick={() => setDetail(null)}>✕</button>
+              <button className="ghost" disabled={busy} aria-label={t("cal.close")} onClick={() => setDetail(null)}>✕</button>
             </div>
             <div className="muted">{fmtRange(detail, lang)}{detail.all_day ? ` · ${t("cal.allDay")}` : ""}</div>
             {detail.location && <div>📍 {detail.location}</div>}
@@ -638,7 +639,7 @@ export function Calendar() {
               <button className="ghost" disabled={busy} onClick={() => remove(detail)}>{t("common.delete")}</button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
