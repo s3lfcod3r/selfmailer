@@ -40,6 +40,11 @@ def test_b_sieht_und_aendert_a_notizen_nicht(client, admin, user_b):
     r = client.get("/api/v1/notes", headers=user_b)
     assert r.status_code == 200
     assert all(n["id"] != note_id for n in r.json()), "B sieht A's Notiz in der Liste"
+    summaries = client.get("/api/v1/notes/summaries", headers=user_b, params={"q": "nur fuer A"})
+    assert summaries.status_code == 200
+    assert all(n["id"] != note_id for n in summaries.json())
+    assert client.get(f"/api/v1/notes/{note_id}", headers=user_b).status_code == 404
+    assert client.get(f"/api/v1/notes/{note_id}", headers=admin).json()["body"] == "nur fuer A"
 
     # B kann sie weder ändern noch löschen (404 — Existenz wird nicht verraten).
     assert client.patch(f"/api/v1/notes/{note_id}", headers=user_b,

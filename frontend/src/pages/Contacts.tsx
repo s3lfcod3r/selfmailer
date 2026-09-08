@@ -147,13 +147,24 @@ export function Contacts() {
   const [bdayCal, setBdayCal] = useState("");   // "accId::calId" oder "" (aus)
   const [bdayNote, setBdayNote] = useState("");
 
-  async function load(query = q) {
-    try { setContacts(await api.get<Contact[]>(`/contacts?q=${encodeURIComponent(query)}`)); }
-    catch (e) { setErr((e as Error).message); }
+  const searchRequest = useRef(0);
+  const currentQuery = useRef(q);
+  currentQuery.current = q;
+  async function load(query = currentQuery.current) {
+    const request = ++searchRequest.current;
+    try {
+      const rows = await api.get<Contact[]>(`/contacts?q=${encodeURIComponent(query)}`);
+      if (request === searchRequest.current && query === currentQuery.current) setContacts(rows);
+    } catch (e) {
+      if (request === searchRequest.current && query === currentQuery.current) setErr((e as Error).message);
+    }
   }
   // Live-Suche: API-Anfrage entprellen, das Input bleibt sofort kontrolliert.
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   function searchDebounced(query: string) {
+    currentQuery.current = query;
+    searchRequest.current++;
+    setContacts([]);
     if (searchTimer.current) clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => load(query), SEARCH_DEBOUNCE_MS);
   }
@@ -187,7 +198,7 @@ export function Contacts() {
   }
   useEffect(() => {
     load(""); loadBdaySettings();
-    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+    return () => { searchRequest.current++; if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, []);
 
   function set<K extends keyof Form>(k: K, v: Form[K]) { setForm((f) => ({ ...f, [k]: v })); }

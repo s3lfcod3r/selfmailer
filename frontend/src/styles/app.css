@@ -564,6 +564,15 @@ select.bulk-btn { max-width: 170px; }
 .grow { flex: 1; }
 
 /* --- Compose-Modal --- */
+dialog.accessible-modal {
+  border: 0; padding: 0; border-radius: 16px;
+  color: var(--self-text); background: transparent;
+  max-width: calc(100vw - 1.2rem); max-height: 94vh;
+}
+dialog.accessible-modal::backdrop {
+  background: rgba(4, 8, 11, 0.62); backdrop-filter: blur(3px);
+}
+dialog.accessible-modal > .modal { min-width: 0; max-width: 100%; }
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 50;
   background: rgba(4, 8, 11, 0.62);

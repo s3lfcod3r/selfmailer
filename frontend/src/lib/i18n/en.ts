@@ -3,6 +3,8 @@
 // if any language is missing or misspells a key. {placeholders} are filled at runtime.
 
 export const en = {
+  "notes.unsaved": "Discard unsaved changes to this note?",
+  "notes.noResults": "No matching notes.",
   // Common
   "common.loading": "Loading…",
   "common.add": "Add",
