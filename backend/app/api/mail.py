@@ -25,6 +25,7 @@ from ..mail import cache as cache_mod
 from ..mail import imap as imap_mod
 from ..mail import migrate as migrate_mod
 from ..mail import smtp as smtp_mod
+from ..mail import timing
 from ..core import jobs
 from ..models import MailAccount, MailIdentity, ScheduledMail, User, FolderSync
 from ..schemas import (
@@ -45,10 +46,12 @@ router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
 logger = logging.getLogger(__name__)
 
 
+@timing.measured("account_lookup")
 def _account(account_id: int, user: User, session: Session) -> MailAccount:
     acc = session.get(MailAccount, account_id)
     if acc is None or acc.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Konto nicht gefunden")
+    timing.authorize(account_id)
     return acc
 
 
@@ -91,6 +94,7 @@ def _account_secret(acc: MailAccount) -> str:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zugangsdaten nicht entschlüsselbar")
 
 
+@timing.measured("cache_generation")
 def _generation_args(session: Session, account_id: int, folder: str, expected: int | None, *, write: bool = False) -> dict:
     """Bindet UID-Aktionen an die Generation der angezeigten Nachricht.
 
@@ -432,6 +436,7 @@ def messages(
             session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged,
             keyword=kw, unread=unread,
         )
+        timing.mark("source", "cache")
         # Self-heal: 1. Seite leer, obwohl der Ordner Mails hat (z. B. nach dem
         # Löschen der einzigen gecachten Seite) -> live nachsyncen und erneut lesen.
         # Nur OHNE Label-Filter — ein leeres Label-Ergebnis ist ein legitimer Zustand.
@@ -444,8 +449,11 @@ def messages(
             msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged)
             if not msgs and not cache_mod.known_empty(session, account_id, folder):
                 msgs = _pin_flagged_first(imap_mod.list_messages(acc, pw, folder=folder, limit=limit, offset=offset), pin_flagged)
+                timing.mark("source", "imap")
         return msgs
     except imap_mod.ImapBusyError:
+        timing.mark("source", "cached_fallback")
+        timing.mark("result", "busy")
         return cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset,
                                        pin_flagged=pin_flagged, keyword=kw, unread=unread)
     except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
@@ -459,6 +467,7 @@ def messages(
             # Auch der Notfall-Weg muss den Filter einhalten, sonst kippt er bei
             # einem Cache-Fehler unbemerkt in "alle Mails anzeigen".
             live = [m for m in live if not m.get("seen")]
+        timing.mark("source", "imap")
         return _pin_flagged_first(live, pin_flagged)
 
 
@@ -579,6 +588,7 @@ def sync_messages(
         # wenigen Sekunden ein normales Ergebnis mit busy=True zurueck. Das
         # laufende Sync liefert sein Ergebnis ohnehin per Live-Ereignis nach.
         logger.info("Sync uebersprungen, Konto beschaeftigt (account_id=%s, folder=%s)", account_id, folder)
+        timing.mark("result", "busy")
         return {"ok": True, "busy": True, "new": 0}
     except Exception:  # noqa: BLE001
         logger.warning("Sync fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
@@ -688,6 +698,7 @@ def message(
         if cached is not None and cached.get("auth"):
             if generation and cached.get("uidvalidity") != generation["uidvalidity"]:
                 raise HTTPException(409, "Ordner wurde neu aufgebaut. Bitte Nachrichtenliste neu laden.")
+            timing.mark("source", "cache")
             return cached
     except HTTPException:
         raise
@@ -705,12 +716,14 @@ def message(
         except Exception:  # noqa: BLE001
             cached_full = None
         if cached_full is not None and (not generation or cached_full.get("uidvalidity") == generation["uidvalidity"]):
+            timing.mark("source", "cached_fallback")
             return cached_full
         try:
             header = cache_mod.read_header(session, account_id, folder, uid)
         except Exception:  # noqa: BLE001
             header = None
         if header is not None and (not generation or header.get("uidvalidity") == generation["uidvalidity"]):
+            timing.mark("source", "header_fallback")
             note = "Diese Nachricht ist auf dem Server nicht mehr verfügbar. Vorschau aus dem Zwischenspeicher:"
             snip = (header.get("snippet") or "").strip()
             return {
@@ -727,11 +740,13 @@ def message(
             cache_mod.remove_uids(session, account_id, folder, [uid], **generation)
         except Exception:  # noqa: BLE001
             pass
+        timing.mark("source", "miss")
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nachricht nicht gefunden")
     try:
         cache_mod.write_detail(session, account_id, folder, uid, msg)
     except Exception:  # noqa: BLE001
         pass
+    timing.mark("source", "imap")
     return msg
 
 
@@ -1043,11 +1058,13 @@ def delete_message(
     except Exception:  # noqa: BLE001
         logger.warning("Nachricht löschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Löschen fehlgeschlagen")
+    timing.mark("result", result)
     try:
         cache_mod.hide_uids(session, account_id, folder, [uid], **generation)
     except Exception:  # noqa: BLE001
         pass
-    bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
+    with timing.phase("notify"):
+        bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
     return {"ok": True, "result": result}
 
 
