@@ -23,7 +23,7 @@ from uuid import uuid4
 logger = logging.getLogger("selfmailer.mail_timing")
 
 _PHASES = frozenset({
-    "account_lookup", "cache_generation", "pool_wait", "connect", "login",
+    "account_lookup", "cache_generation", "pool_wait", "connect", "login", "capability",
     "condstore", "select", "logout", "uidvalidity", "folder_list", "fetch_body",
     "parse_body", "move", "delete", "cache_list", "cache_read", "cache_header",
     "cache_write", "cache_hide", "sync_total", "folder_lock_wait", "folder_status",
