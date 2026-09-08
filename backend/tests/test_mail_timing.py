@@ -289,7 +289,8 @@ def test_connect_select_and_swallowed_logout_failure(monkeypatch, caplog):
     calls = []
     def fail_logout():
         raise OSError("PRIVATE_SERVER_ERROR")
-    box = NS(client=NS(sock=NS(settimeout=lambda *a: None), untagged_responses={}),
+    box = NS(client=NS(sock=NS(settimeout=lambda *a: None), untagged_responses={},
+                       capabilities=("IMAP4REV1",), capability=lambda: ("OK", [b"IMAP4rev1"])),
              folder=NS(set=lambda f: calls.append("select")),
              login=lambda *a, **kw: calls.append("login"), logout=fail_logout)
     monkeypatch.setattr(imap, "MailBox", lambda *a, **kw: box)
@@ -301,6 +302,6 @@ def test_connect_select_and_swallowed_logout_failure(monkeypatch, caplog):
         trace.status = 200
     event, = records(caplog)
     assert calls == ["login", "select"]
-    assert {"connect", "login", "select", "logout"} == event["phases"].keys()
+    assert {"connect", "login", "capability", "select", "logout"} == event["phases"].keys()
     assert event["phases"]["logout"]["failed"] == 1 and event["failed"]
     assert "PRIVATE" not in json.dumps(event)

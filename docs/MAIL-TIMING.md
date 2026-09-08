@@ -1,4 +1,4 @@
-# SelfMailer 1.95.3: Mail-Laufzeiten diagnostizieren
+# SelfMailer ab 1.95.3: Mail-Laufzeiten diagnostizieren
 
 Diese Messung grenzt langsames Öffnen/Löschen und langsame Ordnerlisten ein.
 Sie ist **keine weitere Gmail-Reparatur**. Web und Android benutzen dieselben
@@ -6,8 +6,8 @@ Server-Endpunkte; für diese reine Backend-Messung ist keine neue APK nötig.
 
 ## Aktivieren und begrenzt testen
 
-Container auf `ghcr.io/s3lfcod3r/selfmailer:1.95.3` aktualisieren und Version
-`1.95.3` unter `/api/health` prüfen. Ein GitHub-Release aktualisiert keinen
+Container auf `ghcr.io/s3lfcod3r/selfmailer:latest` aktualisieren und Version
+`1.95.4` unter `/api/health` prüfen. Ein GitHub-Release aktualisiert keinen
 laufenden Container. Android 1.95.1 / Build 104 bleibt kompatibel; SelfStore
 behält diese APK. Das Server-Release enthält keine neue APK.
 
@@ -67,6 +67,7 @@ Die Messung stellt keinen neuen HTTP-Diagnose-Endpunkt bereit.
 | `pool_wait` | Freie Verbindung erhalten, einschließlich Kontingent-Sperre |
 | `connect`, `login` | MailBox-Aufbau (u. a. TCP/TLS/Begrüßung), Anmeldung |
 | `condstore`, `select`, `logout` | CONDSTORE aktivieren, Ordner auswählen, Verbindung schließen |
+| `capability` (ab 1.95.4) | Einmalige Abfrage der Serverfunktionen nach Login, nur wenn die Login-Antwort sie nicht verwertbar mitliefert |
 | `uidvalidity`, `folder_list` | Nachrichtengeneration prüfen, Papierkorb ermitteln |
 | `fetch_body`, `parse_body` | Nachricht abrufen einschließlich Verarbeitung; Verarbeitung als Teilmessung |
 | `move`, `delete` | Mail verschieben bzw. bestehender endgültiger Löschpfad |
