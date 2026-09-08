@@ -129,7 +129,7 @@ def test_uidvalidity_rebuilds_cache_and_rejects_old_delete(db, monkeypatch):
                             message_id="<old@test>", detail_json='{"text":"OLD BODY"}'))
         s.commit()
         acc = s.get(MailAccount, 1)
-        result = cache.sync_folder(s, acc, "synthetic", "INBOX")
+        result = cache.sync_folder(s, acc, "synthetic", "INBOX", store_bodies=True)
         assert result["new"] == 1
         rows = s.exec(select(CachedMessage)).all()
         assert len(rows) == 1 and rows[0].uidvalidity == 101 and not rows[0].hidden

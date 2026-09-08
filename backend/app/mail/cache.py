@@ -28,7 +28,8 @@ from . import imap as imap_mod
 
 logger = logging.getLogger(__name__)
 
-# Obergrenze, wie viele (neueste) Mail-Köpfe pro Sync nachgeladen werden.
+# Obergrenze für Kopfzeilen. Zusätzlich stoppt der Header-Abruf nach zwei Sekunden
+# zwischen 50er-Paketen; ein laufendes IMAP-Kommando hat seinen Socket-Timeout.
 # Bewusst nicht zu hoch: ein Lauf bleibt zeitlich beschaenkt; sehr große Ordner
 # füllen sich über mehrere Syncs. Der Sync committet ATOMAR (nur einmal am Ende),
 # damit die Liste während des Aufbaus nie einen inkonsistenten Zwischenstand zeigt.
@@ -172,9 +173,8 @@ def _voller_abgleich_faellig(account_id: int, folder: str) -> bool:
     letzter = _flag_full_at.get((account_id, folder))
     return letzter is None or (time.monotonic() - letzter) >= _FLAG_FULL_SECS
 # Obergrenze für den Volltext, den der Sync gleich mit ablegt (JSON-Länge).
-# Der Fetch lädt die Mail ohnehin KOMPLETT (Snippet + Anhang-Flag brauchen den
-# Body), also kostet das Mitspeichern keine einzige zusätzliche IMAP-Runde — es
-# spart dem Frontend das zweite Holen derselben Mails über /messages/prefetch.
+# Gilt beim Öffnen/Vorladen und bei explizitem store_bodies=True. Der normale
+# Listen-Sync lädt seit 1.95.0 ausschließlich Kopfzeilen und MIME-Metadaten.
 # Der Deckel hält Ausreißer (bildlastige Newsletter) aus der DB; solche Mails
 # werden beim Öffnen wie bisher live geholt.
 _DETAIL_CACHE_MAX = 100 * 1024
@@ -237,6 +237,12 @@ def has_cache(session: Session, account_id: int, folder: str) -> bool:
     return session.exec(
         select(FolderSync).where(FolderSync.account_id == account_id, FolderSync.folder == folder)
     ).first() is not None
+
+
+def known_empty(session: Session, account_id: int, folder: str) -> bool:
+    state = session.exec(select(FolderSync).where(
+        FolderSync.account_id == account_id, FolderSync.folder == folder)).first()
+    return state is not None and state.last_sync is not None and state.total == 0
 
 
 def read_messages(
@@ -545,7 +551,8 @@ def write_detail(session: Session, account_id: int, folder: str, uid: str, detai
     session.execute(update(CachedMessage).where(
         CachedMessage.account_id == account_id, CachedMessage.folder == folder,
         CachedMessage.uid == uid, CachedMessage.uidvalidity == detail.get("uidvalidity", 0)
-    ).values(detail_json=encoded).execution_options(synchronize_session=False))
+    ).values(detail_json=encoded, snippet=_snippet(detail.get("text", ""), detail.get("html", "")),
+             has_attachments=bool(detail.get("attachments"))).execution_options(synchronize_session=False))
     session.commit()
 
 
@@ -745,7 +752,7 @@ def _folder_lock(account_id: int, folder: str) -> threading.Lock:
 
 def sync_folder(
     session: Session, account: MailAccount, password: str, folder: str,
-    cap: int = _SYNC_CAP, *, store_bodies: bool = True, lock_timeout: float | None = None, op: str = "sync",
+    cap: int = _SYNC_CAP, *, store_bodies: bool = False, lock_timeout: float | None = None, op: str = "sync",
 ) -> dict:
     """Gleicht den Cache eines Ordners mit dem Server ab (Delta-Sync).
 
@@ -753,9 +760,9 @@ def sync_folder(
     desselben Ordners (sonst Duplikate im Cache, siehe _folder_lock). Die eigentliche
     Arbeit steckt in ``_sync_folder_unlocked``.
 
-    ``store_bodies``: den beim Fetch ohnehin geladenen Volltext gleich als
-    ``detail_json`` mit ablegen (siehe _DETAIL_CACHE_MAX). Standard an — nur
-    abschalten, wenn bewusst nur Kopfzeilen gepflegt werden sollen."""
+    Standard: nur Kopfzeilen/Flags/BODYSTRUCTURE, keine Anhang-Payloads.
+    ``store_bodies=True`` ist ein expliziter Vollabruf für interne Werkzeuge;
+    normale Listen, Erstbefüllung und Hintergrund-Sync verwenden ihn nicht."""
     if account.id is None:
         # Ohne Konto-id gibt es keinen sinnvollen Sperr-Schluessel (und keinen Cache
         # zum Schuetzen) -> direkt durchreichen.
@@ -763,16 +770,29 @@ def sync_folder(
             session, account, password, folder, cap,
             store_bodies=store_bodies, lock_timeout=lock_timeout, op=op,
         )
-    with _folder_lock(account.id, folder):
-        return _sync_folder_unlocked(
+    started = time.monotonic()
+    budget = max(0.0, lock_timeout if lock_timeout is not None else imap_mod._LOCK_TIMEOUT)
+    lock = _folder_lock(account.id, folder)
+    if not lock.acquire(timeout=0.0 if op == "sync-ui" else budget):
+        raise imap_mod.ImapBusyError()
+    try:
+        waited = time.monotonic() - started
+        result = _sync_folder_unlocked(
             session, account, password, folder, cap,
-            store_bodies=store_bodies, lock_timeout=lock_timeout, op=op,
+            store_bodies=store_bodies, lock_timeout=max(0.0, budget - waited), op=op,
         )
+        if "ms" in result:
+            result["ms"]["ordnersperre"] = int(waited * 1000)
+            result["ms"]["gesamt"] += int(waited * 1000)
+            result["ms"]["warten"] += int(waited * 1000)
+        return result
+    finally:
+        lock.release()
 
 
 def _sync_folder_unlocked(
     session: Session, account: MailAccount, password: str, folder: str,
-    cap: int = _SYNC_CAP, *, store_bodies: bool = True, lock_timeout: float | None = None, op: str = "sync",
+    cap: int = _SYNC_CAP, *, store_bodies: bool = False, lock_timeout: float | None = None, op: str = "sync",
 ) -> dict:
     """Kernlogik von sync_folder. NUR unter der (Konto, Ordner)-Sperre aufrufen."""
     fetch_uids: list[str] = []
@@ -863,9 +883,14 @@ def _sync_folder_unlocked(
             # WICHTIG: KEINE Zwischen-Commits. Alle neuen Köpfe werden nur in der
             # Session vorgemerkt und erst am Ende in EINEM Commit sichtbar → Leser
             # sehen nie einen halb aufgebauten Ordner.
-            for msg in box.fetch(AND(uid=",".join(fetch_uids)), mark_seen=False, bulk=50):
+            pending_uids = fetch_uids
+            fetch_uids = []
+            incoming = (box.fetch(AND(uid=",".join(pending_uids)), uid_list=pending_uids, mark_seen=False, bulk=50)
+                        if store_bodies else imap_mod.fetch_headers(box, pending_uids, reverse=True, deadline_s=2.0))
+            for msg in incoming:
                 if not msg.uid:
                     continue
+                fetch_uids.append(msg.uid)
                 th = thread_headers(msg)
                 # Dublette über UIDVALIDITY-/Knoten-Wechsel hinweg vermeiden: gleiche
                 # Message-ID schon im Cache (unter anderer UID) → nicht doppelt anlegen.
@@ -877,17 +902,12 @@ def _sync_folder_unlocked(
                     uidvalidity=uidvalidity,
                     subject=msg.subject or "", from_addr=msg.from_ or "", date_str=msg.date_str or "",
                     sort_date=_to_utc_naive(msg.date), seen=SEEN in msg.flags, flagged=FLAGGED in msg.flags,
-                    snippet=_snippet(msg.text or "", msg.html or ""), has_attachments=bool(msg.attachments),
+                    snippet=_snippet(msg.text or "", msg.html or ""), has_attachments=imap_mod.has_attachments(msg),
                     message_id=mid, in_reply_to=th["in_reply_to"], refs=th["references"],
                     keywords=" ".join(keywords_of(msg)),
                 )
-                # Volltext gleich mit ablegen. Die Mail ist an dieser Stelle KOMPLETT
-                # geladen (Snippet und Anhang-Flag brauchen den Body) — bisher wurde
-                # sie danach weggeworfen und vom Frontend über /messages/prefetch ein
-                # ZWEITES Mal geholt. Genau das machte den Erstzugriff auf große
-                # Postfächer (Gmail) so zäh: dieselben Daten zweimal über IMAP.
-                # Anhang-Payloads landen NICHT in detail_json (nur deren Metadaten),
-                # der Eintrag bleibt also klein.
+                # Nur im expliziten Vollabruf-Modus einen vollständigen Body speichern.
+                # Header-only darf niemals als vollständiges Detail im Cache landen.
                 if store_bodies:
                     try:
                         detail = json.dumps({**_detail_dict(msg, account), "uidvalidity": uidvalidity, "folder": folder}, ensure_ascii=False)
@@ -973,7 +993,7 @@ def _sync_folder_unlocked(
             recent = [u for u in server_uids[-_FLAG_WINDOW:] if u in cached_by_uid]
             _flag_n = len(recent)
             if recent:
-                for msg in box.fetch(AND(uid=",".join(recent)), mark_seen=False, headers_only=True, bulk=100):
+                for msg in box.fetch(AND(uid=",".join(recent)), uid_list=recent, mark_seen=False, headers_only=True, bulk=100):
                     row = cached_by_uid.get(msg.uid or "")
                     if row:
                         # Vom Nutzer selbst gesetzten Gelesen-Status NICHT überschreiben.
