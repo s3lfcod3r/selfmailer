@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .core.config import get_settings
 from .core.db import init_db
+from .mail import timing as mail_timing
 from .api import (
     accounts,
     admin,
@@ -63,7 +64,7 @@ async def lifespan(app: FastAPI):
 # Server-Version: mit README-Badge, Git-Tag und frontend/package*.json abstimmen.
 # Die WebUI zeigt sie über /api/health an. Reine Backend-Releases brauchen keine
 # neue APK; dann die kompatible Android-Version ausdrücklich im Release nennen.
-APP_VERSION = "1.95.2"
+APP_VERSION = "1.95.3"
 
 # Öffentliche API-Docs (Swagger/ReDoc/OpenAPI-Schema) in Produktion abschalten —
 # reduziert die Angriffsfläche/Info-Preisgabe; die WebUI/APK brauchen sie nicht.
@@ -79,6 +80,18 @@ app = FastAPI(
 # Hard-Limit fürs rohe Request. Große Uploads (Anhänge) werden anhand von
 # Content-Length früh abgewiesen, BEVOR der Body in den Speicher gelesen wird.
 _MAX_REQUEST_BYTES = 30 * 1024 * 1024  # ~30 MB
+
+
+@app.middleware("http")
+async def measure_mail_request(request: Request, call_next):
+    target = mail_timing.classify(request.method, request.url.path)
+    if target is None:
+        return await call_next(request)
+    with mail_timing.request_scope(*target) as trace:
+        response = await call_next(request)
+        if trace is not None:
+            trace.status = response.status_code
+        return response
 
 
 @app.middleware("http")
@@ -191,7 +204,7 @@ app.include_router(settings_api.router)
 
 # Build-Marker: erlaubt von außen zu prüfen, welche Version wirklich LÄUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhöhen.
-APP_BUILD = "2026-09-08-v1.95.2"
+APP_BUILD = "2026-09-08-v1.95.3"
 
 
 @app.get("/api/health")
