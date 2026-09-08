@@ -24,6 +24,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from .counts_control import counts_gate
 from datetime import date, datetime, timezone
 
 from sqlmodel import Session, select
@@ -183,12 +184,15 @@ def _sync_account(acc: MailAccount) -> None:
     if _stop.is_set():
         return
     counts: list[dict] | None = None
-    try:
-        counts = imap_mod.folder_counts(acc, pw)
-        with Session(engine) as s:
-            cache_mod.write_folder_counts(s, acc.id, counts)
-    except Exception:  # noqa: BLE001
-        logger.warning("Ordnerzähler-Sync fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+    if counts_gate.claim(acc.id):
+        try:
+            counts = imap_mod.folder_counts(acc, pw)
+            with Session(engine) as s:
+                cache_mod.write_folder_counts(s, acc.id, counts)
+        except Exception:  # noqa: BLE001
+            logger.warning("Ordnerzähler-Sync fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+        finally:
+            counts_gate.finish(acc.id)
 
     # 3) Push bei neuer Mail: pro ausgewähltem Ordner die Ungelesen-Zahl mit der
     #    zuletzt gemeldeten vergleichen. Erster Lauf (Basis -1) setzt nur die Basis.

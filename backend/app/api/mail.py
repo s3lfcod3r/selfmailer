@@ -26,6 +26,7 @@ from ..mail import imap as imap_mod
 from ..mail import migrate as migrate_mod
 from ..mail import smtp as smtp_mod
 from ..mail import timing
+from ..mail.counts_control import counts_gate
 from ..core import jobs
 from ..models import MailAccount, MailIdentity, ScheduledMail, User, FolderSync
 from ..schemas import (
@@ -196,16 +197,22 @@ def folder_counts(
     Auffrischen. Fällt der Live-Abruf aus, bleibt der Cache stehen.
     """
     acc = _account(account_id, user, session)
-    if not live:
-        cached = cache_mod.read_folder_counts(session, account_id)
+    cached = cache_mod.read_folder_counts(session, account_id)
+    if not live and cached:
+        return _override_unseen_from_cache(session, account_id, cached)
+    if not counts_gate.claim(account_id):
         if cached:
             return _override_unseen_from_cache(session, account_id, cached)
-    out = imap_mod.folder_counts(acc, _account_secret(acc))
+        raise HTTPException(503, "Ordner werden gerade aktualisiert. Bitte kurz warten.", headers={"Retry-After": "30"})
     try:
-        cache_mod.write_folder_counts(session, account_id, out)
-    except Exception:  # noqa: BLE001 - Cache-Pflege darf den Abruf nie kippen
-        pass
-    return _override_unseen_from_cache(session, account_id, out)
+        out = imap_mod.folder_counts(acc, _account_secret(acc))
+        try:
+            cache_mod.write_folder_counts(session, account_id, out)
+        except Exception:  # noqa: BLE001 - Cache-Pflege darf den Abruf nie kippen
+            pass
+        return _override_unseen_from_cache(session, account_id, out)
+    finally:
+        counts_gate.finish(account_id)
 
 
 def _override_unseen_from_cache(session: Session, account_id: int, folders: list[dict]) -> list[dict]:

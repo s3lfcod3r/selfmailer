@@ -204,13 +204,13 @@ test('overlapping background sync requests are deduplicated', async () => {
   let calls = 0;
   const env = { ...common, api: { post: () => { calls++; return network.promise; } },
     bgSyncPendingRef: { current: new Set() }, bgSyncSeqRef: { current: new Map() },
-    bgSyncFailRef: { current: new Map() }, setSyncing() {} };
+    bgSyncDue: () => true, syncBackoffRef: { current: { record() {} } }, setSyncing() {} };
   const sync = original(page, 'bgSync', env);
   sync(1, 'INBOX'); sync(1, 'INBOX');
   assert.equal(calls, 1);
   // Changing account before completion also prevents another list fetch.
   common.selRef.current = { acc: 2, folder: 'INBOX' };
-  network.resolve();
+  network.resolve({ new: 0 });
   await flush();
   assert.equal(env.bgSyncPendingRef.current.size, 0);
 });

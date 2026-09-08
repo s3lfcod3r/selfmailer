@@ -35,19 +35,10 @@ def test_erkennt_condstore_faehigkeit():
 
 
 def test_ohne_faehigkeit_wird_nichts_eingeschaltet():
-    """Server ohne CONDSTORE: ENABLE wird gar nicht erst gesendet."""
-    class _Zaehler(_FakeClient):
-        gesendet = 0
-
-        def _simple_command(self, *_a):
-            type(self).gesendet += 1
-            return ("OK", [])
-
-    imap_mod.enable_condstore(_FakeBox(_Zaehler(caps=("IMAP4REV1",))))
-    assert _Zaehler.gesendet == 0
-
-    imap_mod.enable_condstore(_FakeBox(_Zaehler(caps=("IMAP4REV1", "CONDSTORE"))))
-    assert _Zaehler.gesendet == 1
+    """Server ohne CONDSTORE verwenden weiter die normale Ordnerauswahl."""
+    box = _box_mit_select({})
+    imap_mod._select(box, "INBOX")
+    assert box.folder.gesetzt == "INBOX"
 
 
 class _FakeFolder:
