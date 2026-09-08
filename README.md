@@ -6,7 +6,7 @@
 **Self-hosted, multi-user e-mail client — with calendar, contacts, notes, a native Android app, and real-time sync. Your own alternative to Synology MailPlus.**
 
 [![Build](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml/badge.svg)](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-1.95.4-33A78C)
+![Version](https://img.shields.io/badge/version-1.95.5-33A78C)
 ![License](https://img.shields.io/badge/license-private-8A9CAA)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-009688)
 ![Web](https://img.shields.io/badge/web-React%20%2B%20Vite-43D3AD)
@@ -23,6 +23,7 @@ Security update notes / Hinweise zum Sicherheitsupdate:
 
 Latest server update / Aktuelles Serverupdate:
 [1.95.4: recognize post-login IMAP capabilities for native MOVE and CONDSTORE](docs/IMAP-CAPABILITIES.md).
+[1.95.5: Gmail sync backoff, bounded live counts and fewer IMAP round trips; Android build 105](docs/GMAIL-SYNC-1.95.5.md).
 [Privacy-preserving mail timing diagnostics; Android 1.95.1 remains compatible](docs/MAIL-TIMING.md).
 
 <a id="-english"></a>

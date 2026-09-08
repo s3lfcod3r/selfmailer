@@ -7,9 +7,10 @@ Server-Endpunkte; für diese reine Backend-Messung ist keine neue APK nötig.
 ## Aktivieren und begrenzt testen
 
 Container auf `ghcr.io/s3lfcod3r/selfmailer:latest` aktualisieren und Version
-`1.95.4` unter `/api/health` prüfen. Ein GitHub-Release aktualisiert keinen
-laufenden Container. Android 1.95.1 / Build 104 bleibt kompatibel; SelfStore
-behält diese APK. Das Server-Release enthält keine neue APK.
+`1.95.5` unter `/api/health` prüfen. Ein GitHub-Release aktualisiert keinen
+laufenden Container. Die Messung selbst erfordert keine neue APK; der
+zusätzliche [Busy-Fix in 1.95.5](GMAIL-SYNC-1.95.5.md) enthält diesmal aber
+auch Android-Änderungen und eine neue APK (Build 105).
 
 Nach Deployment dieses Codes schreibt der Server pro ausgewählter Anfrage
 höchstens eine Zeile `mail_timing {JSON}` ins Container-Log (Log-Level WARNING).
@@ -61,12 +62,15 @@ Die Messung stellt keinen neuen HTTP-Diagnose-Endpunkt bereit.
 - `move_mode`: beim Verschieben `native` (IMAP MOVE) oder `copy_delete`
   (Bibliotheks-Fallback COPY/STORE/EXPUNGE), bei unbekannten Fähigkeiten `unknown`.
   Die Messung sendet dafür keine zusätzlichen IMAP-Befehle.
+- Ab 1.95.5: `condstore_mode=select|fallback` bezeichnet die gebündelte bzw.
+  abgelehnte erweiterte Auswahl; `generation_source=select|status` die Quelle
+  der unveränderten UIDVALIDITY-Prüfung. Beide Marker enthalten nur feste Werte.
 
 | Schritt | Was dort gewartet/gearbeitet wird |
 | --- | --- |
 | `pool_wait` | Freie Verbindung erhalten, einschließlich Kontingent-Sperre |
 | `connect`, `login` | MailBox-Aufbau (u. a. TCP/TLS/Begrüßung), Anmeldung |
-| `condstore`, `select`, `logout` | CONDSTORE aktivieren, Ordner auswählen, Verbindung schließen |
+| `condstore`, `select`, `logout` | Aktivierung (bis 1.95.4 separat), Ordner auswählen (ab 1.95.5 ggf. mit CONDSTORE), Verbindung schließen |
 | `capability` (ab 1.95.4) | Einmalige Abfrage der Serverfunktionen nach Login, nur wenn die Login-Antwort sie nicht verwertbar mitliefert |
 | `uidvalidity`, `folder_list` | Nachrichtengeneration prüfen, Papierkorb ermitteln |
 | `fetch_body`, `parse_body` | Nachricht abrufen einschließlich Verarbeitung; Verarbeitung als Teilmessung |
