@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from 
 import { api, fetchHealth, type User } from "./lib/api";
 import { useLang } from "./lib/i18n";
 import { DialogHost } from "./lib/dialog";
+import type { LeaveGuard } from "./lib/leaveGuard";
 import { Login } from "./pages/Login";
 import { Mail } from "./pages/Mail";
 import { Wordmark } from "./components/Wordmark";
@@ -100,6 +101,8 @@ const MENU: AppItem[] = [
 ];
 
 export function App() {
+  const leaveGuard = useRef<LeaveGuard | null>(null);
+  const navigating = useRef(false);
   const { t } = useLang();
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
@@ -250,8 +253,18 @@ export function App() {
   // eingefärbt, im hellen bleiben sie im Original. Pro Mail weiter umschaltbar.
   const darkMail = theme === "dark";
 
-  function go(v: View) { setView(v); setMenu(null); }
-  function logout() {
+  async function mayLeave() {
+    if (navigating.current) return false;
+    navigating.current = true;
+    try { return !leaveGuard.current || await leaveGuard.current(); }
+    finally { navigating.current = false; }
+  }
+  async function go(v: View) {
+    if (v !== view && !(await mayLeave())) return;
+    setView(v); setMenu(null);
+  }
+  async function logout() {
+    if (!(await mayLeave())) return;
     // Cookie serverseitig löschen; UI sofort ausloggen (Fehler ignorieren).
     api.post("/auth/logout").catch(() => {});
     localStorage.removeItem("selfmailer.token"); // Alt-Token aus früherer Version aufräumen
@@ -396,12 +409,12 @@ export function App() {
           {/* Mail bleibt gemountet (nur versteckt), damit beim Zurückwechseln
               nicht neu geladen wird – kein sichtbares Nachladen. */}
           <div style={{ display: view === "mail" ? "contents" : "none" }}>
-            <Mail search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} pinFlagged={pinFlagged} conversationView={conversationView} showQuota={showQuota} showMbox={showMbox} onUnseenChange={setMailUnseen} />
+            <Mail active={view === "mail"} search={search} filter={filter} pollMin={pollMin} blockImages={blockImages} darkMail={darkMail} pinFlagged={pinFlagged} conversationView={conversationView} showQuota={showQuota} showMbox={showMbox} onUnseenChange={setMailUnseen} />
           </div>
           <Suspense fallback={<div className="muted">{t("common.loading")}</div>}>
             {view === "calendar" && <Calendar />}
             {view === "contacts" && <Contacts />}
-            {view === "notes" && <Notes />}
+            {view === "notes" && <Notes leaveGuard={leaveGuard} />}
             {view === "sync" && <Sync />}
             {view === "notify" && <Notify />}
             {view === "accounts" && <Accounts />}

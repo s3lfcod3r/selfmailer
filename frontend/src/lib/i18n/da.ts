@@ -1,6 +1,8 @@
 import type { Dict } from "./types";
 
 export const da: Dict = {
+  "notes.unsaved": "Kassér ikke-gemte ændringer i denne note?",
+  "notes.noResults": "Ingen matchende noter.",
   // Common
   "common.loading": "Indlæser…",
   "common.add": "Tilføj",

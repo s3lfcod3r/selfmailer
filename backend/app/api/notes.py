@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import datetime as dt
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import Session, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlmodel import Session, or_, select
 
 from ..core.db import get_session
 from ..models import Note, User
-from ..schemas import NoteCreate, NoteOut, NoteUpdate
+from ..schemas import NoteCreate, NoteOut, NoteSummary, NoteUpdate
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/notes", tags=["notes"])
@@ -48,6 +48,37 @@ def create_note(
     session.commit()
     session.refresh(note)
     return note
+
+
+@router.get("/summaries", response_model=list[NoteSummary])
+def list_note_summaries(
+    q: str = Query(default="", max_length=200),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[NoteSummary]:
+    # Deliberately select only metadata, not bodies. The legacy list above stays
+    # compatible with Android; the web overview fetches bodies only on demand.
+    stmt = select(
+        Note.id, Note.title, Note.color, Note.pinned, Note.created_at, Note.updated_at,
+    ).where(Note.user_id == user.id)
+    if query := q.strip():
+        # Treat LIKE metacharacters as literal search text.
+        pattern = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        stmt = stmt.where(or_(
+            Note.title.ilike(pattern, escape="\\"),
+            Note.body.ilike(pattern, escape="\\"),
+        ))
+    stmt = stmt.order_by(Note.pinned.desc(), Note.updated_at.desc(), Note.id.desc()).limit(_MAX_LIST)
+    return [NoteSummary.model_validate(row._mapping) for row in session.exec(stmt).all()]
+
+
+@router.get("/{note_id}", response_model=NoteOut)
+def get_note(
+    note_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> Note:
+    return _owned(note_id, user, session)
 
 
 @router.patch("/{note_id}", response_model=NoteOut)

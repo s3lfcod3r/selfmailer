@@ -1,6 +1,8 @@
 import type { Dict } from "./types";
 
 export const fr: Dict = {
+  "notes.unsaved": "Abandonner les modifications non enregistrées de cette note ?",
+  "notes.noResults": "Aucune note correspondante.",
   // Commun
   "common.loading": "Chargement…",
   "common.add": "Ajouter",
