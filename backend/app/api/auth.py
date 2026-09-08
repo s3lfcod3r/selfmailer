@@ -4,6 +4,7 @@ from __future__ import annotations
 import hmac
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import update
 from sqlmodel import Session, func, select
 
 from ..core.config import get_settings
@@ -73,13 +74,17 @@ def _verify_second_factor(session: Session, user: User, code: str) -> bool:
         if secret:
             step = totp_lib.verify_code_step(secret, code)
             if step is not None:
-                # Replay-Schutz: jeder Zeitschritt nur einmal.
-                if step <= user.totp_last_step:
-                    return False
-                user.totp_last_step = step
-                session.add(user)
+                # Atomarer Verbrauch: zwei Sessions dürfen denselben alten
+                # User-Zustand lesen, aber nur EINE darf den Schritt verbrauchen.
+                result = session.execute(
+                    update(User).where(
+                        User.id == user.id, User.totp_enabled == True,  # noqa: E712
+                        User.totp_secret == user.totp_secret,
+                        User.totp_last_step < step,
+                    ).values(totp_last_step=step).execution_options(synchronize_session=False)
+                )
                 session.commit()
-                return True
+                return result.rowcount == 1
     # 2) Backup-Code (Einmal-Nutzung)
     normalized = totp_lib.normalize_backup_code(code)
     if len(normalized) < 8:
@@ -91,10 +96,15 @@ def _verify_second_factor(session: Session, user: User, code: str) -> bool:
     ).all()
     for row in rows:
         if verify_password(normalized, row.code_hash):
-            row.used = True
-            session.add(row)
+            result = session.execute(
+                update(BackupCode).where(
+                    BackupCode.id == row.id, BackupCode.user_id == user.id,
+                    BackupCode.code_hash == row.code_hash,
+                    BackupCode.used == False,  # noqa: E712
+                ).values(used=True).execution_options(synchronize_session=False)
+            )
             session.commit()
-            return True
+            return result.rowcount == 1
     return False
 
 

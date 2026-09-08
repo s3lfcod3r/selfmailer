@@ -17,7 +17,8 @@ import threading
 from email.utils import parsedate_to_datetime
 
 from imap_tools import AND
-from sqlalchemy import func, literal, update
+from sqlalchemy import delete, func, literal, update
+from sqlalchemy.orm import defer
 from sqlmodel import Session, select
 
 from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
@@ -222,6 +223,7 @@ def backfill_sort_dates(session: Session) -> int:
 def _to_dict(r: CachedMessage) -> dict:
     return {
         "uid": r.uid, "subject": r.subject, "from": r.from_addr, "date": r.date_str,
+        "uidvalidity": r.uidvalidity, "folder": r.folder,
         "seen": r.seen, "flagged": r.flagged, "snippet": r.snippet,
         "has_attachments": r.has_attachments,
         # Thread-Header für die Konversations-Gruppierung im Frontend.
@@ -258,7 +260,7 @@ def read_messages(
     if pin_flagged:
         order.insert(0, CachedMessage.flagged.desc())
     stmt = (
-        select(CachedMessage)
+        select(CachedMessage).options(defer(CachedMessage.detail_json))
         .where(
             CachedMessage.account_id == account_id, CachedMessage.folder == folder,
             CachedMessage.hidden == False,  # noqa: E712 - ausgeblendete (gelöschte) nicht zeigen
@@ -289,7 +291,7 @@ def read_unified(
     if not account_ids:
         return []
     stmt = (
-        select(CachedMessage)
+        select(CachedMessage).options(defer(CachedMessage.detail_json))
         .where(
             CachedMessage.account_id.in_(account_ids),
             CachedMessage.folder == "INBOX",
@@ -478,6 +480,14 @@ def read_detail(session: Session, account_id: int, folder: str, uid: str) -> dic
         return None
     detail["seen"] = row.seen
     detail["flagged"] = row.flagged
+    detail["uidvalidity"] = row.uidvalidity
+    detail["folder"] = row.folder
+    # Alte positive Analysen wurden ohne Trust-/Alignment-Prüfung erstellt.
+    # Auch im Offline-Fallback niemals als verifiziert ausliefern.
+    auth = detail.get("auth")
+    if (not isinstance(auth, dict) or auth.get("analysis_version") != 2
+            or auth.get("analysis_policy") != imap_mod.auth_policy_key()):
+        detail["auth"] = None
     return detail
 
 
@@ -523,11 +533,19 @@ def write_detail(session: Session, account_id: int, folder: str, uid: str, detai
     ).first()
     if not row:
         return
+    # Ein paralleler Sync könnte die Generation schon gewechselt haben.
+    if detail.get("uidvalidity", 0) != row.uidvalidity:
+        return
     try:
-        row.detail_json = json.dumps(detail, ensure_ascii=False)
+        encoded = json.dumps(detail, ensure_ascii=False)
+        if len(encoded) > _DETAIL_CACHE_MAX:
+            return
     except (TypeError, ValueError):
         return
-    session.add(row)
+    session.execute(update(CachedMessage).where(
+        CachedMessage.account_id == account_id, CachedMessage.folder == folder,
+        CachedMessage.uid == uid, CachedMessage.uidvalidity == detail.get("uidvalidity", 0)
+    ).values(detail_json=encoded).execution_options(synchronize_session=False))
     session.commit()
 
 
@@ -563,43 +581,13 @@ def _set_row_seen(session: Session, account_id: int, row: CachedMessage, seen: b
     session.add(row)
 
 
-def update_flags(session: Session, account_id: int, folder: str, uid: str, *, seen: bool | None = None, flagged: bool | None = None) -> None:
-    """Hält den Cache konsistent, wenn der Nutzer selbst Flags ändert.
-
-    Bei einer ECHTEN seen-Änderung wird der Ordner-Ungelesen-Zähler sofort
-    mitgezogen (gelesen -> -1, ungelesen -> +1), damit summary()/Badges in Web UND
-    App direkt stimmen, statt erst nach dem nächsten Scheduler-Sync."""
-    row = session.exec(
-        select(CachedMessage).where(
-            CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid == uid
-        )
-    ).first()
-    if not row:
-        return
-    if seen is not None:
-        _set_row_seen(session, account_id, row, seen)
-        # Gmail & Co.: dieselbe Mail liegt als KOPIE in weiteren Ordnern (Gmail-
-        # Label-Ordner "Alle Nachrichten"/"Wichtig"/"Markiert" enthalten Kopien der
-        # INBOX-Mails). Liest man in der INBOX, blieb die Kopie sonst ungelesen und
-        # die Mail "kam wieder" bzw. verfälschte den Zähler. Über die Message-ID ALLE
-        # Kopien im Konto mitziehen (auch gegen Sync-Überschreibung gesperrt).
-        if row.message_id:
-            twins = session.exec(
-                select(CachedMessage).where(
-                    CachedMessage.account_id == account_id,
-                    CachedMessage.message_id == row.message_id,
-                    CachedMessage.id != row.id,
-                )
-            ).all()
-            for t in twins:
-                _set_row_seen(session, account_id, t, seen)
-    if flagged is not None:
-        row.flagged = flagged
-    session.add(row)
-    session.commit()
+def update_flags(session: Session, account_id: int, folder: str, uid: str, *,
+                 seen: bool | None = None, flagged: bool | None = None, uidvalidity: int | None = None) -> None:
+    """Einzelaktionen nutzen denselben generationsgebundenen SQL-Pfad wie Batches."""
+    set_flags_bulk(session, account_id, folder, [uid], seen=seen, flagged=flagged, uidvalidity=uidvalidity)
 
 
-def update_keyword(session: Session, account_id: int, folder: str, uid: str, keyword: str, on: bool) -> None:
+def update_keyword(session: Session, account_id: int, folder: str, uid: str, keyword: str, on: bool, *, uidvalidity: int | None = None) -> None:
     """Cache-Keywords (Labels) einer Mail nachziehen, wenn der Nutzer ein Label
     setzt/entfernt — sonst zeigt die Liste bis zum nächsten Sync das Alte."""
     row = session.exec(
@@ -609,19 +597,23 @@ def update_keyword(session: Session, account_id: int, folder: str, uid: str, key
     ).first()
     if not row:
         return
+    if uidvalidity is not None and row.uidvalidity != uidvalidity:
+        return
     kws = [k for k in row.keywords.split() if k]
     if on and keyword not in kws:
         kws.append(keyword)
     elif not on and keyword in kws:
         kws = [k for k in kws if k != keyword]
-    row.keywords = " ".join(kws)
-    session.add(row)
+    session.execute(update(CachedMessage).where(
+        CachedMessage.account_id == account_id, CachedMessage.folder == folder,
+        CachedMessage.uid == uid, CachedMessage.uidvalidity == row.uidvalidity,
+    ).values(keywords=" ".join(kws)).execution_options(synchronize_session=False))
     session.commit()
 
 
 def set_flags_bulk(
     session: Session, account_id: int, folder: str, uids: list[str],
-    *, seen: bool | None = None, flagged: bool | None = None,
+    *, seen: bool | None = None, flagged: bool | None = None, uidvalidity: int | None = None,
 ) -> None:
     """Setzt seen/flagged für viele Cache-Zeilen in EINEM UPDATE je Chunk.
 
@@ -648,6 +640,7 @@ def set_flags_bulk(
                     CachedMessage.account_id == account_id,
                     CachedMessage.folder == folder,
                     CachedMessage.uid.in_(chunk),
+                    CachedMessage.uidvalidity == uidvalidity if uidvalidity is not None else True,
                 )
             ).all()
             changed += sum(1 for s in states if bool(s) != bool(seen))
@@ -661,18 +654,19 @@ def set_flags_bulk(
                 CachedMessage.account_id == account_id,
                 CachedMessage.folder == folder,
                 CachedMessage.uid.in_(chunk),
+                CachedMessage.uidvalidity == uidvalidity if uidvalidity is not None else True,
             )
             .values(**vals)
         )
     # Gmail & Co.: Kopien derselben Mails in weiteren Ordnern (Label-Ordner) über die
     # Message-ID mitziehen — sonst bleiben sie ungelesen und der Zähler stimmt nicht.
     if seen is not None:
-        _propagate_seen_by_message(session, account_id, folder, uids, seen)
+        _propagate_seen_by_message(session, account_id, folder, uids, seen, uidvalidity=uidvalidity)
     session.commit()
 
 
 def _propagate_seen_by_message(
-    session: Session, account_id: int, src_folder: str, uids: list[str], seen: bool,
+    session: Session, account_id: int, src_folder: str, uids: list[str], seen: bool, *, uidvalidity: int | None = None,
 ) -> None:
     """Zieht den seen-Status auf alle KOPIEN (gleiche Message-ID) in ANDEREN Ordnern
     des Kontos mit — für Gmail-Label-Ordner ("Alle Nachrichten" usw.). Ohne Commit;
@@ -685,6 +679,7 @@ def _propagate_seen_by_message(
                 CachedMessage.account_id == account_id,
                 CachedMessage.folder == src_folder,
                 CachedMessage.uid.in_(chunk),
+                CachedMessage.uidvalidity == uidvalidity if uidvalidity is not None else True,
             )
         ).all()
         mids.update(m for m in rows if m)
@@ -704,40 +699,26 @@ def _propagate_seen_by_message(
             _set_row_seen(session, account_id, t, seen)
 
 
-def remove_uids(session: Session, account_id: int, folder: str, uids: list[str]) -> None:
-    """Entfernt Cache-Zeilen HART (nur für serverseitig wirklich verschwundene Mails,
-    z. B. 404-Selbstheilung). Für Nutzer-Löschungen/-Verschiebungen siehe hide_uids."""
-    if not uids:
-        return
-    rows = session.exec(
-        select(CachedMessage).where(
-            CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid.in_(uids)
-        )
-    ).all()
-    for r in rows:
-        session.delete(r)
+def remove_uids(session: Session, account_id: int, folder: str, uids: list[str], *, uidvalidity: int | None = None) -> None:
+    """Entfernt ausschließlich Cache-Zeilen der angeforderten Generation."""
+    for i in range(0, len(uids), 500):
+        session.execute(delete(CachedMessage).where(
+            CachedMessage.account_id == account_id, CachedMessage.folder == folder,
+            CachedMessage.uid.in_(uids[i:i + 500]),
+            CachedMessage.uidvalidity == uidvalidity if uidvalidity is not None else True,
+        ).execution_options(synchronize_session=False))
     session.commit()
 
 
-def hide_uids(session: Session, account_id: int, folder: str, uids: list[str]) -> None:
-    """Blendet Cache-Zeilen aus, statt sie zu entfernen (Nutzer-Löschen/-Verschieben).
-
-    So bleibt die Message-ID/UID im Cache bekannt: ein flatternder Server (web.de),
-    der die Mail noch listet, führt NICHT dazu, dass der Sync sie als „neu" wieder
-    einfügt (Anti-„gelöschte Mail kommt wieder"). Endgültig entfernt wird die Zeile
-    erst über den miss_count, sobald der Server die UID nicht mehr liefert."""
-    if not uids:
-        return
-    rows = session.exec(
-        select(CachedMessage).where(
-            CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid.in_(uids)
-        )
-    ).all()
-    jetzt = dt.datetime.now(dt.timezone.utc)
-    for r in rows:
-        r.hidden = True
-        r.hidden_at = jetzt
-        session.add(r)
+def hide_uids(session: Session, account_id: int, folder: str, uids: list[str], *, uidvalidity: int | None = None) -> None:
+    """Generationsgebundene Tombstones: ein später Sync darf gelöschte Mails nicht wiederbeleben."""
+    for i in range(0, len(uids), 500):
+        session.execute(update(CachedMessage).where(
+            CachedMessage.account_id == account_id, CachedMessage.folder == folder,
+            CachedMessage.uid.in_(uids[i:i + 500]),
+            CachedMessage.uidvalidity == uidvalidity if uidvalidity is not None else True,
+        ).values(hidden=True, hidden_at=dt.datetime.now(dt.timezone.utc))
+          .execution_options(synchronize_session=False))
     session.commit()
 
 
@@ -795,6 +776,7 @@ def _sync_folder_unlocked(
 ) -> dict:
     """Kernlogik von sync_folder. NUR unter der (Konto, Ordner)-Sperre aufrufen."""
     fetch_uids: list[str] = []
+    generation_reset = False
     _t0 = time.monotonic()
     with _mailbox(account, password, folder=folder,
                   lock_timeout=lock_timeout, op=op) as box:
@@ -815,15 +797,23 @@ def _sync_folder_unlocked(
         ).first()
 
         cached_rows = session.exec(
-            select(CachedMessage).where(CachedMessage.account_id == account.id, CachedMessage.folder == folder)
+            select(CachedMessage).options(defer(CachedMessage.detail_json)).where(
+                CachedMessage.account_id == account.id, CachedMessage.folder == folder)
         ).all()
 
-        # UIDVALIDITY-Wechsel: FRÜHER wurde hier der GANZE Ordner-Cache verworfen.
-        # web.de u. a. Cluster melden die UIDVALIDITY aber teils flatterhaft (jede
-        # Verbindung landet auf einem anderen, nicht synchronen Knoten) → das hätte
-        # den Ordner ständig komplett neu aufgebaut: Lese-Status weg, Mails „kommen
-        # wieder", Absender kippt auf „Ich". Darum NICHT mehr wipen — verwaiste UIDs
-        # altern über miss_count aus, echte Dubletten fängt die Message-ID ab.
+        # UIDs gelten NUR innerhalb ihrer Generation. Auch Altbestand mit 0
+        # muss einmal neu geladen werden: seine bisherige Zuordnung ist unbewiesen.
+        if uidvalidity and any(r.uidvalidity != uidvalidity for r in cached_rows):
+            generation_reset = True
+            cached_rows = []
+            if fs is not None:
+                fs.highest_modseq = 0
+                fs.last_sync = None
+            _flag_full_at.pop((account.id or 0, folder), None)
+            _flag_cost.pop((account.id or 0, folder), None)
+        if fs is not None and uidvalidity and fs.uidvalidity != uidvalidity:
+            fs.highest_modseq = 0
+            fs.last_sync = None
 
         cached_by_uid = {r.uid: r for r in cached_rows}
         cached_mids = {r.message_id for r in cached_rows if r.message_id}
@@ -880,10 +870,11 @@ def _sync_folder_unlocked(
                 # Dublette über UIDVALIDITY-/Knoten-Wechsel hinweg vermeiden: gleiche
                 # Message-ID schon im Cache (unter anderer UID) → nicht doppelt anlegen.
                 mid = th["message_id"]
-                if mid and mid in cached_mids:
-                    continue
+                # Nicht über Message-ID deduplizieren: die IMAP-UID identifiziert
+                # diese Kopie; verschiedene UIDs können gleiche Header haben.
                 row = CachedMessage(
                     account_id=account.id, folder=folder, uid=msg.uid,
+                    uidvalidity=uidvalidity,
                     subject=msg.subject or "", from_addr=msg.from_ or "", date_str=msg.date_str or "",
                     sort_date=_to_utc_naive(msg.date), seen=SEEN in msg.flags, flagged=FLAGGED in msg.flags,
                     snippet=_snippet(msg.text or "", msg.html or ""), has_attachments=bool(msg.attachments),
@@ -899,7 +890,7 @@ def _sync_folder_unlocked(
                 # der Eintrag bleibt also klein.
                 if store_bodies:
                     try:
-                        detail = json.dumps(_detail_dict(msg, account), ensure_ascii=False)
+                        detail = json.dumps({**_detail_dict(msg, account), "uidvalidity": uidvalidity, "folder": folder}, ensure_ascii=False)
                         if len(detail) <= _DETAIL_CACHE_MAX:
                             row.detail_json = detail
                     except (TypeError, ValueError):
@@ -1012,13 +1003,24 @@ def _sync_folder_unlocked(
             fs = FolderSync(account_id=account.id, folder=folder)
         if _neuer_modseq:
             fs.highest_modseq = _neuer_modseq
-        fs.uidvalidity = uidvalidity
+        if uidvalidity:
+            fs.uidvalidity = uidvalidity
         fs.total = total
         fs.unseen = unseen
         fs.last_sync = now
         session.add(fs)
 
     _t_db = time.monotonic()
+    if generation_reset:
+        # SQLAlchemy flusht INSERTs vor ORM-DELETEs. Mit dem produktiven UNIQUE-
+        # Index würde dieselbe UID der neuen Generation deshalb kollidieren.
+        # Erst JETZT (nach IMAP) alte Generationen per SQL entfernen, ohne einen
+        # vorzeitigen Autoflush neuer Zeilen. DELETE + INSERT bleiben eine Transaktion.
+        with session.no_autoflush:
+            session.execute(delete(CachedMessage).where(
+                CachedMessage.account_id == account.id, CachedMessage.folder == folder,
+                CachedMessage.uidvalidity != uidvalidity,
+            ).execution_options(synchronize_session="fetch"))
     # Commit ERST NACH dem Verlassen des _mailbox-Blocks → der (kontospezifische) IMAP-
     # Lock wird nicht mehr während eines evtl. langsamen SQLite-Writes gehalten (kürzere
     # Sperre für parallele Nutzeraktionen auf demselben Konto).

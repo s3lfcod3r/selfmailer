@@ -6,6 +6,7 @@ import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../
 import { Compose, emptyDraft, replyDraft, forwardDraft, parseDraftBody, type Draft } from "../components/Compose";
 import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, avatarFor, trimQuotedHtml, trimQuotedText } from "../lib/mailview";
 import { ThreadReader } from "../components/ThreadReader";
+import { messageGeneration } from "../lib/mailIdentity";
 import { groupThreads, normalizeSubject, type Conversation } from "../lib/threads";
 import DOMPurify from "dompurify";
 import { useMenuDismiss } from "../lib/useMenuDismiss";
@@ -161,19 +162,20 @@ function authView(auth: AuthInfo | null, de: boolean): AuthView {
       .filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(" · ");
     if (auth.self_spoof) {
       border = "#ef4444"; color = "#fca5a5"; bg = "rgba(239,68,68,0.12)"; icon = "⚠️";
-      short = de ? "Gefälscht" : "Forged";
-      text = de ? "Gefälschter Absender — du wurdest NICHT gehackt" : "Forged sender — you were NOT hacked";
+      short = de ? "Spoofing-Verdacht" : "Suspected spoofing";
+      text = de ? "Eigene Absenderadresse nicht bestätigt" : "Your sender address was not authenticated";
       tip = de
-        ? "Diese E-Mail gibt vor, von deiner eigenen Adresse zu kommen, ist aber nicht authentifiziert (Spoofing/Erpressung)."
-        : "This email pretends to come from your own address but is not authenticated (spoofing/extortion).";
+        ? "Die Prüfung ist fehlgeschlagen. Das kann Spoofing oder Weiterleitung sein; über einen Kontozugriff sagt dies nichts aus."
+        : "Authentication failed. Spoofing or forwarding may cause this; it does not establish whether an account was accessed.";
     } else if (auth.verdict === "fail") {
       border = "#ef4444"; color = "#fca5a5"; bg = "rgba(239,68,68,0.1)"; icon = "⚠️";
       short = de ? "Evtl. gefälscht" : "Possibly forged";
       text = de ? "Möglicherweise gefälscht" : "Possibly forged";
     } else if (auth.verdict === "pass") {
       border = "#22c55e"; color = "#86efac"; bg = "rgba(34,197,94,0.1)"; icon = "✓";
-      short = de ? "Echt" : "Verified";
-      text = de ? "Echtheit bestätigt" : "Verified";
+      short = de ? "Domain bestätigt" : "Domain authenticated";
+      text = de ? "Absenderdomain durch DMARC bestätigt" : "Sender domain authenticated by DMARC";
+      tip = de ? "Keine Garantie für Absenderperson, Inhalt oder sichere Links." : "Does not guarantee the sender's identity, content or link safety.";
     }
   }
   return { color, bg, border, icon, short, text, tip, chips };
@@ -468,7 +470,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [mobilePane, setMobilePane] = useState<"folders" | "list" | "read">("list");
   // Konto-Transfer: ausgewählte Mails ODER ganzer Ordner (uids=null) in ein
   // ANDERES Konto kopieren/verschieben.
-  const [transfer, setTransfer] = useState<{ sourceAcc: number; sourceFolder: string; uids: string[] | null } | null>(null);
+  const [transfer, setTransfer] = useState<{ sourceAcc: number; sourceFolder: string; uids: string[] | null; uidvalidity?: number } | null>(null);
   const [xferAcc, setXferAcc] = useState<number>(0);
   const [xferFolder, setXferFolder] = useState<string>("");
   const [xferBusy, setXferBusy] = useState(false);
@@ -708,7 +710,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   async function showRaw(uid: string) {
     if (activeId == null) return;
     try {
-      setRawText(await api.get<string>(`/mail/${activeId}/messages/${uid}/raw?folder=${encodeURIComponent(folder)}`));
+      setRawText(await api.get<string>(`/mail/${activeId}/messages/${uid}/raw?folder=${encodeURIComponent(folder)}${generationFor(uid)}`));
     } catch (e) { setErr((e as Error).message); }
   }
 
@@ -716,11 +718,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Aktuelle Auswahl als Ref, damit ein verspäteter Hintergrund-Sync nur dann
   // die Liste aktualisiert, wenn der Nutzer noch im selben Ordner ist.
   const selRef = useRef(sel);
-  useEffect(() => { selRef.current = sel; }, [sel]);
+  selRef.current = sel;
   // Aktuelle Seite als Ref, damit der periodische Auto-Sync genau die gerade
   // sichtbare Seite auffrischt (ohne den Effekt bei jedem Seitenwechsel neu zu setzen).
   const pageRef = useRef(1);
-  useEffect(() => { pageRef.current = page; }, [page]);
+  pageRef.current = page;
   useEffect(() => { searchActiveRef.current = searchActive; }, [searchActive]);
   useEffect(() => { listAllRef.current = listAll; }, [listAll]);
   useEffect(() => { labelFilterRef.current = labelFilter; }, [labelFilter]);
@@ -751,6 +753,16 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // beliebiger Reihenfolge zurück. Nur die JÜNGSTE Antwort pro (acc,folder)
   // darf die Liste aktualisieren; ältere Antworten werden verworfen.
   const bgSyncSeqRef = useRef<Map<string, number>>(new Map());
+  const bgSyncPendingRef = useRef<Set<string>>(new Set());
+  const listVersionRef = useRef(0);
+  const listContextRef = useRef("");
+  listContextRef.current = JSON.stringify([sel?.acc, sel?.folder, pinFlagged, labelFilter, filter, search, listAll]);
+  function beginListLoad(acc: number, fol: string, p: number) {
+    const version = ++listVersionRef.current;
+    const context = listContextRef.current;
+    return () => version === listVersionRef.current && context === listContextRef.current &&
+      selRef.current?.acc === acc && selRef.current?.folder === fol && pageRef.current === p;
+  }
   // Aufeinanderfolgende Fehler je (Konto,Ordner) für den Backoff (siehe unten).
   const bgSyncFailRef = useRef<Map<string, number>>(new Map());
   // Frühester nächster Sync-Zeitpunkt je (Konto,Ordner) — für den Backoff.
@@ -784,7 +796,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // aus genau demselben Grund serverseitig.
   const unreadParam = filter?.unread ? "&unread=1" : "";
   function fetchPage(acc: number, fol: string, p: number) {
-    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${PAGE_SIZE}&offset=${(p - 1) * PAGE_SIZE}${pinParam}${unreadParam}`);
+    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${PAGE_SIZE}&offset=${(p - 1) * PAGE_SIZE}${pinParam}${unreadParam}`)
+      .then((ms) => ms.map((m) => ({ ...m, account_id: acc, folder: fol })));
   }
   // Holt den ganzen Ordner (bis Cache-Tiefe) für Suche ODER Label-Filter — von
   // loadAllForSearch und von bgSync genutzt, damit beide dieselbe Menge liefern.
@@ -793,17 +806,21 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function fetchAllForSearch(acc: number, fol: string) {
     const lf = labelFilterRef.current;
     const lbl = lf ? `&label=${encodeURIComponent(lf)}` : "";
-    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${SEARCH_LIMIT}${pinParam}${lbl}${unreadParam}`);
+    return api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(fol)}&limit=${SEARCH_LIMIT}${pinParam}${lbl}${unreadParam}`)
+      .then((ms) => ms.map((m) => ({ ...m, account_id: acc, folder: fol })));
   }
   // Ordnerwechsel/Neuladen: immer auf Seite 1, Auswahl zurücksetzen.
   function reload() {
     if (!sel) return;
     const acc = sel.acc, fol = sel.folder;
+    pageRef.current = 1;
+    const current = beginListLoad(acc, fol, 1);
     setLoading(true); setErr(""); setOpen(null); setOpenThread(null); setSelected(new Set()); setSelectAllFolder(false); setPage(1); setSearchTruncated(false);
+    setMessages([]);
     fetchPage(acc, fol, 1)
-      .then((ms) => { setMessages(ms); warmBodies(acc, fol, ms); })
-      .catch((e) => setErr((e as Error).message))
-      .finally(() => { setLoading(false); bgSync(acc, fol, 1); });
+      .then((ms) => { if (!current()) return; setMessages(ms); warmBodies(acc, fol, ms); })
+      .catch((e) => { if (current()) setErr((e as Error).message); })
+      .finally(() => { if (current()) { setLoading(false); bgSync(acc, fol, 1); } });
   }
   // Hintergrund-Sync: neue Mails/Flags nachziehen, dann die Seite p still auffrischen.
   // Guard: pro (Konto,Ordner) einen Sequenzzähler führen; nur die jüngste Antwort
@@ -811,6 +828,10 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // nicht mehr mit veralteten Daten.
   function bgSync(acc: number, fol: string, p: number = 1) {
     const key = `${acc}:${fol}`;
+    if (bgSyncPendingRef.current.has(key)) return;
+    bgSyncPendingRef.current.add(key);
+    const context = listContextRef.current;
+    let current = () => false;
     const ver = (bgSyncSeqRef.current.get(key) ?? 0) + 1;
     bgSyncSeqRef.current.set(key, ver);
     const isLatest = () => bgSyncSeqRef.current.get(key) === ver;
@@ -819,10 +840,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       // Bei aktiver Suche den GANZEN Ordner nachladen (wie loadAllForSearch),
       // sonst nur die sichtbare Seite. Andernfalls ersetzt eine 50er-Seite die
       // vollständige Trefferliste und die Suche wirkt "leergelaufen".
-      .then(() => listAllRef.current ? fetchAllForSearch(acc, fol) : fetchPage(acc, fol, p))
+      .then(() => {
+        if (context !== listContextRef.current || selRef.current?.acc !== acc || selRef.current?.folder !== fol || pageRef.current !== p) return null;
+        current = beginListLoad(acc, fol, p);
+        return listAllRef.current ? fetchAllForSearch(acc, fol) : fetchPage(acc, fol, p);
+      })
       .then((ms) => {
         bgSyncFailRef.current.delete(key);  // Erfolg -> Backoff zurücksetzen
-        if (!isLatest()) return;  // veraltete Antwort: verwerfen
+        if (!ms || !isLatest() || !current()) return;
         if (selRef.current?.acc === acc && selRef.current?.folder === fol) {
           setMessages(ms);
           // Hinweis "nur die ersten N" mitziehen, sonst bleibt er nach einem
@@ -836,18 +861,20 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         // Fehlversuch zählen (für den exponentiellen Backoff der Auto-Refresher).
         bgSyncFailRef.current.set(key, (bgSyncFailRef.current.get(key) ?? 0) + 1);
       })
-      .finally(() => { if (isLatest()) setSyncing(false); });
+      .finally(() => { bgSyncPendingRef.current.delete(key); if (isLatest()) { setSyncing(false); if (current()) { setLoading(false); setLoadingMore(false); } } });
   }
   // Zu Seite p springen: ersetzt die Liste. Auswahl bleibt erhalten (seitenübergreifend).
   function goPage(p: number) {
     if (!sel) return;
     const clamped = Math.max(1, Math.min(totalPages, p));
     if (clamped === page) return;
+    pageRef.current = clamped;
+    const current = beginListLoad(sel.acc, sel.folder, clamped);
     setPage(clamped); setOpen(null); setOpenThread(null); setLoadingMore(true);
     fetchPage(sel.acc, sel.folder, clamped)
-      .then((ms) => { setMessages(ms); warmBodies(sel.acc, sel.folder, ms); })
-      .catch((e) => setErr((e as Error).message))
-      .finally(() => setLoadingMore(false));
+      .then((ms) => { if (!current()) return; setMessages(ms); warmBodies(sel.acc, sel.folder, ms); })
+      .catch((e) => { if (current()) setErr((e as Error).message); })
+      .finally(() => { if (current()) { setLoadingMore(false); setLoading(false); } });
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // Suche: ganzen Ordner laden (bis Cache-Tiefe), damit Treffer über alle Seiten
@@ -856,11 +883,14 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     if (!sel) return;
     const acc = sel.acc, fol = sel.folder;
     const ver = ++searchLoadRef.current;
+    pageRef.current = 1;
+    setPage(1);
+    const current = beginListLoad(acc, fol, 1);
     setLoading(true); setErr(""); setOpen(null); setOpenThread(null); setSelected(new Set()); setSelectAllFolder(false); setSearchTruncated(false);
     fetchAllForSearch(acc, fol)
-      .then((ms) => { if (ver !== searchLoadRef.current) return; setMessages(ms); setSearchTruncated(ms.length >= SEARCH_LIMIT); warmBodies(acc, fol, ms); })
-      .catch((e) => { if (ver !== searchLoadRef.current) return; setErr((e as Error).message); })
-      .finally(() => { if (ver === searchLoadRef.current) setLoading(false); });
+      .then((ms) => { if (ver !== searchLoadRef.current || !current()) return; setMessages(ms); setSearchTruncated(ms.length >= SEARCH_LIMIT); warmBodies(acc, fol, ms); })
+      .catch((e) => { if (ver !== searchLoadRef.current || !current()) return; setErr((e as Error).message); })
+      .finally(() => { if (ver === searchLoadRef.current && current()) setLoading(false); });
   }
   // Volltextsuche über IMAP: durchsucht Kopfzeilen UND Mailtext, standardmäßig
   // in ALLEN Ordnern des Kontos — auch in Mails, die nie im Cache waren.
@@ -886,7 +916,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     api.get<SearchResult>(`/mail/${acc}/search?${params.toString()}`)
       .then((r) => {
         if (ver !== ftSeqRef.current) return;  // überholte Suche: verwerfen
-        setFtResults(r.items); setFtInfo(r); setFtQuery(q);
+        setFtResults(r.items.map((m) => ({ ...m, account_id: acc }))); setFtInfo(r); setFtQuery(q);
       })
       .catch((e) => { if (ver === ftSeqRef.current) setErr((e as Error).message); })
       .finally(() => { if (ver === ftSeqRef.current) setFtLoading(false); });
@@ -1061,7 +1091,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     let alive = true;
     sentLoadingRef.current.add(acc);
     api.get<MsgHeader[]>(`/mail/${acc}/messages?folder=${encodeURIComponent(sf)}&limit=200&offset=0`)
-      .then((ms) => { if (alive) setSentByAcc((prev) => ({ ...prev, [acc]: ms.map((m) => ({ ...m, folder: sf })) })); })
+      .then((ms) => { if (alive) setSentByAcc((prev) => ({ ...prev, [acc]: ms.map((m) => ({ ...m, account_id: acc, folder: sf })) })); })
       .catch(() => { if (alive) setSentByAcc((prev) => ({ ...prev, [acc]: [] })); })
       .finally(() => { sentLoadingRef.current.delete(acc); });
     return () => { alive = false; };
@@ -1088,6 +1118,17 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, ...patch } : m)));
   }
 
+  function identityFor(uid: string, fol = folder): MsgHeader | undefined {
+    return [open, ...(openThread?.messages ?? []), ...(ftResults ?? []), ...messages, ...(sentByAcc[activeId ?? -1] ?? [])]
+      .find((m): m is MsgHeader => !!m && m.uid === uid && (m.folder || folder) === fol && (m.account_id == null || m.account_id === activeId));
+  }
+  function generationFor(uid: string, fol = folder): string {
+    return messageGeneration(identityFor(uid, fol) ?? {});
+  }
+  const folderGeneration = messages.find((m) => (m.folder || folder) === folder)?.uidvalidity;
+  // Eine Auswahl alter UIDs darf nach einem Generationswechsel nicht weiterleben.
+  useEffect(() => { setSelected(new Set()); setSelectAllFolder(false); }, [activeId, folder, folderGeneration]);
+
   // --- Labels/Schlagworte ---
   const labelMap = useMemo(() => {
     const m: Record<string, MailLabel> = {};
@@ -1107,7 +1148,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     setOpen((o) => (o && o.uid === uid ? { ...o, labels: apply(o.labels) } : o));
     setOpenThread((c) => c ? { ...c, messages: c.messages.map((m) => (m.uid === uid ? { ...m, labels: apply(m.labels) } : m)) } : c);
     try {
-      await api.post(`/mail/${activeId}/messages/${uid}/label?folder=${encodeURIComponent(fol)}&keyword=${encodeURIComponent(keyword)}&on=${on}`);
+      await api.post(`/mail/${activeId}/messages/${uid}/label?folder=${encodeURIComponent(fol)}&keyword=${encodeURIComponent(keyword)}&on=${on}${generationFor(uid, fol)}`);
     } catch (e) {
       // Zurückrollen bei Fehler.
       setMessages((ms) => ms.map((m) => (m.uid === uid ? { ...m, labels: apply2(m.labels, keyword, !on) } : m)));
@@ -1155,7 +1196,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
 
   // Gleiche Nachricht? UIDs sind nur INNERHALB eines Ordners eindeutig — daher
   // IMMER Ordner + UID vergleichen (sonst trifft man im Thread die falsche Mail).
-  const sameMsg = (a: MsgHeader, b: MsgHeader) => a.uid === b.uid && (a.folder ?? "") === (b.folder ?? "");
+  const sameMsg = (a: MsgHeader, b: MsgHeader) => a.uid === b.uid && (a.folder ?? "") === (b.folder ?? "") && a.uidvalidity === b.uidvalidity && a.account_id === b.account_id;
 
   // Konversation öffnen: Einzelmail wie gewohnt (öffnet die Leseansicht), ein
   // echter Thread (mehrere Mails) den gestapelten Verlauf im ThreadReader.
@@ -1180,11 +1221,11 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const acc = activeId;
     const req = ++threadReqRef.current;
     const fol = conv.latest.folder || folder;
-    api.get<MsgHeader[]>(`/mail/${acc}/thread?folder=${encodeURIComponent(fol)}&uid=${encodeURIComponent(conv.latest.uid)}`)
+    api.get<MsgHeader[]>(`/mail/${acc}/thread?folder=${encodeURIComponent(fol)}&uid=${encodeURIComponent(conv.latest.uid)}${messageGeneration(conv.latest)}`)
       .then((extra) => {
         if (req !== threadReqRef.current) return;          // ein anderer Thread ist inzwischen offen
         if (!extra || extra.length === 0) return;
-        const merged = mergeThread(conv.messages, extra);
+        const merged = mergeThread(conv.messages, extra.map((m) => ({ ...m, account_id: acc })));
         if (merged.length <= conv.messages.length) return; // nichts Neues dazugekommen
         const groups = groupThreads(merged);
         const g = groups.find((c) => c.messages.some((m) => sameMsg(m, conv.latest))) ?? groups[0];
@@ -1224,7 +1265,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const fol = m.folder || folder;
     patchThreadMsg(m, { seen: true });
     bumpUnseen(activeId, fol, -1);
-    api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&seen=true`)
+    api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&seen=true${messageGeneration(m)}`)
       .catch(() => { patchThreadMsg(m, { seen: false }); bumpUnseen(activeId, fol, 1); });
   }
 
@@ -1234,7 +1275,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const fol = m.folder || folder;
     const next = !m.flagged;
     patchThreadMsg(m, { flagged: next });
-    api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&flagged=${next}`)
+    api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&flagged=${next}${messageGeneration(m)}`)
       .catch((e) => { patchThreadMsg(m, { flagged: m.flagged }); setErr((e as Error).message); });
   }
 
@@ -1246,7 +1287,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     if (!(await askConfirm(t("mail.confirmDelete")))) return;
     setErr("");
     try {
-      await api.del(`/mail/${activeId}/messages/${m.uid}?folder=${encodeURIComponent(fol)}`);
+      await api.del(`/mail/${activeId}/messages/${m.uid}?folder=${encodeURIComponent(fol)}${messageGeneration(m)}`);
       if (fol === folder) {
         setMessages((ms) => ms.filter((x) => x.uid !== m.uid));
         if (!m.seen) bumpUnseen(activeId, fol, -1);
@@ -1274,7 +1315,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const fol = m.folder || folder;
     setErr("");
     try {
-      await api.post(`/mail/${activeId}/messages/${m.uid}/move?folder=${encodeURIComponent(fol)}&dest=${encodeURIComponent(dest)}`);
+      await api.post(`/mail/${activeId}/messages/${m.uid}/move?folder=${encodeURIComponent(fol)}&dest=${encodeURIComponent(dest)}${messageGeneration(m)}`);
       if (fol === folder) setMessages((ms) => ms.filter((x) => x.uid !== m.uid));
       removeFromThread((x) => sameMsg(x, m));
       refreshCounts(activeId);
@@ -1288,7 +1329,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const fol = m.folder || folder;
     patchThreadMsg(m, { seen: false });
     bumpUnseen(activeId, fol, 1);
-    try { await api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&seen=false`); }
+    try { await api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(fol)}&seen=false${messageGeneration(m)}`); }
     catch (e) { setErr((e as Error).message); }
   }
   async function blockThreadSender(m: MsgHeader) {
@@ -1314,7 +1355,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   async function showRawThread(m: MsgHeader) {
     if (activeId == null) return;
     const fol = m.folder || folder;
-    try { setRawText(await api.get<string>(`/mail/${activeId}/messages/${m.uid}/raw?folder=${encodeURIComponent(fol)}`)); }
+    try { setRawText(await api.get<string>(`/mail/${activeId}/messages/${m.uid}/raw?folder=${encodeURIComponent(fol)}${messageGeneration(m)}`)); }
     catch (e) { setErr((e as Error).message); }
   }
 
@@ -1341,7 +1382,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     if (!asPopup) { setOpening(true); setMobilePane("read"); setOpenThread(null); }
     setReadMenu(false);
     try {
-      const msg = await api.get<MsgDetail>(`/mail/${acc}/messages/${uid}?folder=${encodeURIComponent(fol)}`);
+      const msg = await api.get<MsgDetail>(`/mail/${acc}/messages/${uid}?folder=${encodeURIComponent(fol)}${generationFor(uid, fol)}`);
+      msg.account_id = acc;
       if (!isLatest()) return;  // veraltete/überholte Öffnung: nichts setzen
       const lastPart = fol.split(/[/.]/).pop() || fol;
       if (specialKind(lastPart) === "drafts") {
@@ -1368,13 +1410,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
       if (!msg.seen) {
         patchHeader(uid, { seen: true });
         bumpUnseen(acc, fol, -1);
-        api.post(`/mail/${acc}/messages/${uid}/flags?folder=${encodeURIComponent(fol)}&seen=true`)
+        api.post(`/mail/${acc}/messages/${uid}/flags?folder=${encodeURIComponent(fol)}&seen=true${messageGeneration(msg)}`)
           .catch(() => { patchHeader(uid, { seen: false }); bumpUnseen(acc, fol, 1); });
       }
     } catch (e) {
       // Mail serverseitig weg (Cache war kurz veraltet): Zeile entfernen, klare
       // Meldung statt rohem Fehler, und still neu synchronisieren (selbstheilend).
-      if (isNotFound(e)) {
+      if (isNotFound(e) && isLatest()) {
         setMessages((ms) => ms.filter((x) => x.uid !== uid));
         prefetchedRef.current.delete(`${acc}:${fol}:${uid}`);
         setOpen((o) => (o?.uid === uid ? null : o));
@@ -1399,21 +1441,21 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   function warmBodies(acc: number, fol: string, msgs: MsgHeader[]) {
     const uids = msgs.map((m) => m.uid).filter(Boolean);
     if (uids.length === 0) return;
-    api.post(`/mail/${acc}/messages/prefetch`, { folder: fol, uids })
+    api.post(`/mail/${acc}/messages/prefetch`, { folder: fol, uids, uidvalidity: msgs[0]?.uidvalidity })
       .then(() => { uids.forEach((u) => prefetchedRef.current.add(`${acc}:${fol}:${u}`)); })
       .catch(() => { /* Vorwärmen ist best-effort */ });
   }
   const prefetchedRef = useRef<Set<string>>(new Set());
   function prefetchMsg(uid: string) {
     if (activeId == null) return;
-    const key = `${activeId}:${folder}:${uid}`;
+    const key = `${activeId}:${folder}:${generationFor(uid)}:${uid}`;
     if (prefetchedRef.current.has(key)) return;
     prefetchedRef.current.add(key);  // genau EIN Versuch je Mail — KEIN Retry-Sturm
-    api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}`)
+    api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}${generationFor(uid)}`)
       .catch((e) => {
         // Geister-Mail (serverseitig weg) beim Hover: still aus der Liste nehmen,
         // NICHT erneut versuchen (Key bleibt gesetzt). Verhindert 404-Endlosschleife.
-        if (isNotFound(e)) {
+        if (isNotFound(e) && selRef.current?.acc === activeId && selRef.current?.folder === folder) {
           setMessages((ms) => ms.filter((x) => x.uid !== uid));
           setOpen((o) => (o?.uid === uid ? null : o));
         }
@@ -1424,43 +1466,49 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const next = !m.seen;
     patchHeader(m.uid, { seen: next });
     bumpUnseen(activeId, folder, next ? -1 : 1);
-    try { await api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(folder)}&seen=${next}`); }
+    try { await api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(folder)}&seen=${next}${messageGeneration(m)}`); }
     catch (e) { patchHeader(m.uid, { seen: m.seen }); bumpUnseen(activeId, folder, next ? 1 : -1); setErr((e as Error).message); }
   }
   async function toggleFlag(m: MsgHeader) {
     if (activeId == null) return;
     const next = !m.flagged;
     patchHeader(m.uid, { flagged: next });
-    try { await api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(folder)}&flagged=${next}`); }
+    try { await api.post(`/mail/${activeId}/messages/${m.uid}/flags?folder=${encodeURIComponent(folder)}&flagged=${next}${messageGeneration(m)}`); }
     catch (e) { patchHeader(m.uid, { flagged: m.flagged }); setErr((e as Error).message); }
   }
   async function markUnread(uid: string) {
     if (activeId == null) return;
+    const fol = open?.uid === uid ? (open.folder || folder) : folder;
+    const generation = generationFor(uid, fol);
     patchHeader(uid, { seen: false });
     bumpUnseen(activeId, folder, 1);
     setOpen(null);
-    try { await api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(folder)}&seen=false`); }
+    try { await api.post(`/mail/${activeId}/messages/${uid}/flags?folder=${encodeURIComponent(fol)}&seen=false${generation}`); }
     catch (e) { setErr((e as Error).message); }
   }
   async function moveMsg(uid: string, dest: string) {
     if (activeId == null || !dest) return;
+    const fol = open?.uid === uid ? (open.folder || folder) : folder;
     setErr("");
     try {
-      await api.post(`/mail/${activeId}/messages/${uid}/move?folder=${encodeURIComponent(folder)}&dest=${encodeURIComponent(dest)}`);
+      await api.post(`/mail/${activeId}/messages/${uid}/move?folder=${encodeURIComponent(fol)}&dest=${encodeURIComponent(dest)}${generationFor(uid, fol)}`);
       setMessages((ms) => ms.filter((x) => x.uid !== uid));
       if (open?.uid === uid) setOpen(null);
       refreshCounts(activeId);
     } catch (e) { setErr((e as Error).message); }
   }
   async function del(m: MsgHeader) {
-    if (activeId == null) return;
+    const acc = m.account_id ?? activeId, fol = m.folder || folder;
+    if (acc == null) return;
     if (!(await askConfirm(t("mail.confirmDelete")))) return;
     setErr("");
     try {
-      await api.del(`/mail/${activeId}/messages/${m.uid}?folder=${encodeURIComponent(folder)}`);
-      setMessages((ms) => ms.filter((x) => x.uid !== m.uid));
-      if (!m.seen) bumpUnseen(activeId, folder, -1);
-      if (open?.uid === m.uid) setOpen(null);
+      await api.del(`/mail/${acc}/messages/${m.uid}?folder=${encodeURIComponent(fol)}${messageGeneration(m)}`);
+      if (!m.seen) bumpUnseen(acc, fol, -1);
+      if (selRef.current?.acc === acc && selRef.current?.folder === fol) {
+        setMessages((ms) => ms.filter((x) => x.uid !== m.uid || (x.folder || fol) !== fol));
+        if (open?.uid === m.uid) setOpen(null);
+      }
     } catch (e) { setErr((e as Error).message); }
   }
 
@@ -1541,7 +1589,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     setSelected(new Set()); setSelectAllFolder(false);
     // EIN Request statt N: alle UIDs in einer IMAP-Session löschen (ein Login).
     // Im Hintergrund; bei Fehler echte Liste wiederherstellen.
-    api.post(`/mail/${acc}/messages/batch-delete`, { folder: fol, uids: [...ids] })
+    api.post(`/mail/${acc}/messages/batch-delete`, { folder: fol, uids: [...ids], uidvalidity: folderGeneration })
       .then(() => { refreshCounts(acc); if (wasAll && selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); })
       .catch((e) => { setErr((e as Error).message); if (selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); });
   }
@@ -1552,7 +1600,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     setMessages((ms) => ms.map((m) => (selected.has(m.uid) ? { ...m, seen } : m)));
     setSelected(new Set()); setSelectAllFolder(false);
     try {
-      await api.post(`/mail/${acc}/messages/batch-flags?seen=${seen}`, { folder: fol, uids: ids });
+      await api.post(`/mail/${acc}/messages/batch-flags?seen=${seen}`, { folder: fol, uids: ids, uidvalidity: folderGeneration });
       refreshCounts(acc);
     } catch (e) {
       setErr((e as Error).message);
@@ -1569,13 +1617,13 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     setMessages((ms) => ms.filter((m) => !ids.includes(m.uid)));
     setSelected(new Set()); setSelectAllFolder(false);
     // EIN Request statt N: alle UIDs in einer IMAP-Session verschieben (ein Login).
-    api.post(`/mail/${acc}/messages/batch-move`, { folder: fol, uids: ids, dest })
+    api.post(`/mail/${acc}/messages/batch-move`, { folder: fol, uids: ids, dest, uidvalidity: folderGeneration })
       .then(() => { refreshCounts(acc); if (wasAll && selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); })
       .catch((e) => { setErr((e as Error).message); if (selRef.current?.acc === acc && selRef.current?.folder === fol) reload(); });
   }
 
   function openTransfer(sourceAcc: number, sourceFolder: string, uids: string[] | null) {
-    setTransfer({ sourceAcc, sourceFolder, uids });
+    setTransfer({ sourceAcc, sourceFolder, uids, uidvalidity: uids?.length ? identityFor(uids[0], sourceFolder)?.uidvalidity : undefined });
     const first = accounts.find((a) => a.id !== sourceAcc);
     setXferAcc(first?.id ?? 0);
     // Ganzer Ordner: Zielordner mit dem Quell-Namen vorbelegen (wird bei Bedarf
@@ -1589,6 +1637,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     try {
       const r = await api.post<TransferResult>(`/mail/${transfer.sourceAcc}/transfer`, {
         source_folder: transfer.sourceFolder, uids: transfer.uids,
+        uidvalidity: transfer.uidvalidity,
         dest_account_id: xferAcc, dest_folder: xferFolder, move,
       });
       refreshCounts(transfer.sourceAcc); refreshCounts(xferAcc);
@@ -1690,6 +1739,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Fundstelle weiter unten im Text liegt. Die übrigen Filter (ungelesen,
   // markiert, Anhang, Zeitraum) bleiben aktiv, die kann der Client beurteilen.
   const visible = useMemo(() => (ftResults ?? messages)
+    .filter((m) => m.account_id == null || m.account_id === activeId)
     .filter((m) => ftResults !== null || !search || `${m.subject} ${m.from} ${m.snippet}`.toLowerCase().includes(search.toLowerCase()))
     .filter((m) => !filter?.from || m.from.toLowerCase().includes(filter.from.toLowerCase()))
     .filter((m) => !filter?.subject || m.subject.toLowerCase().includes(filter.subject.toLowerCase()))
@@ -1705,7 +1755,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     .filter((m) => !filter?.attachments || m.has_attachments)
     .filter((m) => !labelFilter || (m.labels ?? []).includes(labelFilter))
     .filter((m) => inDateRange(m.date, filter?.dateFrom, filter?.dateTo)),
-    [messages, ftResults, search, filter, labelFilter]);
+    [messages, ftResults, search, filter, labelFilter, activeId]);
 
   // Eigene Absenderadressen (alle Konten) — für „Ich"-Anzeige. Stabil memoisiert.
   const ownEmails = useMemo(() => accounts.map((a) => a.email).filter(Boolean), [accounts]);
@@ -1857,7 +1907,8 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   async function selectWholeFolder() {
     if (!sel) return;
     try {
-      const uids = await api.get<string[]>(`/mail/${sel.acc}/folder-uids?folder=${encodeURIComponent(sel.folder)}`);
+      const uids = await api.get<string[]>(`/mail/${sel.acc}/folder-uids?folder=${encodeURIComponent(sel.folder)}${messageGeneration({ uidvalidity: folderGeneration })}`);
+      if (selRef.current?.acc !== sel.acc || selRef.current?.folder !== sel.folder) return;
       setSelected(new Set(uids));
       setSelectAllFolder(true);
     } catch (e) { setErr((e as Error).message); }
@@ -1988,7 +2039,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     if (activeId == null || mdnBusy) return;
     setMdnBusy(true);
     try {
-      await api.post(`/mail/${activeId}/messages/${msg.uid}/read-receipt?folder=${encodeURIComponent(folder)}`);
+      await api.post(`/mail/${activeId}/messages/${msg.uid}/read-receipt?folder=${encodeURIComponent(msg.folder || folder)}${messageGeneration(msg)}`);
       setMdnState((s) => ({ ...s, [msg.uid]: "sent" }));
     } catch (e) {
       setErr((e as Error).message || t("mail.mdnError"));
@@ -2359,7 +2410,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
         {/* Lese-Spalte */}
         {liveThread ? (
           <ThreadReader
-            key={liveThread.key}
+            key={`${activeId}:${liveThread.key}`}
             accountId={activeId ?? 0}
             folder={folder}
             conversation={liveThread}
@@ -2542,7 +2593,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                 <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
                   {open.attachments.map((att) => (
                     <button key={att.index} className="ghost" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
-                      onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(folder)}`).catch((e) => setErr((e as Error).message))}>
+                      onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(open.folder || folder)}${messageGeneration(open)}`).catch((e) => setErr((e as Error).message))}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220, whiteSpace: "nowrap" }}>⬇ {att.filename}</span>
                       <span className="muted" style={{ fontSize: "0.72rem" }}>{fmtSize(att.size)}</span>
                     </button>
@@ -2764,7 +2815,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
                   <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
                     {open.attachments.map((att) => (
                       <button key={att.index} className="ghost" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
-                        onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(folder)}`).catch((e) => setErr((e as Error).message))}>
+                        onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(open.folder || folder)}${messageGeneration(open)}`).catch((e) => setErr((e as Error).message))}>
                         {att.filename || `att-${att.index}`}{att.size ? <span className="muted" style={{ fontSize: "0.75rem" }}>({fmtSize(att.size)})</span> : null}
                       </button>
                     ))}

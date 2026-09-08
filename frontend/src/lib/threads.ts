@@ -170,7 +170,7 @@ export function groupThreads(
     convs.push({
       pos: firstPos.get(root)!,
       conv: {
-        key: `${latest.folder ?? ""}:${latest.uid}`,
+        key: `${latest.folder ?? ""}:${latest.uidvalidity ?? 0}:${latest.uid}`,
         subject: latest.subject,
         messages: sorted,
         latest,

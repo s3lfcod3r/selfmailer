@@ -331,6 +331,7 @@ class CachedMessage(SQLModel, table=True):
     account_id: int = Field(index=True, foreign_key="mailaccount.id")
     folder: str = Field(index=True)
     uid: str = ""                         # IMAP-UID (stabil je UIDVALIDITY)
+    uidvalidity: int = 0                  # Generation gehört zur Nachrichtenidentität
     subject: str = ""
     from_addr: str = ""
     date_str: str = ""                    # Anzeige-Datum (wie vom Server)
@@ -464,6 +465,7 @@ class DeviceToken(SQLModel, table=True):
     user_id: int = Field(index=True, foreign_key="user.id")
     token: str = Field(index=True)
     platform: str = "android"
+    session_id: str = ""
     created_at: dt.datetime = Field(default_factory=_now)
 
 

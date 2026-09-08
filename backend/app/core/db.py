@@ -52,6 +52,7 @@ def _sqlite_pragmas(dbapi_conn, _record) -> None:
 # Additive Spalten, die ggf. in einer älteren DB fehlen (SQLite kennt kein
 # automatisches Hinzufügen über create_all). Tabelle -> [(Spalte, DDL-Typ)].
 _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "devicetoken": [("session_id", "VARCHAR DEFAULT ''")],
     "foldersync": [
         ("highest_modseq", "INTEGER DEFAULT 0"),
     ],
@@ -75,6 +76,7 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
     # User ihn erzeugt (leerer Token darf niemals matchen).
     "feedtoken": [("write_token", "TEXT")],
     "cachedmessage": [
+        ("uidvalidity", "INTEGER DEFAULT 0"),
         ("detail_json", "VARCHAR"),
         ("message_id", "VARCHAR"),
         ("in_reply_to", "VARCHAR"),

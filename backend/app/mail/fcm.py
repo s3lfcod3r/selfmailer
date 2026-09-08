@@ -94,7 +94,9 @@ def _send_all(session: Session, user_id: int, data: dict[str, str]) -> None:
     sa = _load_sa()
     if not enabled() or sa is None:
         return
-    rows = list(session.exec(select(DeviceToken).where(DeviceToken.user_id == user_id)).all())
+    rows = list(session.exec(select(DeviceToken).where(
+        DeviceToken.user_id == user_id, DeviceToken.session_id != ""
+    )).all())
     if not rows:
         return
     try:
@@ -107,7 +109,8 @@ def _send_all(session: Session, user_id: int, data: dict[str, str]) -> None:
     headers = {"Authorization": f"Bearer {access}", "Content-Type": "application/json"}
     dead: list[DeviceToken] = []
     for row in rows:
-        msg = {"message": {"token": row.token, "data": data, "android": {"priority": "high"}}}
+        msg = {"message": {"token": row.token, "data": {**data, "session_id": row.session_id},
+                           "android": {"priority": "high"}}}
         try:
             resp = httpx.post(url, headers=headers, json=msg, timeout=10.0)
             if resp.status_code == 404 or (resp.status_code == 400 and "UNREGISTERED" in resp.text):
@@ -130,6 +133,7 @@ def notify(
     account_id: int | None = None,
     folder: str | None = None,
     uid: str | None = None,
+    uidvalidity: int | None = None,
 ) -> None:
     """Neue-Mail-Push (data-only)."""
     data: dict[str, str] = {"type": "mail", "title": title, "body": body}
@@ -137,8 +141,9 @@ def notify(
         data["account_id"] = str(account_id)
     if folder:
         data["folder"] = folder
-    if uid:
+    if uid and uidvalidity:
         data["uid"] = uid
+        data["uidvalidity"] = str(uidvalidity)
     _send_all(session, user_id, data)
 
 
