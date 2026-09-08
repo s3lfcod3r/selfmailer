@@ -1,6 +1,7 @@
 """Synchroner IMAP-Zugriff mit wiederverwendeten, einzeln gesperrten Verbindungen."""
 from __future__ import annotations
 
+import imaplib
 import logging
 import os
 import queue
@@ -187,6 +188,50 @@ def _pool_key(account: MailAccount, login: str) -> str:
     return f"{account.id}:{login}@{account.imap_host}:{account.imap_port}"
 
 
+def _parse_capabilities(data) -> tuple[str, ...] | None:
+    """Validate a CAPABILITY response, never infer extensions from the host."""
+    if not isinstance(data, (list, tuple)) or not data:
+        return None
+    raw = data[-1]
+    if isinstance(raw, bytes):
+        try:
+            raw = raw.decode("ascii")
+        except UnicodeDecodeError:
+            return None
+    if not isinstance(raw, str) or any(ord(c) < 32 or ord(c) > 126 or c in '(){%*"\\]' for c in raw):
+        return None
+    caps = tuple(raw.upper().split())
+    return caps if "IMAP4REV1" in caps or "IMAP4REV2" in caps else None
+
+
+def _refresh_capabilities(box: MailBox) -> None:
+    """Use authenticated capabilities before ENABLE/SELECT and library MOVE.
+
+    imaplib parses LOGIN's tagged [CAPABILITY ...] and untagged CAPABILITY
+    responses, but neither it nor imap_tools updates client.capabilities.
+    The pre-login response was cleared by _connect, so this data is fresh.
+    A server-provided login response saves a network round trip.
+    """
+    client = box.client
+    caps = _parse_capabilities(client.untagged_responses.pop("CAPABILITY", None))
+    # Pre-login extensions may disappear after authentication. On a rejected
+    # or malformed refresh, keep only the protocol baseline, not stale MOVE.
+    client.capabilities = tuple(c for c in client.capabilities if c in {"IMAP4REV1", "IMAP4REV2"})
+    if caps is None:
+        try:
+            with timing.phase("capability"):
+                typ, data = client.capability()
+                caps = _parse_capabilities(data) if typ == "OK" else None
+                if caps is None:
+                    raise ValueError("No valid authenticated capabilities")
+        except imaplib.IMAP4.abort:
+            raise  # Connection lost/out of sync: never continue into a write.
+        except (imaplib.IMAP4.error, ValueError):
+            logger.debug("Authenticated IMAP capabilities unavailable; extensions disabled")
+            return
+    client.capabilities = caps
+
+
 def _connect(account: MailAccount, login: str, password: str, folder: str) -> MailBox:
     # timeout bei der Konstruktion bindet schon den TCP-Connect; fällt die
     # imap_tools-Version ohne timeout-Param zurück, setzen wir es danach am Socket.
@@ -195,17 +240,27 @@ def _connect(account: MailAccount, login: str, password: str, folder: str) -> Ma
             box = MailBox(account.imap_host, port=account.imap_port, timeout=_IMAP_TIMEOUT)
         except TypeError:
             box = MailBox(account.imap_host, port=account.imap_port)
-    # OHNE initial_folder anmelden: CONDSTORE muss VOR der ersten Ordnerauswahl
-    # eingeschaltet sein, sonst liefert genau dieses SELECT den MODSEQ-Stand noch
-    # nicht - und der Sync faellt jedes Mal auf den teuren Weg zurueck.
-    with timing.phase("login"):
-        box.login(login, password, initial_folder=None)
     try:
-        box.client.sock.settimeout(_IMAP_TIMEOUT)
-    except Exception:  # noqa: BLE001 - best effort, falls Socket anders heißt
-        pass
-    enable_condstore(box)
-    _select(box, folder or "INBOX")
+        # No initial SELECT: authenticated capabilities and CONDSTORE must be
+        # ready first. Discard any pre-login CAPABILITY response before LOGIN.
+        box.client.untagged_responses.pop("CAPABILITY", None)
+        with timing.phase("login"):
+            box.login(login, password, initial_folder=None)
+        try:
+            box.client.sock.settimeout(_IMAP_TIMEOUT)
+        except Exception:  # noqa: BLE001 - best effort, falls Socket anders heißt
+            pass
+        _refresh_capabilities(box)
+        enable_condstore(box)
+        _select(box, folder or "INBOX")
+    except Exception:
+        # The pool does not own this box yet. Release a failed setup locally,
+        # without sending LOGOUT over a potentially desynchronised connection.
+        try:
+            box.client.shutdown()
+        except Exception:  # noqa: BLE001 - preserve the original setup failure
+            pass
+        raise
     return box
 
 
