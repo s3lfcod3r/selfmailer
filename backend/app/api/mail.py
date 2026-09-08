@@ -329,6 +329,8 @@ _UI_LOCK_TIMEOUT = float(os.getenv("SELFMAILER_UI_LOCK_TIMEOUT", "3") or 3)
 # Ordnung und spart je Abfrage einen kompletten Verbindungsaufbau.
 _QUOTA_TTL = float(os.getenv("SELFMAILER_QUOTA_TTL", "600") or 600)
 _QUOTA_CACHE: dict[int, tuple[float, dict]] = {}
+_PREFETCH_ACTIVE: set[tuple[int, str]] = set()
+_PREFETCH_GUARD = threading.Lock()
 
 
 def _fill_folder_async(account_id: int, password: str, folder: str, cap: int, user_id: int) -> None:
@@ -422,12 +424,9 @@ def messages(
     try:
         pw = _account_secret(acc)
         if not cache_mod.has_cache(session, account_id, folder):
-            # ERSTZUGRIFF: nur eine kurze erste Seite synchron holen. Der Fetch lädt
-            # jede Mail komplett (Snippet/Anhang-Flag brauchen den Body) — bei großen
-            # Postfächern (Gmail, bildlastige Newsletter) ist genau das die lange
-            # Wartezeit. Mit _FIRST_SYNC_CAP steht die Liste nach wenigen Sekunden;
-            # den Rest zieht ein Hintergrund-Thread nach und meldet ihn per SSE.
-            cache_mod.sync_folder(session, acc, pw, folder, cap=_FIRST_SYNC_CAP)
+            # ERSTZUGRIFF: erste Kopfzeilen + MIME-Metadaten synchron, ohne Bodies.
+            # Der Rest folgt im Hintergrund und wird per SSE angekündigt.
+            cache_mod.sync_folder(session, acc, pw, folder, cap=_FIRST_SYNC_CAP, lock_timeout=_UI_LOCK_TIMEOUT)
             _fill_folder_async(account_id, pw, folder, max(limit, 50), user.id)
         msgs = cache_mod.read_messages(
             session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged,
@@ -440,12 +439,15 @@ def messages(
         # legitimer Zustand (nichts ungelesen). Ohne diese Ausnahme wuerde die
         # Selbstheilung live nachladen und am Ende die UNGEFILTERTE Liste liefern —
         # der Nutzer saehe beim Filter "ungelesen" also alle Mails.
-        if not msgs and offset == 0 and not kw and not unread:
-            cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50))
+        if not msgs and offset == 0 and not kw and not unread and not cache_mod.known_empty(session, account_id, folder):
+            cache_mod.sync_folder(session, acc, pw, folder, cap=max(limit, 50), lock_timeout=_UI_LOCK_TIMEOUT)
             msgs = cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset, pin_flagged=pin_flagged)
-            if not msgs:
+            if not msgs and not cache_mod.known_empty(session, account_id, folder):
                 msgs = _pin_flagged_first(imap_mod.list_messages(acc, pw, folder=folder, limit=limit, offset=offset), pin_flagged)
         return msgs
+    except imap_mod.ImapBusyError:
+        return cache_mod.read_messages(session, account_id, folder, limit=limit, offset=offset,
+                                       pin_flagged=pin_flagged, keyword=kw, unread=unread)
     except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
         # Live-Liste kann NICHT nach Label filtern → bei aktivem Label lieber leer als falsch.
         if kw:
@@ -919,8 +921,13 @@ def prefetch_bodies(
     Best-effort: Fehler werden geschluckt (Cache ist reine Beschleunigung).
     """
     acc = _account(account_id, user, session)
+    key = (account_id, data.folder)
+    with _PREFETCH_GUARD:
+        if key in _PREFETCH_ACTIVE or len(_PREFETCH_ACTIVE) >= 2:
+            return {"ok": True, "cached": 0, "busy": True}
+        _PREFETCH_ACTIVE.add(key)
     try:
-        missing = cache_mod.uncached_detail_uids(session, account_id, data.folder, data.uids)
+        missing = cache_mod.uncached_detail_uids(session, account_id, data.folder, data.uids[:3])
         if not missing:
             return {"ok": True, "cached": 0}
         details = imap_mod.get_messages(acc, _account_secret(acc), missing, folder=data.folder,
@@ -930,6 +937,9 @@ def prefetch_bodies(
         return {"ok": True, "cached": len(details)}
     except Exception:  # noqa: BLE001 - Vorwärmen darf nie eine Anfrage kippen
         return {"ok": False, "cached": 0}
+    finally:
+        with _PREFETCH_GUARD:
+            _PREFETCH_ACTIVE.discard(key)
 
 
 @router.post("/{account_id}/messages/batch-delete")
