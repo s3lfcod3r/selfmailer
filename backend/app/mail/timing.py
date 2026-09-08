@@ -33,6 +33,8 @@ _MARKS = {
     "source": {"cache", "imap", "cached_fallback", "header_fallback", "miss"},
     "result": {"moved", "deleted", "busy"},
     "move_mode": {"native", "copy_delete", "unknown"},
+    "generation_source": {"select", "status"},
+    "condstore_mode": {"select", "fallback"},
 }
 _OPERATIONS = frozenset({"list", "read", "delete", "sync"})
 _MAIL_ROUTE = re.compile(r"/api/v1/mail/([0-9]{1,18})/(messages(?:/[^/]+)?|sync)")

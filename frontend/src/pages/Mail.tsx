@@ -11,6 +11,7 @@ import { groupThreads, normalizeSubject, type Conversation } from "../lib/thread
 import DOMPurify from "dompurify";
 import { useMenuDismiss } from "../lib/useMenuDismiss";
 import { RequestCache } from "../lib/requestCache";
+import { SyncBackoff } from "../lib/syncBackoff";
 
 type Sel = { acc: number; folder: string };
 
@@ -643,16 +644,21 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
       [accId]: (m[accId] || []).map((f) => f.name === path ? { ...f, unseen: Math.max(0, f.unseen + delta) } : f),
     }));
   }
-  function refreshCounts(accId: number) {
-    // Auffrischen heißt hier: echte, frische Zähler vom Server (live) holen —
-    // und damit zugleich den Cache aktualisieren.
-    api.get<FolderCount[]>(`/mail/${accId}/folders/counts?live=1`)
-      .then((fc) => { if (fc.length) setFoldersByAcc((m) => ({ ...m, [accId]: fc })); }).catch(() => {});
+  const countRequestsRef = useRef(new RequestCache<FolderCount[]>(32, 1_000));
+  const countSeqRef = useRef(new Map<number, number>());
+  function refreshCounts(accId: number, live = false) {
+    const seq = (countSeqRef.current.get(accId) ?? 0) + 1;
+    countSeqRef.current.set(accId, seq);
+    const url = `/mail/${accId}/folders/counts${live ? "?live=1" : ""}`;
+    countRequestsRef.current.get(url, () => api.get<FolderCount[]>(url))
+      .then((fc) => {
+        if (fc.length && countSeqRef.current.get(accId) === seq) setFoldersByAcc((m) => ({ ...m, [accId]: fc }));
+      }).catch(() => {});
   }
   // ↻ pro Konto: Filterregeln anwenden, Zähler neu holen + aktive Liste neu laden.
   async function refreshAccount(accId: number) {
     try { await api.post(`/mail/${accId}/rules/apply`); } catch { /* egal */ }
-    refreshCounts(accId);
+    refreshCounts(accId, true);
     if (activeId === accId) reload();
   }
 
@@ -792,26 +798,13 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
     return () => version === listVersionRef.current && context === listContextRef.current &&
       selRef.current?.acc === acc && selRef.current?.folder === fol && pageRef.current === p;
   }
-  // Aufeinanderfolgende Fehler je (Konto,Ordner) für den Backoff (siehe unten).
-  const bgSyncFailRef = useRef<Map<string, number>>(new Map());
-  // Frühester nächster Sync-Zeitpunkt je (Konto,Ordner) — für den Backoff.
-  const bgSyncNextRef = useRef<Map<string, number>>(new Map());
+  // Busy/Fehler je (Konto,Ordner), getrennt von erfolgreichen Cache-Abfragen.
+  const syncBackoffRef = useRef(new SyncBackoff());
 
-  // Löst der 20-s-Refresh gerade aus, oder soll wegen Fehlern gewartet werden?
-  // Einfacher exponentieller Backoff: nach n Fehlern frühestens nach
-  // min(2^n * BASE, MAX) ms erneut versuchen. Bei Erfolg (siehe bgSync) wird der
-  // Fehlerzähler geleert, sodass der nächste Aufruf sofort wieder feuert.
+  // Busy: 20..120 s, Fehler: 20..300 s ab Antwort. Erst ein echter
+  // erfolgreicher IMAP-Sync setzt die Pause zurück, kein Cache-Read.
   function bgSyncDue(acc: number, fol: string): boolean {
-    const key = `${acc}:${fol}`;
-    const fails = bgSyncFailRef.current.get(key) ?? 0;
-    if (fails === 0) return true;
-    const now = Date.now();
-    const next = bgSyncNextRef.current.get(key) ?? 0;
-    if (now < next) return false;  // Backoff-Fenster noch nicht verstrichen
-    const BACKOFF_BASE_MS = 20000, BACKOFF_MAX_MS = 300000;  // 20 s … 5 min
-    const delay = Math.min(BACKOFF_BASE_MS * 2 ** fails, BACKOFF_MAX_MS);
-    bgSyncNextRef.current.set(key, now + delay);
-    return true;
+    return syncBackoffRef.current.due(`${acc}:${fol}`);
   }
 
   // Holt genau eine Seite (offset = (p-1)*PAGE_SIZE). Cache-first im Backend.
@@ -849,15 +842,15 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
     fetchPage(acc, fol, 1)
       .then((ms) => { if (!current()) return; setMessages(ms); warmBodies(acc, fol, ms); })
       .catch((e) => { if (current()) setErr((e as Error).message); })
-      .finally(() => { if (current()) { setLoading(false); bgSync(acc, fol, 1); } });
+      .finally(() => { if (current()) { setLoading(false); bgSync(acc, fol, 1, true); } });
   }
   // Hintergrund-Sync: neue Mails/Flags nachziehen, dann die Seite p still auffrischen.
   // Guard: pro (Konto,Ordner) einen Sequenzzähler führen; nur die jüngste Antwort
   // übernehmen — so überschreiben überlappende Aufrufe (Polling/20s/SSE) einander
   // nicht mehr mit veralteten Daten.
-  function bgSync(acc: number, fol: string, p: number = 1) {
+  function bgSync(acc: number, fol: string, p: number = 1, manual = false) {
     const key = `${acc}:${fol}`;
-    if (bgSyncPendingRef.current.has(key)) return;
+    if (bgSyncPendingRef.current.has(key) || (!manual && !bgSyncDue(acc, fol))) return;
     bgSyncPendingRef.current.add(key);
     const context = listContextRef.current;
     let current = () => false;
@@ -865,17 +858,21 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
     bgSyncSeqRef.current.set(key, ver);
     const isLatest = () => bgSyncSeqRef.current.get(key) === ver;
     setSyncing(true);
-    api.post(`/mail/${acc}/sync?folder=${encodeURIComponent(fol)}`)
+    api.post<{ busy?: boolean }>(`/mail/${acc}/sync?folder=${encodeURIComponent(fol)}`)
       // Bei aktiver Suche den GANZEN Ordner nachladen (wie loadAllForSearch),
       // sonst nur die sichtbare Seite. Andernfalls ersetzt eine 50er-Seite die
       // vollständige Trefferliste und die Suche wirkt "leergelaufen".
-      .then(() => {
+      .then((result) => {
+        if (result.busy === true) {
+          syncBackoffRef.current.record(key, "busy");
+          return null; // no prefetch/live counts and no false success on HTTP 200/busy
+        }
+        syncBackoffRef.current.record(key, "success");
         if (context !== listContextRef.current || selRef.current?.acc !== acc || selRef.current?.folder !== fol || pageRef.current !== p) return null;
         current = beginListLoad(acc, fol, p);
         return listAllRef.current ? fetchAllForSearch(acc, fol) : fetchPage(acc, fol, p);
       })
       .then((ms) => {
-        bgSyncFailRef.current.delete(key);  // Erfolg -> Backoff zurücksetzen
         if (!ms || !isLatest() || !current()) return;
         if (selRef.current?.acc === acc && selRef.current?.folder === fol) {
           setMessages(ms);
@@ -888,9 +885,22 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
       })
       .catch(() => {
         // Fehlversuch zählen (für den exponentiellen Backoff der Auto-Refresher).
-        bgSyncFailRef.current.set(key, (bgSyncFailRef.current.get(key) ?? 0) + 1);
+        syncBackoffRef.current.record(key, "error");
       })
       .finally(() => { bgSyncPendingRef.current.delete(key); if (isLatest()) { setSyncing(false); if (current()) { setLoading(false); setLoadingMore(false); } } });
+  }
+  // Server events report already completed work. Refresh the cache, without
+  // starting another IMAP sync or bypassing a busy cooldown.
+  function refreshCachedFolder(acc: number, fol: string, p: number) {
+    const current = beginListLoad(acc, fol, p);
+    (listAllRef.current ? fetchAllForSearch(acc, fol) : fetchPage(acc, fol, p))
+      .then((ms) => {
+        if (!current()) return;
+        setMessages(ms);
+        if (searchActiveRef.current) setSearchTruncated(ms.length >= SEARCH_LIMIT);
+      }).catch(() => {}).finally(() => {
+        if (current()) { setLoading(false); setLoadingMore(false); }
+      });
   }
   // Zu Seite p springen: ersetzt die Liste. Auswahl bleibt erhalten (seitenübergreifend).
   function goPage(p: number) {
@@ -1013,7 +1023,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
       // NUR das aktive Konto live auffrischen (nicht alle 8 gleichzeitig — das
       // hat bei langsamen Konten die App blockiert).
       if (selRef.current && bgSyncDue(selRef.current.acc, selRef.current.folder)) {
-        refreshCounts(selRef.current.acc);
+        refreshCounts(selRef.current.acc, true);
         bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
       }
     }, pollMin * 60000);
@@ -1031,7 +1041,6 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
     const id = window.setInterval(() => {
       if (document.hidden || !selRef.current) return;
       if (!bgSyncDue(selRef.current.acc, selRef.current.folder)) return;  // Backoff bei Fehlern
-      refreshCounts(selRef.current.acc);
       bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
     }, FAST_REFRESH_MS);
     return () => window.clearInterval(id);
@@ -1075,7 +1084,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
         if (ev.type !== "mail") return;
         if (typeof ev.account_id === "number") refreshCounts(ev.account_id);
         if (selRef.current && selRef.current.acc === ev.account_id) {
-          bgSync(selRef.current.acc, selRef.current.folder, pageRef.current);
+          refreshCachedFolder(selRef.current.acc, selRef.current.folder, pageRef.current);
         }
         // Unified Inbox live nachladen (entprellt) — sonst erscheinen neue Mails
         // dort erst nach manuellem ⟳.

@@ -1,5 +1,9 @@
 # SelfMailer 1.95.4: IMAP-Funktionen nach dem Login erkennen
 
+Diese Seite beschreibt den Fix in 1.95.4. Ab [1.95.5](GMAIL-SYNC-1.95.5.md)
+wird CONDSTORE mit SELECT gebündelt; außerdem gibt es einen zusätzlichen
+Busy-Fix für Web und Android samt neuer APK. Die Fähigkeitserkennung bleibt erhalten.
+
 ## Behobener Fehler
 
 Die verwendete Kombination aus `imaplib` und `imap_tools` speichert die

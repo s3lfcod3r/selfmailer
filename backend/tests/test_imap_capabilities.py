@@ -22,7 +22,8 @@ CAPS = b"IMAP4rev1 ENABLE MOVE CONDSTORE UIDPLUS"
 class TranscriptIMAP(imaplib.IMAP4):
     def __init__(self, *, login_mode="tagged", caps=CAPS, query_status="OK",
                  query_error=None, login_status="OK", move_status="OK",
-                 pre_caps=b"IMAP4rev1 AUTH=PLAIN", select_status="OK"):
+                 pre_caps=b"IMAP4rev1 AUTH=PLAIN", select_status="OK",
+                 condstore_select_status="OK", select_error=None, generation=b"123"):
         self.login_mode = login_mode
         self.auth_caps = caps
         self.query_status = query_status
@@ -31,6 +32,9 @@ class TranscriptIMAP(imaplib.IMAP4):
         self.move_status = move_status
         self.pre_caps = pre_caps
         self.select_status = select_status
+        self.condstore_select_status = condstore_select_status
+        self.select_error = select_error
+        self.generation = generation
         super().__init__()
 
     def open(self, host="", port=143, timeout=None):
@@ -66,13 +70,19 @@ class TranscriptIMAP(imaplib.IMAP4):
             self.condstore = True
             self.responses.append(b"* ENABLED CONDSTORE\r\n")
         elif verb == b"SELECT":
+            if self.select_error:
+                raise self.select_error
             status = self.select_status
+            if command.endswith(b" (CONDSTORE)"):
+                status = self.condstore_select_status if status == "OK" else status
+                self.condstore = status == "OK"
             self.responses.extend([
                 b"* FLAGS (\\Seen \\Deleted)\r\n",
                 b"* 1 EXISTS\r\n",
                 b"* 0 RECENT\r\n",
-                b"* OK [UIDVALIDITY 123] valid\r\n",
             ])
+            if self.generation is not None:
+                self.responses.append(b"* OK [UIDVALIDITY " + self.generation + b"] valid\r\n")
             if self.condstore:
                 self.responses.append(b"* OK [HIGHESTMODSEQ 7] modseq\r\n")
         elif verb == b"STATUS":
@@ -132,7 +142,8 @@ def test_authenticated_capabilities_activate_real_library_move_and_condstore(con
     box.move("1", "Trash")
     commands = box.client.commands
     assert commands.count("CAPABILITY") == (2 if login_mode == "none" else 1)
-    assert commands.index("LOGIN") < commands.index("ENABLE CONDSTORE") < commands.index('SELECT "INBOX"')
+    assert commands.index("LOGIN") < commands.index('SELECT "INBOX" (CONDSTORE)')
+    assert not any(c.startswith("ENABLE ") for c in commands)
     assert commands[-1] == 'UID MOVE 1 "Trash"'
     assert not any(c.startswith(("UID COPY ", "UID STORE ", "EXPUNGE")) for c in commands)
 
@@ -210,7 +221,8 @@ def test_native_delete_still_checks_uidvalidity_first(connect, monkeypatch, expe
         assert imap.delete_message(NS(id=1), "test", "1", uidvalidity=expected) == "moved"
         commands = box.client.commands
         assert commands[-1] == 'UID MOVE 1 "Trash"'
-        assert commands.index('STATUS "INBOX" (UIDVALIDITY)') < len(commands) - 1
+        assert commands.index('SELECT "INBOX" (CONDSTORE)') < len(commands) - 1
+        assert not any(c.startswith("STATUS ") for c in commands)
     else:
         with pytest.raises(HTTPException) as caught:
             imap.delete_message(NS(id=1), "test", "1", uidvalidity=expected)
@@ -234,5 +246,64 @@ def test_query_is_timed_only_when_needed_and_does_not_log_protocol_data(connect,
         connect(login_mode=login_mode)
         trace.status = 200
     assert ("capability" in trace.phases) == (login_mode == "none")
-    assert "condstore" in trace.phases
+    assert "select" in trace.phases and "condstore" not in trace.phases
+    assert trace.marks["condstore_mode"] == "select"
     assert not any(value in caplog.text for value in ["test-password", "test-user", "offline.invalid", "UIDPLUS"])
+
+
+@pytest.mark.parametrize("status", ["NO", "BAD"])
+def test_rejected_select_extension_falls_back_once_per_connection(connect, status):
+    box = connect(condstore_select_status=status)
+    assert box.folder.get() == "INBOX"
+    imap._select(box, "Sent")
+    assert [c for c in box.client.commands if c.startswith("SELECT ")] == [
+        'SELECT "INBOX" (CONDSTORE)', 'SELECT "INBOX"', 'SELECT "Sent"']
+    assert imap.mailbox_generation(box, "Sent", 123) == 123
+
+
+@pytest.mark.parametrize("error", [OSError("synthetic"), imaplib.IMAP4.abort("synthetic")])
+def test_select_transport_failure_never_falls_back(connect, error):
+    with pytest.raises((OSError, imaplib.IMAP4.abort)):
+        connect(select_error=error)
+    box, = connect.boxes
+    assert box.client.closed
+    assert len([c for c in box.client.commands if c.startswith("SELECT ")]) == 1
+    assert not any(c.startswith(("UID ", "STATUS ")) for c in box.client.commands)
+
+
+@pytest.mark.parametrize("generation", [None, b"0", b"-1", b"4294967296", b"not-a-number", b"123 456"])
+def test_invalid_select_generation_keeps_status_guard(connect, generation):
+    box = connect(generation=generation)
+    assert imap.mailbox_generation(box, "INBOX", 123) == 123
+    assert box.client.commands[-1] == 'STATUS "INBOX" (UIDVALIDITY)'
+
+
+def test_select_evidence_is_one_shot_and_not_reused_across_pool_checkouts(connect):
+    import time
+    box = connect()
+    assert imap.mailbox_generation(box, "INBOX", 123) == 123
+    assert not any(c.startswith("STATUS ") for c in box.client.commands)
+    imap.mailbox_generation(box, "INBOX", 123)
+    assert box.client.commands[-1] == 'STATUS "INBOX" (UIDVALIDITY)'
+    imap._select(box, "INBOX")
+    conn = imap._Conn()
+    conn.box, conn.folder, conn.last_used = box, "INBOX", time.monotonic()
+    imap._ensure_box(conn, NS(), "test", "test", "INBOX")
+    imap.mailbox_generation(box, "INBOX", 123)
+    assert box.client.commands[-1] == 'STATUS "INBOX" (UIDVALIDITY)'
+
+
+def test_other_folder_never_uses_select_evidence(connect):
+    box = connect()
+    imap.mailbox_generation(box, "Sent", 123)
+    assert box.client.commands[-1] == 'STATUS "Sent" (UIDVALIDITY)'
+
+
+def test_condstore_select_quotes_folder_and_rejects_control_characters(connect):
+    box = connect()
+    imap._select(box, 'Folder "quoted" (CONDSTORE)')
+    assert box.client.commands[-1] == r'SELECT "Folder \"quoted\" (CONDSTORE)" (CONDSTORE)'
+    before = list(box.client.commands)
+    with pytest.raises(HTTPException):
+        imap._select(box, 'INBOX\r\nDELETE other')
+    assert box.client.commands == before
