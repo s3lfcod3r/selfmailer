@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     base_url: str = ""
     # Pfad zur FCM-Service-Account-JSON (Google-Push). Leer/fehlend = FCM aus.
     fcm_credentials: str = ""
+    # Explizite authserv-id-Allowlist (kommagetrennt). Leer = keine positive
+    # Echtheitsbehauptung aus untrusted Mail-Headern. Nur Empfangs-MTAs eintragen,
+    # die fremde Header mit ihrer eigenen Kennung am Eingang entfernen.
+    trusted_authserv_ids: str = ""
     # First-Run: optionaler Admin-Token, sonst Web-Setup beim ersten Start.
     admin_token: str = ""
 

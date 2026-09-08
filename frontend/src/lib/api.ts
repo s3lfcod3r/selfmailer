@@ -118,6 +118,8 @@ export async function fetchHealth(): Promise<{ app: string; version: string; bui
 
 export type MsgHeader = {
   uid: string; subject: string; from: string; date: string; seen: boolean; flagged: boolean;
+  account_id?: number;
+  uidvalidity?: number;
   snippet: string; has_attachments: boolean;
   /** Nur bei Volltext-Treffern gesetzt: Ordner, in dem die Mail liegt. Treffer
    *  können aus einem anderen Ordner stammen als dem gerade geöffneten. */
@@ -201,6 +203,6 @@ export type SyncResult = {
 //   "noselect"= nicht-selektierbarer Container (z. B. Gmail „[Gmail]") -> auflösen,
 //   ""        = normaler Ordner (dann greift die Namens-Heuristik im Frontend).
 export type FolderCount = { name: string; unseen: number; total: number; special?: string };
-export type MigrateFolder = { source: string; dest: string; count: number; copied: number; skipped: number };
-export type MigrateResult = { folders: MigrateFolder[]; errors: string[]; dry_run: boolean };
+export type MigrateFolder = { source: string; dest: string; count: number; copied: number; skipped: number; remaining?: number };
+export type MigrateResult = { folders: MigrateFolder[]; errors: string[]; dry_run: boolean; complete?: boolean };
 export type TransferResult = { copied: number; skipped: number; deleted: number; errors: string[] };

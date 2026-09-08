@@ -236,7 +236,7 @@ def _change_calendar(
 
     Fälle: gleiches Ziel → nur Feld-Push; lokal→Google → anlegen; Google→lokal →
     dort löschen; Google→Google im selben Konto → echtes ``events.move``;
-    kontoübergreifend → alt löschen + neu anlegen.
+    kontoübergreifend → neu anlegen und bestätigen, erst danach alt löschen.
     """
     cur_acc_id = ev.dav_account_id
     cur_cal, cur_gid = ("", "")
@@ -288,13 +288,19 @@ def _change_calendar(
             ev.source_name, ev.source_color = _cal_meta(tok, new_cal)
         elif new_acc is not None:
             old = session.get(DavAccount, cur_acc_id) if cur_acc_id else None
+            tok = gcal_token(new_acc)
+            gid = google.create_event(tok, new_cal, _ev_dict(ev))
+            if not gid:
+                raise HTTPException(502, "Zielkalender hat keine Termin-ID bestätigt; Quelle bleibt erhalten")
             if old is not None and cur_cal and cur_gid:
                 try:
                     google.delete_event(gcal_token(old), cur_cal, cur_gid)
-                except httpx.HTTPError:
-                    pass
-            tok = gcal_token(new_acc)
-            gid = google.create_event(tok, new_cal, _ev_dict(ev))
+                except httpx.HTTPError as exc:
+                    # Keine erfolgreiche Verschiebung vortäuschen. Beide Kopien
+                    # behalten: die externe Löschung könnte trotz Timeout erfolgt sein.
+                    logger.warning("Zieltermin angelegt, Quelllöschung unbestätigt (Termin=%s)", ev.id)
+                    raise HTTPException(502, "Zieltermin angelegt, Löschen der Quelle nicht bestätigt. "
+                                        "Beide Kalender prüfen; nicht blind wiederholen.") from exc
             ev.dav_account_id = new_acc.id
             ev.external_uid = f"{new_cal}::{gid}"
             ev.source_key = new_cal

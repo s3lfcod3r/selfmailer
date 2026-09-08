@@ -236,34 +236,34 @@ def _upsert_events(
         ).all()
         if e.external_uid
     }
+    def utc_naive(value: dt.datetime) -> dt.datetime:
+        return value.astimezone(dt.timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+
     for ev in events:
-            uid = ev["uid"]
-            if not uid:
-                continue
-            seen.add(uid)
-            existing = by_uid.get(uid)
-            target = existing or CalendarEvent(
-                user_id=acc.user_id,
-                dav_account_id=acc.id,
-                external_uid=uid,
-                start=ev["start"],
-                end=ev["end"],
-            )
-            target.title = ev["title"]
-            target.description = ev["description"]
-            target.location = ev["location"]
-            target.start = ev["start"]
-            target.end = ev["end"]
-            target.all_day = ev["all_day"]
-            # Quell-Kalender für Farben/Filter: gcal liefert cal_id/calendar/color,
-            # CalDAV/iCal fallen auf das Konto zurück.
-            target.source_key = ev.get("cal_id") or f"dav:{acc.id}"
-            target.source_name = ev.get("calendar") or acc.label
-            target.source_color = ev.get("color") or ""
-            target.updated_at = dt.datetime.now(dt.timezone.utc)
-            session.add(target)
-            updated += 1 if existing else 0
-            imported += 0 if existing else 1
+        uid = ev["uid"]
+        if not uid:
+            continue
+        seen.add(uid)
+        existing = by_uid.get(uid)
+        fields = {k: ev[k] for k in ("title", "description", "location", "all_day")}
+        fields.update(start=utc_naive(ev["start"]), end=utc_naive(ev["end"]),
+                      source_key=ev.get("cal_id") or f"dav:{acc.id}",
+                      source_name=ev.get("calendar") or acc.label,
+                      source_color=ev.get("color") or "")
+        if existing is not None and all(
+            (utc_naive(getattr(existing, k)) if k in {"start", "end"} else getattr(existing, k)) == value
+            for k, value in fields.items()
+        ):
+            continue
+        target = existing or CalendarEvent(user_id=acc.user_id, dav_account_id=acc.id,
+                                           external_uid=uid, start=fields["start"], end=fields["end"])
+        for key, value in fields.items():
+            setattr(target, key, value)
+        target.updated_at = dt.datetime.now(dt.timezone.utc)
+        session.add(target)
+        by_uid[uid] = target
+        updated += 1 if existing else 0
+        imported += 0 if existing else 1
     removed = _prune(CalendarEvent, acc.id, seen, session)
     return SyncResult(ok=True, imported=imported, updated=updated, removed=removed)
 

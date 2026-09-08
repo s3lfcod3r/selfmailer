@@ -293,11 +293,17 @@ export function Sync() {
           {migResult && (
             <div className="stack" style={{ gap: "0.2rem", fontSize: "0.86rem", borderTop: "1px solid var(--self-line)", paddingTop: "0.7rem" }}>
               <div className="label">{migResult.dry_run ? t("mig.previewResult") : t("mig.doneResult")}</div>
+              {!migResult.dry_run && migResult.complete === false && (
+                <div className="err">{lang === "de"
+                  ? "Migration noch nicht vollständig. Bei erreichtem Limit erneut starten; Fehler zuerst prüfen."
+                  : "Migration is not complete. Run again if the limit was reached; inspect errors first."}</div>
+              )}
               {migResult.folders.filter((f) => f.count > 0).map((f) => (
                 <div key={f.source} className="row" style={{ gap: "0.5rem" }}>
                   <span className="grow" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.source} → {f.dest}</span>
                   <span className="muted" style={{ flex: "0 0 auto" }}>
                     {migResult.dry_run ? t("mig.willCopy", { n: f.count }) : t("mig.copiedSkipped", { c: f.copied, s: f.skipped })}
+                    {!migResult.dry_run && !!f.remaining && ` · ${f.remaining} ${lang === "de" ? "ausstehend" : "remaining"}`}
                   </span>
                 </div>
               ))}

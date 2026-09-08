@@ -1,9 +1,10 @@
 {
   "name": "selfmailer-frontend",
   "private": true,
-  "version": "1.93.0",
+  "version": "1.94.0",
   "type": "module",
   "scripts": {
+    "test": "node --test tests/*.cjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
