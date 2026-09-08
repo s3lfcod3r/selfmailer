@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type Account, type Rule } from "../lib/api";
 import { useLang } from "../lib/i18n";
 
@@ -15,18 +15,41 @@ export function Rules() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const accountEpoch = useRef(0);
+  const rulesRequest = useRef(0);
+  const writing = useRef(false);
+
+  function chooseAccount(id: number) {
+    accountEpoch.current++; rulesRequest.current++;
+    writing.current = false;
+    setRules([]); setFolders([]); setForm({ ...EMPTY }); setEditId(null);
+    setErr(""); setMsg(""); setBusy(false); setLoading(true); setActiveId(id);
+  }
 
   useEffect(() => {
-    api.get<Account[]>("/accounts").then((a) => { setAccounts(a); if (a.length) setActiveId(a[0].id); });
+    let live = true;
+    api.get<Account[]>("/accounts")
+      .then((a) => { if (live) { setAccounts(a); if (a.length) chooseAccount(a[0].id); } })
+      .catch((e) => { if (live) setErr((e as Error).message); });
+    return () => { live = false; accountEpoch.current++; rulesRequest.current++; };
   }, []);
 
   function loadRules(id: number) {
-    api.get<Rule[]>(`/mail/${id}/rules`).then(setRules).catch(() => setRules([]));
+    const epoch = accountEpoch.current, request = ++rulesRequest.current;
+    const current = () => epoch === accountEpoch.current && request === rulesRequest.current;
+    return api.get<Rule[]>(`/mail/${id}/rules`)
+      .then((rs) => { if (current()) setRules(rs); })
+      .catch((e) => { if (current()) setErr((e as Error).message); })
+      .finally(() => { if (current()) setLoading(false); });
   }
   useEffect(() => {
     if (activeId == null) return;
-    loadRules(activeId);
-    api.get<string[]>(`/mail/${activeId}/folders`).then(setFolders).catch(() => setFolders([]));
+    const epoch = accountEpoch.current;
+    void loadRules(activeId);
+    api.get<string[]>(`/mail/${activeId}/folders`)
+      .then((fs) => { if (epoch === accountEpoch.current) setFolders(fs); })
+      .catch((e) => { if (epoch === accountEpoch.current) setErr((e as Error).message); });
   }, [activeId]);
 
   function set<K extends keyof typeof form>(k: K, v: (typeof form)[K]) { setForm((f) => ({ ...f, [k]: v })); }
@@ -34,15 +57,19 @@ export function Rules() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(""); setMsg("");
-    if (activeId == null) return;
+    if (activeId == null || writing.current || loading) return;
     if (!form.value.trim()) { setErr(t("rules.needValue")); return; }
     if (!form.target_folder && !form.mark_read && !form.star && !form.delete_msg) { setErr(t("rules.needAction")); return; }
+    const epoch = accountEpoch.current;
+    writing.current = true; setBusy(true);
     try {
       if (editId != null) await api.patch(`/mail/${activeId}/rules/${editId}`, form);
       else await api.post(`/mail/${activeId}/rules`, form);
+      if (epoch !== accountEpoch.current) return;
       setForm({ ...EMPTY }); setEditId(null);
-      loadRules(activeId);
-    } catch (e) { setErr((e as Error).message); }
+      await loadRules(activeId);
+    } catch (e) { if (epoch === accountEpoch.current) setErr((e as Error).message); }
+    finally { if (epoch === accountEpoch.current) { writing.current = false; setBusy(false); } }
   }
   function startEdit(r: Rule) {
     setEditId(r.id);
@@ -51,18 +78,28 @@ export function Rules() {
   }
   function cancelEdit() { setEditId(null); setForm({ ...EMPTY }); }
   async function remove(r: Rule) {
-    if (activeId == null) return;
-    try { await api.del(`/mail/${activeId}/rules/${r.id}`); setRules((rs) => rs.filter((x) => x.id !== r.id)); }
-    catch (e) { setErr((e as Error).message); }
+    if (activeId == null || writing.current || loading) return;
+    const epoch = accountEpoch.current;
+    writing.current = true; setBusy(true);
+    try {
+      await api.del(`/mail/${activeId}/rules/${r.id}`);
+      if (epoch !== accountEpoch.current) return;
+      rulesRequest.current++;
+      setRules((rs) => rs.filter((x) => x.id !== r.id));
+      if (editId === r.id) cancelEdit();
+    } catch (e) { if (epoch === accountEpoch.current) setErr((e as Error).message); }
+    finally { if (epoch === accountEpoch.current) { writing.current = false; setBusy(false); } }
   }
   async function applyNow() {
-    if (activeId == null) return;
+    if (activeId == null || writing.current || loading) return;
+    const epoch = accountEpoch.current;
+    writing.current = true;
     setBusy(true); setErr(""); setMsg("");
     try {
       const res = await api.post<{ affected: number }>(`/mail/${activeId}/rules/apply`);
-      setMsg(t("rules.applied", { n: res.affected }));
-    } catch (e) { setErr((e as Error).message); }
-    finally { setBusy(false); }
+      if (epoch === accountEpoch.current) setMsg(t("rules.applied", { n: res.affected }));
+    } catch (e) { if (epoch === accountEpoch.current) setErr((e as Error).message); }
+    finally { if (epoch === accountEpoch.current) { writing.current = false; setBusy(false); } }
   }
 
   function fieldLabel(f: string): string {
@@ -72,12 +109,12 @@ export function Rules() {
     return t("filter.from");
   }
 
-  if (accounts.length === 0) return <p className="muted">{t("mail.noAccount")}</p>;
+  if (accounts.length === 0) return err ? <div className="err" role="alert">{err}</div> : <p className="muted">{t("mail.noAccount")}</p>;
 
   return (
     <div style={{ maxWidth: 760 }}>
       {accounts.length > 1 && (
-        <select value={activeId ?? ""} onChange={(e) => setActiveId(Number(e.target.value))} style={{ maxWidth: 260, marginBottom: "1rem" }}>
+        <select aria-label={t("nav.accounts")} value={activeId ?? ""} onChange={(e) => chooseAccount(Number(e.target.value))} style={{ maxWidth: 260, marginBottom: "1rem" }}>
           {accounts.map((a) => <option key={a.id} value={a.id}>{a.label || a.email}</option>)}
         </select>
       )}
@@ -95,7 +132,7 @@ export function Rules() {
                   <span className="grow" style={{ fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {r.value}{r.field === "from_domain" ? ` (${t("rules.fromDomain")})` : ""}
                   </span>
-                  <button className="ghost" onClick={() => remove(r)}>↩ {t("rules.unblock")}</button>
+                  <button className="ghost" disabled={busy || loading} onClick={() => remove(r)}>↩ {t("rules.unblock")}</button>
                 </div>
               ))}
             </div>
@@ -104,6 +141,7 @@ export function Rules() {
       })()}
 
       <form className="card stack" style={{ padding: "1rem", marginBottom: "1.4rem" }} onSubmit={submit}>
+        <fieldset disabled={busy || loading} className="stack" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="label">{editId != null ? t("rules.edit") : t("rules.new")}</div>
         <div className="row">
           <select value={form.field} onChange={(e) => set("field", e.target.value)} style={{ maxWidth: 180 }}>
@@ -135,6 +173,7 @@ export function Rules() {
           {editId != null && <button type="button" className="ghost" onClick={cancelEdit}>{t("common.cancel")}</button>}
           <button className="primary">{editId != null ? t("rules.save") : t("rules.add")}</button>
         </div>
+        </fieldset>
       </form>
 
       {err && <div className="err">{err}</div>}
@@ -143,10 +182,10 @@ export function Rules() {
       <div className="row" style={{ marginBottom: "0.8rem" }}>
         <span className="label">{t("rules.list")}</span>
         <span className="grow" />
-        <button onClick={applyNow} disabled={busy}>{busy ? "…" : t("rules.applyNow")}</button>
+        <button onClick={applyNow} disabled={busy || loading}>{busy ? "…" : t("rules.applyNow")}</button>
       </div>
 
-      {rules.length === 0 && <p className="muted">{t("rules.empty")}</p>}
+      {loading ? <p role="status">{t("common.loading")}</p> : rules.length === 0 && <p className="muted">{t("rules.empty")}</p>}
       <div className="stack">
         {rules.map((r) => (
           <div className="card row" style={{ padding: "0.7rem 1rem" }} key={r.id}>
@@ -160,8 +199,8 @@ export function Rules() {
                   : <>→ {r.target_folder ? `${t("rules.moveTo")}: ${r.target_folder}` : ""}{r.star ? " ★" : ""}{r.mark_read ? ` · ${t("rules.markRead")}` : ""}</>}
               </div>
             </div>
-            <button className="ghost" onClick={() => startEdit(r)}>{t("rules.editBtn")}</button>
-            <button className="ghost" onClick={() => remove(r)}>{t("common.delete")}</button>
+            <button className="ghost" disabled={busy || loading} onClick={() => startEdit(r)}>{t("rules.editBtn")}</button>
+            <button className="ghost" disabled={busy || loading} onClick={() => remove(r)}>{t("common.delete")}</button>
           </div>
         ))}
       </div>

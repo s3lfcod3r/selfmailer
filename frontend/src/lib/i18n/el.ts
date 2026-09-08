@@ -1,6 +1,8 @@
 import type { Dict } from "./types";
 
 export const el: Dict = {
+  "notes.unsaved": "Απόρριψη των μη αποθηκευμένων αλλαγών αυτής της σημείωσης;",
+  "notes.noResults": "Δεν βρέθηκαν αντίστοιχες σημειώσεις.",
   // Common
   "common.loading": "Φόρτωση…",
   "common.add": "Προσθήκη",

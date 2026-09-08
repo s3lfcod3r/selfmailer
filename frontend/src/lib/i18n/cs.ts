@@ -1,6 +1,8 @@
 import type { Dict } from "./types";
 
 export const cs: Dict = {
+  "notes.unsaved": "Zahodit neuložené změny této poznámky?",
+  "notes.noResults": "Žádné odpovídající poznámky.",
   // Common
   "common.loading": "Načítání…",
   "common.add": "Přidat",

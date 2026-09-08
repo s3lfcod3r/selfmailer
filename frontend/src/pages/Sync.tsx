@@ -427,10 +427,10 @@ export function Sync() {
                  onChange={(e) => setGoog((g) => ({ ...g, label: e.target.value }))} />
           <input placeholder="client_id" value={goog.client_id}
                  onChange={(e) => setGoog((g) => ({ ...g, client_id: e.target.value }))} required />
-          <input placeholder="client_secret" value={goog.client_secret}
+          <input type="password" aria-label="client_secret" autoComplete="new-password" spellCheck={false} placeholder="client_secret" value={goog.client_secret}
                  onChange={(e) => setGoog((g) => ({ ...g, client_secret: e.target.value }))} required />
           <div className="row">
-            <input className="grow" placeholder="refresh_token" value={goog.refresh_token}
+            <input type="password" aria-label="refresh_token" autoComplete="new-password" spellCheck={false} className="grow" placeholder="refresh_token" value={goog.refresh_token}
                    onChange={(e) => setGoog((g) => ({ ...g, refresh_token: e.target.value }))} required />
             <button className="primary" disabled={googBusy}>{googBusy ? "Prüfe…" : "Verbinden"}</button>
           </div>
