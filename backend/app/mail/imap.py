@@ -352,7 +352,7 @@ def _greife_zu(key: str, folder: str, limit: int) -> "_Conn | None":
 
         # 1) Freie mit passendem Ordner, 2) irgendeine freie
         for passend in (True, False):
-            for c in conns:
+            for c in conns[:limit]:
                 if passend and c.folder != folder:
                     continue
                 if c.lock.acquire(blocking=False):
@@ -433,7 +433,7 @@ def quota(account: MailAccount, password: str) -> dict | None:
     """Speicherbelegung des Kontos (IMAP QUOTA, RFC 2087) — {used, limit} in Bytes.
     None, wenn der Server keine QUOTA-Extension anbietet (z. B. web.de/Courier)."""
     try:
-        with _mailbox(account, password, folder="INBOX", read_fallback=True, op="quota") as box:
+        with _mailbox(account, password, folder="INBOX", op="quota") as box:
             client = box.client
             caps = tuple(str(c).upper() for c in (getattr(client, "capabilities", ()) or ()))
             if "QUOTA" not in caps:
@@ -484,7 +484,7 @@ def _liste_ordner(account: MailAccount, password: str, box: MailBox) -> dict[str
     def helfer() -> None:
         try:
             with _mailbox(
-                account, password, read_fallback=True,
+                account, password,
                 lock_timeout=_HELPER_WAIT, op="list_folders-helfer",
             ) as b:
                 hole(2, b, "INBOX", "*")
@@ -522,7 +522,7 @@ def _sortiere_ordner(namen) -> list[str]:
 
 def list_folders(account: MailAccount, password: str) -> list[str]:
     """Listet Ordner robust ueber mehrere LIST-Varianten (siehe _liste_ordner)."""
-    with _mailbox(account, password, read_fallback=True, op="list_folders") as box:
+    with _mailbox(account, password, op="list_folders") as box:
         namen = _liste_ordner(account, password, box)
     return _sortiere_ordner(namen) or ["INBOX"]
 
@@ -579,7 +579,7 @@ def _count_helfer(
     """
     try:
         with _mailbox(
-            account, password, read_fallback=True,
+            account, password,
             lock_timeout=_HELPER_WAIT, op="folder_counts-helfer",
         ) as box:
             _zaehl_ab(box, aufgaben, ergebnis, lock)
@@ -594,7 +594,7 @@ def folder_counts(account: MailAccount, password: str) -> list[dict]:
     Verbindungen des Kontos. Der Aufrufer zaehlt auf seiner eigenen immer mit,
     damit die Liste auch dann vollstaendig wird, wenn kein Helfer zum Zug kommt.
     """
-    with _mailbox(account, password, read_fallback=True, op="folder_counts") as box:
+    with _mailbox(account, password, op="folder_counts") as box:
         # Flags je Ordner fuer die SPECIAL-USE-Erkennung.
         flags_by_name = _liste_ordner(account, password, box)
         names = _sortiere_ordner(flags_by_name) or ["INBOX"]
@@ -647,7 +647,7 @@ def inbox_unseen(account: MailAccount, password: str, folder: str = "INBOX") -> 
     """Nur die Ungelesen-Zahl EINES Ordners via IMAP STATUS — schnell (1 Login,
     1 STATUS, KEIN Header-Download). Für die Dashboard-Übersicht, damit der
     Live-Abruf nicht in einen vollen Sync großer Postfächer läuft (Timeout)."""
-    with _mailbox(account, password, read_fallback=True, op="inbox_unseen") as box:
+    with _mailbox(account, password, op="inbox_unseen") as box:
         st = box.folder.status(folder, ["UNSEEN"])
         return int(st.get("UNSEEN", 0) or 0)
 
@@ -753,6 +753,32 @@ def _base_subject(subject: str) -> str:
     return s.strip()
 
 
+def fetch_headers(box, uids: list[str], *, reverse: bool = False, deadline_s: float | None = None):
+    """Known UIDs: no extra SEARCH, header + MIME metadata only, batches of 50."""
+    from .metadata import header_messages
+
+    ordered = list(reversed(uids)) if reverse else list(uids)
+    started = time.monotonic()
+    for offset in range(0, len(ordered), 50):
+        if offset and deadline_s is not None and time.monotonic() - started >= deadline_s:
+            break
+        chunk = ordered[offset:offset + 50]
+        try:
+            rows = header_messages(box, chunk)
+        except (ValueError, AttributeError, TypeError):  # never download bodies as a list fallback
+            logger.debug("BODYSTRUCTURE unavailable, attachment indicator deferred", exc_info=True)
+            rows = list(box.fetch(AND(uid=",".join(chunk)), uid_list=chunk, headers_only=True, mark_seen=False, bulk=True))
+            for msg in rows:
+                msg.has_attachments_hint = False
+        order = {uid: index for index, uid in enumerate(chunk)}
+        for msg in sorted((m for m in rows if m.uid in order), key=lambda m: order[m.uid]):
+            yield msg
+
+
+def has_attachments(msg) -> bool:
+    return getattr(msg, "has_attachments_hint", None) if hasattr(msg, "has_attachments_hint") else bool(msg.attachments)
+
+
 def collect_thread(
     account: MailAccount, password: str, folder: str, uid: str, *, per_folder: int = 50, uidvalidity: int | None = None
 ) -> list[dict]:
@@ -779,7 +805,7 @@ def collect_thread(
             "uid": msg.uid, "folder": fol, "subject": msg.subject, "from": msg.from_,
             "uidvalidity": generations.get(fol, 0),
             "date": msg.date_str, "seen": SEEN in msg.flags, "flagged": FLAGGED in msg.flags,
-            "snippet": _snippet(msg.text or "", msg.html or ""), "has_attachments": bool(msg.attachments),
+            "snippet": _snippet(msg.text or "", msg.html or ""), "has_attachments": has_attachments(msg),
             "labels": keywords_of(msg),
             **thread_headers(msg),
         })
@@ -794,7 +820,7 @@ def collect_thread(
         sel = uids[-per_folder:]
         if not sel:
             return
-        for m in box.fetch(AND(uid=",".join(sel)), mark_seen=False, bulk=True):
+        for m in fetch_headers(box, sel):
             add(fol, m)
 
     # Ausgangsordner: eine Session, in der wir NICHT den Ordner wechseln.
@@ -804,10 +830,10 @@ def collect_thread(
     # Ein nachfolgender Zugriff bekam sie als "passend" ohne SELECT und arbeitete
     # still im falschen Ordner. Deshalb jetzt je Ordner eine eigene kurze Session,
     # genau wie search_messages.)
-    with _mailbox(account, password, folder=folder, read_fallback=True, op="collect_thread") as box:
+    with _mailbox(account, password, folder=folder, op="collect_thread") as box:
         generations[folder] = mailbox_generation(box, folder, uidvalidity)
         target = None
-        for m in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
+        for m in box.fetch(AND(uid=uid), uid_list=[uid], headers_only=True, mark_seen=False, limit=1):
             target = m
             break
         if target is None:
@@ -827,7 +853,7 @@ def collect_thread(
             rest.append(f)
     for fol in rest:
         try:
-            with _mailbox(account, password, folder=fol, read_fallback=True, op="collect_thread") as box:
+            with _mailbox(account, password, folder=fol, op="collect_thread") as box:
                 collect_in(box, fol)
         except Exception:  # noqa: BLE001 - einzelner Ordner darf die Sammlung nicht kippen
             logger.warning("Thread-Suche in %r fehlgeschlagen (account_id=%s)", fol, account.id, exc_info=True)
@@ -839,16 +865,13 @@ def list_messages(
     account: MailAccount, password: str, folder: str = "INBOX", limit: int = 50, offset: int = 0
 ) -> list[dict]:
     out: list[dict] = []
-    # bulk=True bündelt den Abruf in EINEN IMAP-FETCH statt eines pro Nachricht.
-    # Auf entfernten Servern (z. B. web.de) ist die Round-Trip-Zeit der dominierende
-    # Kostenfaktor: ~50 Einzel-Fetches → 1 Sammel-Fetch. headers_only bleibt aus,
-    # damit Vorschau (snippet) und Anhang-Indikator erhalten bleiben.
-    # offset/limit als Slice (auf die nach Datum absteigende Liste) = Paginierung
-    # zum Weiterblättern bei großen Postfächern.
+    # Header + BODYSTRUCTURE pro 50er-Paket, keine Body-/Anhang-Downloads.
+    # offset/limit auf der absteigenden UID-Liste bleibt die Paginierung.
     page = slice(offset, offset + limit)
     with _mailbox(account, password, folder=folder, read_fallback=True, op="list_messages") as box:
         generation = mailbox_generation(box, folder)
-        for msg in box.fetch(AND(all=True), reverse=True, limit=page, mark_seen=False, bulk=True):
+        uids = list(reversed(box.uids()))[page]
+        for msg in fetch_headers(box, uids):
             out.append(
                 {
                     "uid": msg.uid or "",
@@ -859,7 +882,7 @@ def list_messages(
                     "seen": SEEN in msg.flags,
                     "flagged": FLAGGED in msg.flags,
                     "snippet": _snippet(msg.text or "", msg.html or ""),
-                    "has_attachments": bool(msg.attachments),
+                    "has_attachments": has_attachments(msg),
                     "labels": keywords_of(msg),
                     **thread_headers(msg),
                 }
@@ -935,9 +958,7 @@ def search_messages(
                     continue
                 # Höchste UIDs = neueste Mails. Nur die letzten per_folder holen.
                 selected = uids[-per_folder:]
-                for msg in box.fetch(
-                    AND(uid=",".join(selected)), mark_seen=False, bulk=True, reverse=True
-                ):
+                for msg in fetch_headers(box, selected, reverse=True):
                     out.append(
                         {
                             "uid": msg.uid or "",
@@ -949,7 +970,7 @@ def search_messages(
                             "seen": SEEN in msg.flags,
                             "flagged": FLAGGED in msg.flags,
                             "snippet": _snippet(msg.text or "", msg.html or ""),
-                            "has_attachments": bool(msg.attachments),
+                            "has_attachments": has_attachments(msg),
                             "_sort": msg.date,
                         }
                     )
@@ -1087,7 +1108,7 @@ def iter_mbox(account: MailAccount, password: str, folder: str = "INBOX", limit:
     gerade beschäftigt"). Deshalb: UID-Liste einmal holen, dann je 50er-Block
     Verbindung öffnen, Block puffern, Verbindung schließen, DANN ausliefern."""
     _reject_folder_ctrl(folder)
-    with _mailbox(account, password, folder=folder, read_fallback=True, op="iter_mbox") as box:
+    with _mailbox(account, password, folder=folder, op="iter_mbox") as box:
         uids = list(box.uids())
     if limit and len(uids) > limit:
         uids = uids[-limit:]  # neueste `limit` Mails
@@ -1097,7 +1118,7 @@ def iter_mbox(account: MailAccount, password: str, folder: str = "INBOX", limit:
     for i in range(0, len(uids), _CHUNK):
         sel = uids[i:i + _CHUNK]
         buf: list[bytes] = []
-        with _mailbox(account, password, folder=folder, read_fallback=True, op="iter_mbox") as box:
+        with _mailbox(account, password, folder=folder, op="iter_mbox") as box:
             for msg in box.fetch(AND(uid=",".join(sel)), mark_seen=False, bulk=25):
                 try:
                     raw = msg.obj.as_bytes() or b""
@@ -1119,7 +1140,7 @@ def fetch_new_headers(account: MailAccount, password: str, last_uid: int, cap: i
     Nur die neuesten ``cap`` neuen Mails werden geliefert (Notbremse gegen
     Antwort-Fluten nach langer Offline-Zeit); last_uid rückt trotzdem auf die
     höchste UID vor, damit Übersprungenes nicht später nachbeantwortet wird."""
-    with _mailbox(account, password, folder="INBOX", read_fallback=True, op="fetch_new_headers") as box:
+    with _mailbox(account, password, folder="INBOX", op="fetch_new_headers") as box:
         try:
             all_uids = sorted(int(u) for u in box.uids() if str(u).isdigit())
         except Exception:  # noqa: BLE001 - defekte UID-Liste: lieber nichts tun
@@ -1151,23 +1172,24 @@ def get_message(account: MailAccount, password: str, uid: str, folder: str = "IN
     # Lesezugriff: bei belegter Verbindung frische Kurzverbindung statt warten/503.
     with _mailbox(account, password, folder=folder, read_fallback=True, op="get_message") as box:
         generation = mailbox_generation(box, folder, uidvalidity)
-        for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
+        for msg in box.fetch(AND(uid=uid), uid_list=[uid], mark_seen=False, limit=1):
             return {**_detail_dict(msg, account), "uidvalidity": generation, "folder": folder}
     return None
 
 
 def get_messages(account: MailAccount, password: str, uids: list[str], folder: str = "INBOX", *, uidvalidity: int | None = None) -> list[dict]:
-    """Volltext MEHRERER Mails in EINER IMAP-Session (ein Login + ein Sammel-Fetch).
-
-    Für das Vorwärmen des Body-Caches einer ganzen Listenseite, damit jeder
-    Klick danach sofort aus der DB kommt.
-    """
+    """Vorladen von höchstens drei kleinen Mails (je <=64 KiB) ohne UI-Reserve."""
     if not uids:
         return []
     out: list[dict] = []
-    with _mailbox(account, password, folder=folder, read_fallback=True, op="get_messages") as box:
+    with _mailbox(account, password, folder=folder, lock_timeout=0, op="prefetch") as box:
         generation = mailbox_generation(box, folder, uidvalidity)
-        for msg in box.fetch(AND(uid=",".join(uids)), mark_seen=False, bulk=10):
+        candidates = list(dict.fromkeys(uids))[:3]
+        headers = box.fetch(AND(uid=",".join(candidates)), uid_list=candidates, headers_only=True, mark_seen=False, bulk=True)
+        small = [m.uid for m in headers if m.uid and 0 < m.size_rfc822 <= 64 * 1024]
+        if not small:
+            return []
+        for msg in box.fetch(AND(uid=",".join(small)), uid_list=small, mark_seen=False, bulk=True):
             if msg.uid:
                 out.append({**_detail_dict(msg, account), "uidvalidity": generation, "folder": folder})
     return out
@@ -1382,13 +1404,13 @@ def _spam_folder(box: MailBox) -> str | None:
 def _find_spam_folder(account: MailAccount, password: str) -> str | None:
     """Spam-Ordnernamen ermitteln (eigener kurzer Kontext, damit der Verbindungs-
     Pool den selektierten Ordner sauber verwaltet)."""
-    with _mailbox(account, password, read_fallback=True, op="_find_spam_folder") as box:
+    with _mailbox(account, password, op="_find_spam_folder") as box:
         return _spam_folder(box)
 
 
 def _find_trash_folder(account: MailAccount, password: str) -> str | None:
     """Papierkorb-Ordnernamen ermitteln (analog _find_spam_folder)."""
-    with _mailbox(account, password, read_fallback=True, op="_find_trash_folder") as box:
+    with _mailbox(account, password, op="_find_trash_folder") as box:
         return _trash_folder(box, "INBOX")
 
 
@@ -1399,7 +1421,7 @@ def _purge_folder(account: MailAccount, password: str, folder: str | None, older
     """
     if older_than_days < 0 or not folder:
         return {"deleted": 0}
-    with _mailbox(account, password, folder=folder, read_fallback=True, op="_purge_folder") as box:
+    with _mailbox(account, password, folder=folder, op="_purge_folder") as box:
         if older_than_days == 0:
             criteria = AND(all=True)
         else:
@@ -1852,7 +1874,7 @@ def sweep_block_folders(
     # Ordnerliste zusammenstellen: Spam (falls vorhanden) + Push-Ordner, aber OHNE
     # den Posteingang (macht apply_rules schon) und OHNE den Papierkorb selbst.
     try:
-        with _mailbox(account, password, read_fallback=True, op="sweep_block_folders") as box:
+        with _mailbox(account, password, op="sweep_block_folders") as box:
             spam = _spam_folder(box)
             trash = _trash_folder(box, "INBOX")
     except Exception:  # noqa: BLE001 - ohne Ordnerliste keinen Sweep, aber nie den Sync kippen
@@ -1873,12 +1895,8 @@ def sweep_block_folders(
     total = 0
     for folder in targets:
         try:
-            # read_fallback=True: dieser Aufraeum-Lauf ist reine Hintergrundarbeit
-            # und darf die eine Konto-Verbindung nicht blockieren. Am 02.09.2026
-            # gemessen: er hielt sie je Ordner rund 20 s besetzt, waehrend Sync und
-            # Loeschen des Nutzers davor warteten. Auf einer eigenen Kurzverbindung
-            # stoert er niemanden - MOVE und STORE brauchen keine gemeinsame Sitzung.
-            with _mailbox(account, password, folder=folder, read_fallback=True,
+            # Cleanup shares only the background slots; the UI reserve stays free.
+            with _mailbox(account, password, folder=folder,
                           op="sweep_block_folders") as box:
                 to_del = [
                     m.uid for m in box.fetch(

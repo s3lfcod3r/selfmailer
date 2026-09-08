@@ -6,7 +6,7 @@ import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../
 import { Compose, emptyDraft, replyDraft, forwardDraft, parseDraftBody, type Draft } from "../components/Compose";
 import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, avatarFor, trimQuotedHtml, trimQuotedText } from "../lib/mailview";
 import { ThreadReader } from "../components/ThreadReader";
-import { messageGeneration } from "../lib/mailIdentity";
+import { messageGeneration, messageKey, withoutPendingDeletes } from "../lib/mailIdentity";
 import { groupThreads, normalizeSubject, type Conversation } from "../lib/threads";
 import DOMPurify from "dompurify";
 import { useMenuDismiss } from "../lib/useMenuDismiss";
@@ -338,12 +338,28 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   const [pendingOpen, setPendingOpen] = useState<{ acc: number; uid: string } | null>(null);
   const [collapsedAcc, setCollapsedAcc] = useState<Set<number>>(() => loadSet("selfmailer.collapsedAcc"));
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [messages, setMessages] = useState<MsgHeader[]>([]);
+  const [messages, setMessagesRaw] = useState<MsgHeader[]>([]);
+  const pendingDeletesRef = useRef<Map<string, number>>(new Map());
+  const [deleting, setDeleting] = useState(0);
+  function setMessages(update: MsgHeader[] | ((previous: MsgHeader[]) => MsgHeader[])) {
+    setMessagesRaw(previous => {
+      const next = typeof update === "function" ? update(previous) : update;
+      return withoutPendingDeletes(next, pendingDeletesRef.current, selRef.current?.acc ?? -1, selRef.current?.folder ?? "");
+    });
+  }
   const [open, setOpen] = useState<MsgDetail | null>(null);
   const [opening, setOpening] = useState(false); // Body wird geladen → sofort Ladeanzeige
   // Geöffnete Konversation (Thread-Lesebereich). Hat Vorrang vor `open`: ist ein
   // Thread offen, zeigt die Lesespalte den gestapelten Verlauf statt einer Einzelmail.
-  const [openThread, setOpenThread] = useState<Conversation | null>(null);
+  const [openThread, setOpenThreadRaw] = useState<Conversation | null>(null);
+  function setOpenThread(update: Conversation | null | ((previous: Conversation | null) => Conversation | null)) {
+    setOpenThreadRaw(previous => {
+      const next = typeof update === "function" ? update(previous) : update;
+      if (!next) return null;
+      const rows = withoutPendingDeletes(next.messages, pendingDeletesRef.current, selRef.current?.acc ?? -1, selRef.current?.folder ?? "");
+      return rows.length ? { ...next, messages: rows, count: rows.length, latest: rows[rows.length - 1] } : null;
+    });
+  }
   // Gecachte „Gesendet"-Kopfzeilen je Konto — damit der Listen-Zähler einer
   // Konversation auch die EIGENEN Antworten mitzählt (wie Synology). Wird im
   // Hintergrund geladen, sobald die Konversations-Ansicht aktiv ist.
@@ -1282,23 +1298,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // Eine einzelne Thread-Nachricht löschen (im RICHTIGEN Ordner — UIDs sind nur
   // ordnerintern eindeutig, ein hartkodierter Ordner würde die falsche Mail treffen).
   async function delThreadMsg(m: MsgHeader) {
-    if (activeId == null) return;
-    const fol = m.folder || folder;
-    if (!(await askConfirm(t("mail.confirmDelete")))) return;
-    setErr("");
-    try {
-      await api.del(`/mail/${activeId}/messages/${m.uid}?folder=${encodeURIComponent(fol)}${messageGeneration(m)}`);
-      if (fol === folder) {
-        setMessages((ms) => ms.filter((x) => x.uid !== m.uid));
-        if (!m.seen) bumpUnseen(activeId, fol, -1);
-      }
-      setOpenThread((prev) => {
-        if (!prev) return prev;
-        const rest = prev.messages.filter((x) => !sameMsg(x, m));
-        if (rest.length === 0) { setMobilePane("list"); return null; }  // letzte Mail weg → Thread schließen
-        return { ...prev, messages: rest, count: rest.length };
-      });
-    } catch (e) { setErr((e as Error).message); }
+    await del(m);
   }
 
   // Weitere ordner-bewusste Thread-Aktionen (für das ⋯-Menü je Karte).
@@ -1439,27 +1439,18 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   // nicht gecachten Bodies in einer IMAP-Session und legt sie in der DB ab.
   // Danach kommt JEDER Klick sofort aus dem Cache — kein Gedenkzeit-Login mehr.
   function warmBodies(acc: number, fol: string, msgs: MsgHeader[]) {
-    const uids = msgs.map((m) => m.uid).filter(Boolean);
+    const selected = msgs.slice(0, 3).filter(m => !prefetchedRef.current.has(messageKey(m, acc, fol)));
+    const uids = selected.map((m) => m.uid).filter(Boolean);
     if (uids.length === 0) return;
-    api.post(`/mail/${acc}/messages/prefetch`, { folder: fol, uids, uidvalidity: msgs[0]?.uidvalidity })
-      .then(() => { uids.forEach((u) => prefetchedRef.current.add(`${acc}:${fol}:${u}`)); })
+    selected.forEach(m => prefetchedRef.current.add(messageKey(m, acc, fol)));
+    api.post(`/mail/${acc}/messages/prefetch`, { folder: fol, uids, uidvalidity: selected[0]?.uidvalidity })
       .catch(() => { /* Vorwärmen ist best-effort */ });
   }
   const prefetchedRef = useRef<Set<string>>(new Set());
   function prefetchMsg(uid: string) {
     if (activeId == null) return;
-    const key = `${activeId}:${folder}:${generationFor(uid)}:${uid}`;
-    if (prefetchedRef.current.has(key)) return;
-    prefetchedRef.current.add(key);  // genau EIN Versuch je Mail — KEIN Retry-Sturm
-    api.get<MsgDetail>(`/mail/${activeId}/messages/${uid}?folder=${encodeURIComponent(folder)}${generationFor(uid)}`)
-      .catch((e) => {
-        // Geister-Mail (serverseitig weg) beim Hover: still aus der Liste nehmen,
-        // NICHT erneut versuchen (Key bleibt gesetzt). Verhindert 404-Endlosschleife.
-        if (isNotFound(e) && selRef.current?.acc === activeId && selRef.current?.folder === folder) {
-          setMessages((ms) => ms.filter((x) => x.uid !== uid));
-          setOpen((o) => (o?.uid === uid ? null : o));
-        }
-      });
+    const row = messages.find(m => m.uid === uid);
+    if (row) warmBodies(activeId, folder, [row]);
   }
   async function toggleSeen(m: MsgHeader) {
     if (activeId == null) return;
@@ -1501,15 +1492,39 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
     const acc = m.account_id ?? activeId, fol = m.folder || folder;
     if (acc == null) return;
     if (!(await askConfirm(t("mail.confirmDelete")))) return;
+    await deleteOptimistically(m, acc, fol);
+  }
+  async function deleteOptimistically(m: MsgHeader, acc: number, fol: string) {
+    const key = messageKey(m, acc, fol);
+    if ((pendingDeletesRef.current.get(key) ?? 0) > Date.now()) return;
+    // Keep completed tombstones briefly too: a list response started before DELETE
+    // may arrive after its acknowledgement. Generation remains part of the key.
+    for (const [old, expiry] of pendingDeletesRef.current) if (expiry <= Date.now()) pendingDeletesRef.current.delete(old);
+    const context = listContextRef.current, oldThread = openThread, threadRequest = threadReqRef.current;
+    pendingDeletesRef.current.set(key, Infinity);
+    setDeleting(n => n + 1);
     setErr("");
+    setMessages(ms => withoutPendingDeletes(ms, pendingDeletesRef.current, selRef.current?.acc ?? -1, selRef.current?.folder ?? ""));
+    if (selRef.current?.acc === acc) {
+      setOpenThread(previous => previous);
+      if (selRef.current.folder === fol && open && messageKey(open, acc, fol) === key) {
+        setOpen(null); setMobilePane("list");
+      }
+    }
     try {
       await api.del(`/mail/${acc}/messages/${m.uid}?folder=${encodeURIComponent(fol)}${messageGeneration(m)}`);
+      pendingDeletesRef.current.set(key, Date.now() + 120_000);
       if (!m.seen) bumpUnseen(acc, fol, -1);
-      if (selRef.current?.acc === acc && selRef.current?.folder === fol) {
-        setMessages((ms) => ms.filter((x) => x.uid !== m.uid || (x.folder || fol) !== fol));
-        if (open?.uid === m.uid) setOpen(null);
+    } catch (e) {
+      pendingDeletesRef.current.delete(key);
+      setErr((e as Error).message);
+      if (selRef.current?.acc === acc && listContextRef.current === context) {
+        if (selRef.current.folder === fol) {
+          setMessages(ms => ms.some(x => x.uid === m.uid) || (ms.length > 0 && !ms.some(x => x.uidvalidity === m.uidvalidity)) ? ms : [...ms, m]);
+        }
+        if (oldThread && threadReqRef.current === threadRequest) setOpenThread(oldThread);
       }
-    } catch (e) { setErr((e as Error).message); }
+    } finally { setDeleting(n => n - 1); }
   }
 
   // ---- Tastaturkürzel (wie Thunderbird): /, c, r, f, u, e/Entf, Esc ----------
@@ -2077,6 +2092,7 @@ export function Mail({ search = "", filter, pollMin = 5, blockImages = true, dar
   return (
     <div className="mail-page">
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
+      {deleting > 0 && <div role="status">{de ? "Löschen läuft …" : "Deleting …"} ({deleting})</div>}
       {liveDown && (
         <div className="muted" style={{ marginBottom: "0.5rem", fontSize: "0.75rem" }}>
           ⚠ {de ? "Live-Updates pausiert – Verbindung wird wiederhergestellt." : "Live updates paused – reconnecting."}
