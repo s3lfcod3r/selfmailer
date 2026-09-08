@@ -19,6 +19,7 @@ from fastapi import HTTPException, status
 from imap_tools import MailBox, AND
 
 from ..models import MailAccount
+from ..core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,21 @@ class ImapBusyError(HTTPException):
 
     def __init__(self) -> None:
         super().__init__(status.HTTP_503_SERVICE_UNAVAILABLE, "Konto gerade beschäftigt")
+
+
+def mailbox_generation(box: MailBox, folder: str, expected: int | None = None) -> int:
+    """Prüfung AUF DERSELBEN Verbindung wie FETCH/STORE/MOVE, nicht davor.
+
+    Eine fehlende/ungültige Serverantwort ist bei erwarteter Generation nicht
+    sicher genug für eine UID-basierte Aktion. Nie nach einem Fehler weiterschreiben.
+    """
+    try:
+        actual = int(box.folder.status(folder, ["UIDVALIDITY"]).get("UIDVALIDITY", 0) or 0)
+    except Exception:
+        actual = 0
+    if expected is not None and (expected <= 0 or actual != expected):
+        raise HTTPException(409, "Postfach hat sich geändert oder konnte nicht verifiziert werden. Ordner neu laden.")
+    return actual
 
 # IMAP-System-Flags (Backslash literal -> Raw-Strings).
 SEEN = r"\Seen"
@@ -511,10 +527,12 @@ def list_folders(account: MailAccount, password: str) -> list[str]:
     return _sortiere_ordner(namen) or ["INBOX"]
 
 
-def list_uids(account: MailAccount, password: str, folder: str = "INBOX") -> list[str]:
+def list_uids(account: MailAccount, password: str, folder: str = "INBOX", *, uidvalidity: int | None = None) -> list[str]:
     """Alle UIDs eines Ordners (neueste zuerst). Live-Fallback für "Alle
     auswählen", wenn der Cache nicht greift. Nur UIDs, kein Body."""
     with _mailbox(account, password, folder=folder, read_fallback=True, op="list_uids") as box:
+        if uidvalidity is not None:
+            mailbox_generation(box, folder, uidvalidity)
         return list(reversed([u for u in box.uids() if u]))
 
 
@@ -636,7 +654,7 @@ def inbox_unseen(account: MailAccount, password: str, folder: str = "INBOX") -> 
 
 def set_flags_many(
     account: MailAccount, password: str, uids: list[str], folder: str = "INBOX",
-    *, seen: bool | None = None, flagged: bool | None = None,
+    *, seen: bool | None = None, flagged: bool | None = None, uidvalidity: int | None = None,
 ) -> int:
     """Setzt Seen/Flagged für VIELE UIDs in EINER IMAP-Session (statt N Logins).
 
@@ -647,6 +665,8 @@ def set_flags_many(
         return 0
     # read_fallback: bei belegtem Konto frische Kurzverbindung statt 503 (s. set_flags).
     with _mailbox(account, password, folder=folder, read_fallback=True, op="set_flags_many") as box:
+        if uidvalidity is not None:
+            mailbox_generation(box, folder, uidvalidity)
         for i in range(0, len(uids), 200):
             chunk = uids[i:i + 200]
             if seen is not None:
@@ -703,7 +723,8 @@ def keywords_of(msg) -> list[str]:
 
 
 def set_keyword(
-    account: MailAccount, password: str, uid: str, folder: str, keyword: str, on: bool
+    account: MailAccount, password: str, uid: str, folder: str, keyword: str, on: bool,
+    *, uidvalidity: int | None = None,
 ) -> bool:
     """Setzt/entfernt ein IMAP-Keyword (Label) an einer Nachricht. Liefert False,
     wenn der Server keine Keywords erlaubt (best effort, kein Absturz)."""
@@ -711,8 +732,12 @@ def set_keyword(
         return False
     try:
         with _mailbox(account, password, folder=folder, op="set_keyword") as box:
+            if uidvalidity is not None:
+                mailbox_generation(box, folder, uidvalidity)
             box.flag(uid, keyword, on)
         return True
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001 - Server ohne PERMANENTFLAGS \\* o. Ä.
         logger.warning("Keyword %r setzen fehlgeschlagen (account_id=%s)", keyword, account.id, exc_info=True)
         return False
@@ -729,7 +754,7 @@ def _base_subject(subject: str) -> str:
 
 
 def collect_thread(
-    account: MailAccount, password: str, folder: str, uid: str, *, per_folder: int = 50
+    account: MailAccount, password: str, folder: str, uid: str, *, per_folder: int = 50, uidvalidity: int | None = None
 ) -> list[dict]:
     """Sammelt ALLE Nachrichten einer Konversation über mehrere Ordner hinweg —
     besonders die EIGENEN Antworten aus „Gesendet", damit der Verlauf gesendet +
@@ -743,6 +768,7 @@ def collect_thread(
     """
     out: list[dict] = []
     seen: set[tuple[str, str]] = set()
+    generations: dict[str, int] = {}
 
     def add(fol: str, msg) -> None:
         key = (fol, msg.uid or "")
@@ -751,6 +777,7 @@ def collect_thread(
         seen.add(key)
         out.append({
             "uid": msg.uid, "folder": fol, "subject": msg.subject, "from": msg.from_,
+            "uidvalidity": generations.get(fol, 0),
             "date": msg.date_str, "seen": SEEN in msg.flags, "flagged": FLAGGED in msg.flags,
             "snippet": _snippet(msg.text or "", msg.html or ""), "has_attachments": bool(msg.attachments),
             "labels": keywords_of(msg),
@@ -762,6 +789,7 @@ def collect_thread(
 
         Erwartet, dass ``box`` bereits auf ``fol`` selektiert ist — es wird hier
         KEIN Ordnerwechsel gemacht (siehe Kommentar am Aufrufer)."""
+        generations[fol] = mailbox_generation(box, fol)
         uids = box.uids(AND(subject=base))
         sel = uids[-per_folder:]
         if not sel:
@@ -777,6 +805,7 @@ def collect_thread(
     # still im falschen Ordner. Deshalb jetzt je Ordner eine eigene kurze Session,
     # genau wie search_messages.)
     with _mailbox(account, password, folder=folder, read_fallback=True, op="collect_thread") as box:
+        generations[folder] = mailbox_generation(box, folder, uidvalidity)
         target = None
         for m in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
             target = m
@@ -818,10 +847,12 @@ def list_messages(
     # zum Weiterblättern bei großen Postfächern.
     page = slice(offset, offset + limit)
     with _mailbox(account, password, folder=folder, read_fallback=True, op="list_messages") as box:
+        generation = mailbox_generation(box, folder)
         for msg in box.fetch(AND(all=True), reverse=True, limit=page, mark_seen=False, bulk=True):
             out.append(
                 {
                     "uid": msg.uid or "",
+                    "uidvalidity": generation, "folder": folder,
                     "subject": msg.subject,
                     "from": msg.from_,
                     "date": msg.date_str,
@@ -897,6 +928,7 @@ def search_messages(
             break
         try:
             with _mailbox(account, password, folder=folder, read_fallback=True, op="search_messages") as box:
+                generation = mailbox_generation(box, folder)
                 uids = box.uids(search_q)
                 searched += 1
                 if not uids:
@@ -909,6 +941,7 @@ def search_messages(
                     out.append(
                         {
                             "uid": msg.uid or "",
+                            "uidvalidity": generation,
                             "folder": folder,
                             "subject": msg.subject,
                             "from": msg.from_,
@@ -947,20 +980,31 @@ def search_messages(
     }
 
 
+def auth_policy_key() -> str:
+    return ",".join(sorted({s.strip().lower() for s in get_settings().trusted_authserv_ids.split(",") if s.strip()}))
+
+
 def _analyze_auth(msg, account: MailAccount) -> dict:
     """Echtheits-Check aus den Authentifizierungs-Headern, die der EMPFANGS-Server
     setzt (Authentication-Results / Received-SPF). Erkennt Spoofing — speziell den
     Trick „Mail kommt angeblich von DEINER eigenen Adresse".
 
-    verdict: pass (DMARC pass oder SPF+DKIM pass) | fail (eine Prüfung fehlgeschlagen)
-    | unknown (keine Header). self_spoof: From = eigene Adresse, aber NICHT pass."""
+    verdict: pass (vertrautes DMARC pass) | fail (vertraute Prüfung fehlgeschlagen)
+    | unknown (kein vertrautes Ergebnis). self_spoof: eigene Adresse und fail."""
     obj = msg.obj
-    blob = " ; ".join(
-        (obj.get_all("Authentication-Results") or []) + (obj.get_all("Received-SPF") or [])
-    ).lower()
+    trusted = set(auth_policy_key().split(",")) - {""}
+    # Nicht quer durch Header/Prüfer Ergebnisse kombinieren. Nur das erste
+    # Resultat eines explizit vertrauten Empfangs-MTA auswerten (RFC 8601).
+    blob = ""
+    for header in obj.get_all("Authentication-Results") or []:
+        server, sep, results = str(header).partition(";")
+        server_id = server.strip().split()[0].lower() if server.strip() else ""
+        if sep and server_id in trusted:
+            blob = results.lower()
+            break
 
     def res(method: str) -> str | None:
-        m = re.search(_AUTH_RE.format(m=method), blob)
+        m = re.search(r"(?:^|;)\s*" + _AUTH_RE.format(m=method), blob)
         return m.group(1) if m else None
 
     spf, dkim, dmarc = res("spf"), res("dkim"), res("dmarc")
@@ -968,7 +1012,8 @@ def _analyze_auth(msg, account: MailAccount) -> dict:
     from_domain = from_addr.rsplit("@", 1)[-1] if "@" in from_addr else ""
     own = {a.lower() for a in (account.email or "", account.auth_user or "") if a}
 
-    passed = dmarc == "pass" or (spf == "pass" and dkim == "pass")
+    # SPF/DKIM pass ohne Domain-Alignment bestätigt NICHT die sichtbare From-Adresse.
+    passed = dmarc == "pass"
     failed = dmarc in ("fail",) or spf in ("fail", "softfail", "hardfail") or dkim == "fail"
     verdict = "pass" if passed else ("fail" if failed else "unknown")
 
@@ -977,12 +1022,13 @@ def _analyze_auth(msg, account: MailAccount) -> dict:
         if val:
             reasons.append(f"{label}: {val}")
     if not reasons:
-        reasons.append("Keine Authentifizierungs-Header vom Server")
+        reasons.append("Keine vertrauenswürdigen Authentifizierungs-Ergebnisse verfügbar")
 
     return {
         "spf": spf, "dkim": dkim, "dmarc": dmarc, "verdict": verdict,
-        "self_spoof": from_addr in own and verdict != "pass",
+        "self_spoof": from_addr in own and verdict == "fail",
         "from_domain": from_domain, "reasons": reasons,
+        "analysis_version": 2, "analysis_policy": auth_policy_key(),
     }
 
 
@@ -1017,9 +1063,11 @@ def _detail_dict(msg, account: MailAccount) -> dict:
     }
 
 
-def get_raw(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> str | None:
+def get_raw(account: MailAccount, password: str, uid: str, folder: str = "INBOX", *, uidvalidity: int | None = None) -> str | None:
     """Rohe RFC822-Quelle einer Mail (Header + Body) für „Original anzeigen"."""
     with _mailbox(account, password, folder=folder, read_fallback=True, op="get_raw") as box:
+        if uidvalidity is not None:
+            mailbox_generation(box, folder, uidvalidity)
         for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
             try:
                 return msg.obj.as_string()
@@ -1099,15 +1147,16 @@ def fetch_new_headers(account: MailAccount, password: str, last_uid: int, cap: i
         return out, max_uid
 
 
-def get_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> dict | None:
+def get_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX", *, uidvalidity: int | None = None) -> dict | None:
     # Lesezugriff: bei belegter Verbindung frische Kurzverbindung statt warten/503.
     with _mailbox(account, password, folder=folder, read_fallback=True, op="get_message") as box:
+        generation = mailbox_generation(box, folder, uidvalidity)
         for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
-            return _detail_dict(msg, account)
+            return {**_detail_dict(msg, account), "uidvalidity": generation, "folder": folder}
     return None
 
 
-def get_messages(account: MailAccount, password: str, uids: list[str], folder: str = "INBOX") -> list[dict]:
+def get_messages(account: MailAccount, password: str, uids: list[str], folder: str = "INBOX", *, uidvalidity: int | None = None) -> list[dict]:
     """Volltext MEHRERER Mails in EINER IMAP-Session (ein Login + ein Sammel-Fetch).
 
     Für das Vorwärmen des Body-Caches einer ganzen Listenseite, damit jeder
@@ -1117,17 +1166,20 @@ def get_messages(account: MailAccount, password: str, uids: list[str], folder: s
         return []
     out: list[dict] = []
     with _mailbox(account, password, folder=folder, read_fallback=True, op="get_messages") as box:
-        for msg in box.fetch(AND(uid=",".join(uids)), mark_seen=False, bulk=True):
+        generation = mailbox_generation(box, folder, uidvalidity)
+        for msg in box.fetch(AND(uid=",".join(uids)), mark_seen=False, bulk=10):
             if msg.uid:
-                out.append(_detail_dict(msg, account))
+                out.append({**_detail_dict(msg, account), "uidvalidity": generation, "folder": folder})
     return out
 
 
 def get_attachment(
-    account: MailAccount, password: str, uid: str, index: int, folder: str = "INBOX"
+    account: MailAccount, password: str, uid: str, index: int, folder: str = "INBOX", *, uidvalidity: int | None = None
 ) -> tuple[str, str, bytes] | None:
     """Liefert (filename, content_type, bytes) des Anhangs mit gegebenem Index."""
     with _mailbox(account, password, folder=folder, read_fallback=True, op="get_attachment") as box:
+        if uidvalidity is not None:
+            mailbox_generation(box, folder, uidvalidity)
         for msg in box.fetch(AND(uid=uid), mark_seen=False, limit=1):
             atts = list(msg.attachments)
             if 0 <= index < len(atts):
@@ -1148,6 +1200,7 @@ def set_flags(
     *,
     seen: bool | None = None,
     flagged: bool | None = None,
+    uidvalidity: int | None = None,
 ) -> None:
     """Setzt/entfernt \\Seen bzw. \\Flagged für eine Nachricht (nur übergebene Flags).
 
@@ -1157,6 +1210,8 @@ def set_flags(
     Flag-Requests) → die Mails wurden nicht als gelesen markiert. STORE \\Seen/\\Flagged
     ist idempotent und über eine frische Kurzverbindung genauso sicher."""
     with _mailbox(account, password, folder=folder, read_fallback=True, op="set_flags") as box:
+        if uidvalidity is not None:
+            mailbox_generation(box, folder, uidvalidity)
         if seen is not None:
             box.flag(uid, SEEN, seen)
         if flagged is not None:
@@ -1426,7 +1481,7 @@ def delete_by_sender(
     return {"deleted": total}
 
 
-def delete_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX") -> str:
+def delete_message(account: MailAccount, password: str, uid: str, folder: str = "INBOX", *, uidvalidity: int | None = None) -> str:
     """In den Papierkorb verschieben; ist keiner da (oder schon im Papierkorb) -> hart löschen.
 
     read_fallback=True: Loeschen darf NICHT an einer belegten Konto-Verbindung
@@ -1438,6 +1493,8 @@ def delete_message(account: MailAccount, password: str, uid: str, folder: str = 
     gemeinsame Sitzung mit anderen Operationen - eine eigene Kurzverbindung ist
     dafuer voellig ausreichend. Dieselbe Ueberlegung wie bei set_flags."""
     with _mailbox(account, password, folder=folder, read_fallback=True, op="delete_message") as box:
+        if uidvalidity is not None:
+            mailbox_generation(box, folder, uidvalidity)
         trash = _trash_folder(box, folder)
         if trash and trash != folder:
             box.move(uid, trash)
@@ -1446,13 +1503,15 @@ def delete_message(account: MailAccount, password: str, uid: str, folder: str = 
         return "deleted"
 
 
-def move_message(account: MailAccount, password: str, uid: str, dest: str, folder: str = "INBOX") -> None:
+def move_message(account: MailAccount, password: str, uid: str, dest: str, folder: str = "INBOX", *, uidvalidity: int | None = None) -> None:
     _reject_folder_ctrl(dest)
     with _mailbox(account, password, folder=folder, read_fallback=True, op="move_message") as box:
+        if uidvalidity is not None:
+            mailbox_generation(box, folder, uidvalidity)
         box.move(uid, dest)
 
 
-def delete_messages(account: MailAccount, password: str, uids: list[str], folder: str = "INBOX") -> dict:
+def delete_messages(account: MailAccount, password: str, uids: list[str], folder: str = "INBOX", *, uidvalidity: int | None = None) -> dict:
     """Mehrere Mails in EINER IMAP-Session löschen (Papierkorb oder hart).
 
     Statt pro Mail eine eigene Verbindung (N Logins) ein einziger Login + EIN
@@ -1462,6 +1521,8 @@ def delete_messages(account: MailAccount, password: str, uids: list[str], folder
     if not uids:
         return {"result": "none", "count": 0}
     with _mailbox(account, password, folder=folder, read_fallback=True, op="delete_messages") as box:
+        if uidvalidity is not None:
+            mailbox_generation(box, folder, uidvalidity)
         trash = _trash_folder(box, folder)
         if trash and trash != folder:
             box.move(uids, trash)
@@ -1470,12 +1531,15 @@ def delete_messages(account: MailAccount, password: str, uids: list[str], folder
         return {"result": "deleted", "count": len(uids)}
 
 
-def move_messages(account: MailAccount, password: str, uids: list[str], dest: str, folder: str = "INBOX") -> dict:
+def move_messages(account: MailAccount, password: str, uids: list[str], dest: str,
+                  folder: str = "INBOX", *, uidvalidity: int | None = None) -> dict:
     """Mehrere Mails in EINER IMAP-Session verschieben (ein Login + EIN MOVE)."""
     if not uids:
         return {"count": 0}
     _reject_folder_ctrl(dest)
     with _mailbox(account, password, folder=folder, read_fallback=True, op="move_messages") as box:
+        if uidvalidity is not None:
+            mailbox_generation(box, folder, uidvalidity)
         box.move(uids, dest)
         return {"count": len(uids)}
 

@@ -4,6 +4,7 @@ import { useLang } from "../lib/i18n";
 import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, trimQuotedHtml, trimQuotedText, avatarFor } from "../lib/mailview";
 import type { Conversation } from "../lib/threads";
 import { useMenuDismiss } from "../lib/useMenuDismiss";
+import { messageKey, messageGeneration } from "../lib/mailIdentity";
 
 // Volle Aktionen je Thread-Nachricht (wie in der Einzelansicht).
 export type ThreadActions = {
@@ -71,7 +72,7 @@ export function ThreadReader({
 }) {
   const { t, lang } = useLang();
   const msgs = conversation.messages; // chronologisch aufsteigend
-  const latestUid = conversation.latest.uid;
+  const latestUid = messageKey(conversation.latest, accountId, folder);
   const ownSet = new Set(ownEmails.map((e) => e.trim().toLowerCase()).filter(Boolean));
   // Anzeigename eines Absenders — eigene Adresse als „Ich".
   const nameOf = (m: MsgHeader) => {
@@ -89,12 +90,12 @@ export function ThreadReader({
   useMenuDismiss(lblMenuKey !== null, () => setLblMenuKey(null));
   const [moreMenuKey, setMoreMenuKey] = useState<string | null>(null);
   useMenuDismiss(moreMenuKey !== null, () => setMoreMenuKey(null));
-  const keyFor = (m: MsgHeader) => `${m.folder ?? ""}:${m.uid}`;
+  const keyFor = (m: MsgHeader) => messageKey(m, accountId, folder);
   // Aufgeklappte Nachrichten. Start: neueste + alle ungelesenen.
   const [openUids, setOpenUids] = useState<Set<string>>(() => {
     const s = new Set<string>();
     s.add(latestUid);
-    for (const m of msgs) if (!m.seen) s.add(m.uid);
+    for (const m of msgs) if (!m.seen) s.add(keyFor(m));
     return s;
   });
   // Pro Nachricht: externe Bilder freigegeben?
@@ -107,6 +108,7 @@ export function ThreadReader({
   const seenSent = useRef<Set<string>>(new Set());
   // iframe-Elemente je UID (zum Nachmessen bei Größenänderung des Fensters).
   const frameRefs = useRef<Map<string, HTMLIFrameElement>>(new Map());
+  const pendingDetails = useRef<Set<string>>(new Set());
 
   const msgFolder = (m: MsgHeader) => m.folder || folder;
 
@@ -145,12 +147,13 @@ export function ThreadReader({
   }, []);
 
   async function loadDetail(m: MsgHeader) {
-    const uid = m.uid;
-    if (details[uid] || loadingUid.has(uid)) return;
+    const uid = keyFor(m);
+    if (details[uid] || pendingDetails.current.has(uid)) return;
+    pendingDetails.current.add(uid);
     setLoadingUid((s) => new Set(s).add(uid));
     try {
       const d = await api.get<MsgDetail>(
-        `/mail/${accountId}/messages/${uid}?folder=${encodeURIComponent(msgFolder(m))}`,
+        `/mail/${accountId}/messages/${m.uid}?folder=${encodeURIComponent(msgFolder(m))}${messageGeneration(m)}`,
       );
       setDetails((prev) => ({ ...prev, [uid]: d }));
       setErrUid((prev) => { const n = { ...prev }; delete n[uid]; return n; });
@@ -161,6 +164,7 @@ export function ThreadReader({
     } catch (e) {
       setErrUid((prev) => ({ ...prev, [uid]: (e as Error).message || "Fehler" }));
     } finally {
+      pendingDetails.current.delete(uid);
       setLoadingUid((s) => { const n = new Set(s); n.delete(uid); return n; });
     }
   }
@@ -169,15 +173,15 @@ export function ThreadReader({
   // Bewusst nur bei Konversationswechsel (key), nicht bei jedem Render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    for (const m of msgs) if (openUids.has(m.uid)) loadDetail(m);
+    for (const m of msgs) if (openUids.has(keyFor(m))) loadDetail(m);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation.key]);
 
   function toggle(m: MsgHeader) {
     setOpenUids((prev) => {
       const n = new Set(prev);
-      if (n.has(m.uid)) n.delete(m.uid);
-      else { n.add(m.uid); loadDetail(m); }
+      if (n.has(keyFor(m))) n.delete(keyFor(m));
+      else { n.add(keyFor(m)); loadDetail(m); }
       return n;
     });
   }
@@ -202,16 +206,17 @@ export function ThreadReader({
 
       <div className="thread-list">
         {msgs.map((m) => {
-          const isOpen = openUids.has(m.uid);
-          const d = details[m.uid];
+          const key = keyFor(m);
+          const isOpen = openUids.has(key);
+          const d = details[key];
           const from = parseAddr(m.from);
           const dispName = nameOf(m);
           const sameAddr = from.name.trim().toLowerCase() === from.email.trim().toLowerCase();
           const dark = darkMail;
-          const showImgs = imgOk.has(m.uid);
+          const showImgs = imgOk.has(key);
           const remote = !!d?.html && hasRemoteContent(d.html);
           // Zitierten Verlauf standardmäßig abtrennen → je Karte nur der NEUE Text.
-          const showQuote = quoteOk.has(m.uid);
+          const showQuote = quoteOk.has(key);
           let bodyHtml = d?.html ?? "", bodyText = d?.text ?? "", hasQuote = false;
           if (isOpen && d) {
             if (d.html) { const r = trimQuotedHtml(d.html); hasQuote = r.trimmed; if (!showQuote && r.trimmed) bodyHtml = r.html; }
@@ -228,11 +233,11 @@ export function ThreadReader({
           const actionsBar = isOpen && d ? (
             <div className="thread-msg-actions" onClick={(e) => e.stopPropagation()}>
               {hasQuote && (
-                <button className={`ghost ${showQuote ? "on" : ""}`} onClick={() => setQuoteOk((s) => { const n = new Set(s); if (n.has(m.uid)) n.delete(m.uid); else n.add(m.uid); return n; })}
+                <button className={`ghost ${showQuote ? "on" : ""}`} onClick={() => setQuoteOk((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; })}
                   title={showQuote ? t("mail.quoteHide") : t("mail.quoteShow")} aria-label={showQuote ? t("mail.quoteHide") : t("mail.quoteShow")}>{showQuote ? "▴" : "···"}</button>
               )}
               {blockImages && !showImgs && remote && (
-                <button className="ghost" onClick={() => setImgOk((s) => new Set(s).add(m.uid))} title={t("mail.showImages")} aria-label={t("mail.showImages")}>🖼</button>
+                <button className="ghost" onClick={() => setImgOk((s) => new Set(s).add(key))} title={t("mail.showImages")} aria-label={t("mail.showImages")}>🖼</button>
               )}
               <button className="ghost accent" onClick={() => onReply(d)} title={t("mail.reply")} aria-label={t("mail.reply")}>↩</button>
               <button className="ghost read-del" onClick={() => onDelete(m)} title={t("mail.delete")} aria-label={t("mail.delete")}>🗑</button>
@@ -298,7 +303,7 @@ export function ThreadReader({
             </div>
           ) : null;
           return (
-            <div key={`${m.folder ?? ""}:${m.uid}:${m.message_id ?? ""}`} className={`thread-msg ${isOpen ? "open" : ""} ${m.seen ? "" : "unseen"}`}>
+            <div key={key} className={`thread-msg ${isOpen ? "open" : ""} ${m.seen ? "" : "unseen"}`}>
               <div className="thread-msg-head" role="button" tabIndex={0}
                 onClick={() => toggle(m)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(m); } }}>
@@ -319,19 +324,19 @@ export function ThreadReader({
 
               {isOpen && (
                 <div className="thread-msg-body">
-                  {loadingUid.has(m.uid) && !d && (
+                  {loadingUid.has(key) && !d && (
                     <div className="mail-loading" style={{ minHeight: 80 }}><span className="mail-spinner" aria-hidden /></div>
                   )}
-                  {errUid[m.uid] && <div className="err">{errUid[m.uid]}</div>}
+                  {errUid[key] && <div className="err">{errUid[key]}</div>}
                   {d && (
                     <>
                       {bodyHtml ? (
                         <iframe title={`mail-${m.uid}`}
                           sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
                           className="mail-body-frame thread-body-frame"
-                          style={{ height: heights[m.uid] ? `${heights[m.uid]}px` : undefined }}
-                          ref={(el) => { if (el) frameRefs.current.set(m.uid, el); else frameRefs.current.delete(m.uid); }}
-                          onLoad={(e) => { const el = e.currentTarget; measure(m.uid, el); setTimeout(() => measure(m.uid, el), 180); }}
+                          style={{ height: heights[key] ? `${heights[key]}px` : undefined }}
+                          ref={(el) => { if (el) frameRefs.current.set(key, el); else frameRefs.current.delete(key); }}
+                          onLoad={(e) => { const el = e.currentTarget; measure(key, el); setTimeout(() => measure(key, el), 180); }}
                           srcDoc={buildSrcDoc(bodyHtml, blockImages && !showImgs, dark)} />
                       ) : bodyText ? (
                         <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{bodyText}</div>
@@ -344,7 +349,7 @@ export function ThreadReader({
                           <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
                             {d.attachments.map((att) => (
                               <button key={att.index} className="ghost" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
-                                onClick={() => download(`/mail/${accountId}/messages/${m.uid}/attachments/${att.index}?folder=${encodeURIComponent(msgFolder(m))}`).catch(() => {})}>
+                                onClick={() => download(`/mail/${accountId}/messages/${m.uid}/attachments/${att.index}?folder=${encodeURIComponent(msgFolder(m))}${messageGeneration(m)}`).catch(() => {})}>
                                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220, whiteSpace: "nowrap" }}>⬇ {att.filename}</span>
                                 <span className="muted" style={{ fontSize: "0.72rem" }}>{fmtSize(att.size)}</span>
                               </button>

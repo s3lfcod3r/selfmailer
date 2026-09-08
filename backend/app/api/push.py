@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import delete
 from sqlmodel import Session, select
 
 from ..core.db import get_session
@@ -107,12 +108,12 @@ def register_device(
     """Registriert/aktualisiert den FCM-Token dieses Geräts für den User."""
     if not data.token.strip():
         return
-    exists = session.exec(
-        select(DeviceToken).where(DeviceToken.user_id == user.id, DeviceToken.token == data.token)
-    ).first()
-    if exists is None:
-        session.add(DeviceToken(user_id=user.id, token=data.token, platform=data.platform))
-        session.commit()
+    # Erst schreiben: SQLite serialisiert dadurch konkurrierende Registrierungen.
+    # Ein Gerät gehört immer nur zur zuletzt angemeldeten Sitzung, nie zwei Usern.
+    session.execute(delete(DeviceToken).where(DeviceToken.token == data.token))
+    session.add(DeviceToken(user_id=user.id, token=data.token, platform=data.platform,
+                            session_id=data.session_id))
+    session.commit()
 
 
 @router.post("/test")
@@ -150,8 +151,9 @@ def unregister_device(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> None:
-    for row in session.exec(
-        select(DeviceToken).where(DeviceToken.user_id == user.id, DeviceToken.token == data.token)
-    ).all():
-        session.delete(row)
+    stmt = delete(DeviceToken).where(DeviceToken.user_id == user.id, DeviceToken.token == data.token)
+    # Ein verspätetes Logout darf die neuere Anmeldung nicht abmelden.
+    if data.session_id:
+        stmt = stmt.where(DeviceToken.session_id == data.session_id)
+    session.execute(stmt)
     session.commit()

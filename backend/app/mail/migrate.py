@@ -19,7 +19,7 @@ import datetime as _dt
 from imap_tools import AND, MailBox
 
 from ..models import MailAccount
-from .imap import _IMAP_TIMEOUT, _delimiter
+from .imap import _IMAP_TIMEOUT, _delimiter, mailbox_generation
 
 SEEN = r"\Seen"
 
@@ -87,6 +87,26 @@ def _existing_message_ids(dst: MailBox, folder: str) -> set[str]:
     return ids
 
 
+def _pending_uids(src: MailBox, seen_ids: set[str], limit: int) -> tuple[list[str], int, int]:
+    """Limit nur NOCH NICHT kopierte Mails; Altbestand lediglich als Header lesen.
+
+    Ohne dies beginnt jeder Wiederholungslauf bei denselben ersten N Bodies.
+    remaining zählt noch nicht untersuchte Bodies jenseits dieses Arbeitslimits.
+    """
+    pending: list[str] = []
+    skipped = remaining = 0
+    for msg in src.fetch(AND(all=True), mark_seen=False, headers_only=True, bulk=100):
+        mid = (msg.headers.get("message-id", ("",))[0] or "").strip()
+        if mid and mid in seen_ids:
+            skipped += 1
+        elif msg.uid:
+            if len(pending) < limit:
+                pending.append(msg.uid)
+            else:
+                remaining += 1
+    return pending, skipped, remaining
+
+
 def migrate_folders(
     source: MailAccount,
     source_pw: str,
@@ -104,8 +124,10 @@ def migrate_folders(
     folders_out: list[dict] = []
     errors: list[str] = []
     src = _open(source, source_pw)
-    dst = None if dry_run else _open(dest, dest_pw)
+    dst = None
     try:
+        if not dry_run:
+            dst = _open(dest, dest_pw)
         src_delim = _delimiter(src)
         dst_delim = _delimiter(dst) if dst else src_delim
         names = [f.name for f in src.folder.list() if f.name]
@@ -118,13 +140,19 @@ def migrate_folders(
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{sf}: {type(exc).__name__}")
                 continue
-            entry = {"source": sf, "dest": df, "count": total, "copied": 0, "skipped": 0}
+            entry = {"source": sf, "dest": df, "count": total, "copied": 0, "skipped": 0, "remaining": 0}
             if not dry_run and total:
                 _ensure_folder(dst, df, dst_delim)
                 seen_ids = _existing_message_ids(dst, df)
                 src.folder.set(sf)
-                copied = skipped = 0
-                for msg in src.fetch(AND(all=True), limit=limit_per_folder, mark_seen=False, bulk=50):
+                pending, skipped, remaining = _pending_uids(src, seen_ids, limit_per_folder)
+                entry["remaining"] = remaining
+                copied = 0
+                batches = [pending[i:i + 100] for i in range(0, len(pending), 100)]
+                messages = (msg for batch in batches for msg in src.fetch(
+                    AND(uid=",".join(batch)), mark_seen=False, bulk=10,
+                ))
+                for msg in messages:
                     mid = (msg.headers.get("message-id", ("",))[0] or "").strip()
                     if mid and mid in seen_ids:
                         skipped += 1
@@ -149,7 +177,8 @@ def migrate_folders(
                 except Exception:  # pragma: no cover - best effort
                     pass
 
-    return {"folders": folders_out, "errors": errors, "dry_run": dry_run}
+    return {"folders": folders_out, "errors": errors, "dry_run": dry_run,
+            "complete": not dry_run and not errors and all(f["remaining"] == 0 for f in folders_out)}
 
 
 def transfer_messages(
@@ -163,6 +192,7 @@ def transfer_messages(
     *,
     move: bool = False,
     limit: int = 2000,
+    uidvalidity: int | None = None,
 ) -> dict:
     """Kopiert/verschiebt einzelne Mails (uids) oder einen ganzen Ordner
     (uids=None) — INKL. aller Unterordner — aus dem Quell- in ein ANDERES Konto.
@@ -174,12 +204,19 @@ def transfer_messages(
     """
     copied = skipped = deleted = 0
     errors: list[str] = []
+    if uids == []:
+        return {"copied": 0, "skipped": 0, "deleted": 0, "errors": []}
+    if source.id == dest.id:
+        raise ValueError("Quelle und Ziel müssen verschiedene Konten sein")
     src = _open(source, source_pw, source_folder)
-    dst = _open(dest, dest_pw)
+    dst = None
     try:
+        if uids is not None and uidvalidity is not None:
+            mailbox_generation(src, source_folder, uidvalidity)
+        dst = _open(dest, dest_pw)
         src_delim = _delimiter(src)
         dst_delim = _delimiter(dst)
-        if uids:
+        if uids is not None:
             pairs: list[tuple[str, str, list[str] | None]] = [(source_folder, dest_folder, uids)]
         else:
             # Ganzer Ordner + alle Unterordner: Teilbaum sammeln, Struktur erhalten.
@@ -211,14 +248,17 @@ def transfer_messages(
                 continue
             seen_ids = _existing_message_ids(dst, df)
             src.folder.set(sf)
+            source_generation = mailbox_generation(src, sf, uidvalidity if fuids else None)
             crit = AND(uid=",".join(fuids)) if fuids else AND(all=True)
             done: list[str] = []
             for msg in src.fetch(crit, limit=limit, mark_seen=False, bulk=50):
                 mid = (msg.headers.get("message-id", ("",))[0] or "").strip()
                 if mid and mid in seen_ids:
                     skipped += 1
-                    if msg.uid:
-                        done.append(msg.uid)  # schon im Ziel → bei move trotzdem aus Quelle weg
+                    # Ein untrusted Header ist KEIN Beleg einer sicheren Kopie.
+                    # Auch bei move die Quelle behalten; nur bestätigte APPENDs löschen.
+                    if move and len(errors) < 8:
+                        errors.append(f"{sf}: Message-ID bereits im Ziel; Quelle aus Sicherheitsgründen behalten")
                     continue
                 try:
                     flags = [SEEN] if SEEN in (msg.flags or ()) else None
@@ -240,12 +280,17 @@ def transfer_messages(
             if move and done:
                 src.folder.set(sf)
                 try:
+                    # SELECT nach dem Kopieren könnte inzwischen eine neue
+                    # Generation gewählt haben. In diesem Fall Quelle behalten.
+                    mailbox_generation(src, sf, source_generation)
                     src.delete(done)
                     deleted += len(done)
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"delete {sf}: {type(exc).__name__}: {exc}")
     finally:
         for box in (src, dst):
+            if box is None:
+                continue
             try:
                 box.logout()
             except Exception:  # pragma: no cover - best effort

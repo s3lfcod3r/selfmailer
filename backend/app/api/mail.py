@@ -26,7 +26,7 @@ from ..mail import imap as imap_mod
 from ..mail import migrate as migrate_mod
 from ..mail import smtp as smtp_mod
 from ..core import jobs
-from ..models import MailAccount, MailIdentity, ScheduledMail, User
+from ..models import MailAccount, MailIdentity, ScheduledMail, User, FolderSync
 from ..schemas import (
     BatchRequest,
     MAX_ATTACHMENTS_B64_BYTES,
@@ -89,6 +89,24 @@ def _account_secret(acc: MailAccount) -> str:
         return decrypt(acc.secret_enc)
     except ValueError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zugangsdaten nicht entschlüsselbar")
+
+
+def _generation_args(session: Session, account_id: int, folder: str, expected: int | None, *, write: bool = False) -> dict:
+    """Bindet UID-Aktionen an die Generation der angezeigten Nachricht.
+
+    Clients ohne Generation müssen bei bereits gecachten Ordnern neu laden /
+    aktualisiert werden. Keine stille Verwendung der neuesten Generation für
+    eine möglicherweise alte Anzeige. Cachelose Legacy-Reads bleiben möglich.
+    """
+    stored = session.exec(select(FolderSync.uidvalidity).where(
+        FolderSync.account_id == account_id, FolderSync.folder == folder,
+    ).limit(1)).first() or 0
+    if expected is not None and (expected <= 0 or (stored and expected != stored)):
+        raise HTTPException(409, "Postfach hat sich geändert. Ordner neu laden.")
+    if write and stored and expected is None:
+        raise HTTPException(409, "Nachrichtenidentität fehlt. Ordner neu laden und Client aktualisieren.")
+    generation = expected or stored
+    return {"uidvalidity": generation} if generation else {}
 
 
 @router.get("/pool-status")
@@ -516,6 +534,7 @@ def search(
 def folder_uids(
     account_id: int,
     folder: str = "INBOX",
+    uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[str]:
@@ -528,7 +547,10 @@ def folder_uids(
     durch das IMAP-Timeout gebunden. Fällt der Live-Abruf aus -> Cache als Fallback."""
     acc = _account(account_id, user, session)
     try:
-        return imap_mod.list_uids(acc, _account_secret(acc), folder)
+        return imap_mod.list_uids(acc, _account_secret(acc), folder,
+                                  **_generation_args(session, account_id, folder, uidvalidity))
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001 - Live fehlgeschlagen -> wenigstens den Cache
         return cache_mod.folder_uids(session, account_id, folder)
 
@@ -623,12 +645,14 @@ def transfer(
     _reject_ctrl(data.source_folder, data.dest_folder)  # CRLF-Schutz für Quell-/Zielordner
     src_pw = _account_secret(source)
     dst_pw = _account_secret(dest)
+    generation = _generation_args(session, source.id, data.source_folder, data.uidvalidity, write=True) if data.uids else {}
 
     def _run() -> dict:
         return migrate_mod.transfer_messages(
             source, src_pw, data.source_folder, data.uids,
             dest, dst_pw, data.dest_folder,
             move=data.move, limit=data.limit,
+            **generation,
         )
 
     if background:
@@ -649,19 +673,25 @@ def message(
     account_id: int,
     uid: str,
     folder: str = "INBOX",
+    uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
     acc = _account(account_id, user, session)
+    generation = _generation_args(session, account_id, folder, uidvalidity)
     # Cache-first: schon einmal geöffnet → Body kommt SOFORT aus der DB (kein IMAP).
     try:
         cached = cache_mod.read_detail(session, account_id, folder, uid)
         # Alten Cache OHNE Echtheits-Analyse verwerfen -> live neu holen (mit auth).
         if cached is not None and cached.get("auth"):
+            if generation and cached.get("uidvalidity") != generation["uidvalidity"]:
+                raise HTTPException(409, "Ordner wurde neu aufgebaut. Bitte Nachrichtenliste neu laden.")
             return cached
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001 - Cache ist nur Beschleunigung
         pass
-    msg = imap_mod.get_message(acc, _account_secret(acc), uid, folder=folder)
+    msg = imap_mod.get_message(acc, _account_secret(acc), uid, folder=folder, **generation)
     if msg is None:
         # Die Mail ist serverseitig weg (verschoben/gelöscht). Statt hart 404 —
         # was im Thread als hässliches „Nachricht nicht gefunden" erscheint —
@@ -672,13 +702,13 @@ def message(
             cached_full = cache_mod.read_detail(session, account_id, folder, uid)
         except Exception:  # noqa: BLE001
             cached_full = None
-        if cached_full is not None:
+        if cached_full is not None and (not generation or cached_full.get("uidvalidity") == generation["uidvalidity"]):
             return cached_full
         try:
             header = cache_mod.read_header(session, account_id, folder, uid)
         except Exception:  # noqa: BLE001
             header = None
-        if header is not None:
+        if header is not None and (not generation or header.get("uidvalidity") == generation["uidvalidity"]):
             note = "Diese Nachricht ist auf dem Server nicht mehr verfügbar. Vorschau aus dem Zwischenspeicher:"
             snip = (header.get("snippet") or "").strip()
             return {
@@ -692,7 +722,7 @@ def message(
             }
         # Wirklich nichts im Cache — stale Kopf entfernen, damit die Liste heilt.
         try:
-            cache_mod.remove_uids(session, account_id, folder, [uid])
+            cache_mod.remove_uids(session, account_id, folder, [uid], **generation)
         except Exception:  # noqa: BLE001
             pass
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nachricht nicht gefunden")
@@ -708,6 +738,7 @@ def thread(
     account_id: int,
     folder: str = "INBOX",
     uid: str = "",
+    uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[dict]:
@@ -725,7 +756,10 @@ def thread(
     if not uid:
         return []
     try:
-        return imap_mod.collect_thread(acc, _account_secret(acc), folder, uid)
+        return imap_mod.collect_thread(acc, _account_secret(acc), folder, uid,
+                                       **_generation_args(session, account_id, folder, uidvalidity))
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001 - Thread-Zusammenführung ist Komfort, kein Muss
         return []
 
@@ -735,12 +769,14 @@ def message_raw(
     account_id: int,
     uid: str,
     folder: str = "INBOX",
+    uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> Response:
     """Rohe RFC822-Quelle (Header + Body) — „Original anzeigen"."""
     acc = _account(account_id, user, session)
-    raw = imap_mod.get_raw(acc, _account_secret(acc), uid, folder=folder)
+    raw = imap_mod.get_raw(acc, _account_secret(acc), uid, folder=folder,
+                           **_generation_args(session, account_id, folder, uidvalidity))
     if raw is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nachricht nicht gefunden")
     return Response(content=raw, media_type="text/plain; charset=utf-8")
@@ -752,11 +788,13 @@ def attachment(
     uid: str,
     index: int,
     folder: str = "INBOX",
+    uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> Response:
     acc = _account(account_id, user, session)
-    result = imap_mod.get_attachment(acc, _account_secret(acc), uid, index, folder=folder)
+    result = imap_mod.get_attachment(acc, _account_secret(acc), uid, index, folder=folder,
+                                     **_generation_args(session, account_id, folder, uidvalidity))
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Anhang nicht gefunden")
     filename, content_type, data = result
@@ -791,17 +829,21 @@ def set_flags(
     folder: str = "INBOX",
     seen: bool | None = None,
     flagged: bool | None = None,
+    uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
     acc = _account(account_id, user, session)
+    generation = _generation_args(session, account_id, folder, uidvalidity, write=True)
     try:
-        imap_mod.set_flags(acc, _account_secret(acc), uid, folder=folder, seen=seen, flagged=flagged)
+        imap_mod.set_flags(acc, _account_secret(acc), uid, folder=folder, seen=seen, flagged=flagged, **generation)
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         logger.warning("Flags setzen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Aktion fehlgeschlagen")
     try:
-        cache_mod.update_flags(session, account_id, folder, uid, seen=seen, flagged=flagged)
+        cache_mod.update_flags(session, account_id, folder, uid, seen=seen, flagged=flagged, **generation)
     except Exception:  # noqa: BLE001 - Cache-Pflege darf nie die Aktion kippen
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
@@ -815,6 +857,7 @@ def set_label(
     keyword: str,
     on: bool = True,
     folder: str = "INBOX",
+    uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
@@ -822,11 +865,13 @@ def set_label(
     acc = _account(account_id, user, session)
     _valid_keyword(keyword)
     _reject_ctrl(folder)
-    ok = imap_mod.set_keyword(acc, _account_secret(acc), uid, folder, keyword, on)
+    ok = imap_mod.set_keyword(acc, _account_secret(acc), uid, folder, keyword, on,
+                             **_generation_args(session, account_id, folder, uidvalidity, write=True))
     if not ok:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Label konnte nicht gesetzt werden (Server erlaubt evtl. keine Keywords)")
     try:
-        cache_mod.update_keyword(session, account_id, folder, uid, keyword, on)
+        cache_mod.update_keyword(session, account_id, folder, uid, keyword, on,
+                                 **_generation_args(session, account_id, folder, uidvalidity, write=True))
     except Exception:  # noqa: BLE001 - Cache-Pflege darf die Aktion nie kippen
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
@@ -839,17 +884,21 @@ def move_message(
     uid: str,
     dest: str,
     folder: str = "INBOX",
+    uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
     acc = _account(account_id, user, session)
+    generation = _generation_args(session, account_id, folder, uidvalidity, write=True)
     try:
-        imap_mod.move_message(acc, _account_secret(acc), uid, dest, folder=folder)
+        imap_mod.move_message(acc, _account_secret(acc), uid, dest, folder=folder, **generation)
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         logger.warning("Nachricht verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Verschieben fehlgeschlagen")
     try:
-        cache_mod.hide_uids(session, account_id, folder, [uid])
+        cache_mod.hide_uids(session, account_id, folder, [uid], **generation)
     except Exception:  # noqa: BLE001
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
@@ -874,7 +923,8 @@ def prefetch_bodies(
         missing = cache_mod.uncached_detail_uids(session, account_id, data.folder, data.uids)
         if not missing:
             return {"ok": True, "cached": 0}
-        details = imap_mod.get_messages(acc, _account_secret(acc), missing, folder=data.folder)
+        details = imap_mod.get_messages(acc, _account_secret(acc), missing, folder=data.folder,
+                                       **_generation_args(session, account_id, data.folder, data.uidvalidity))
         for d in details:
             cache_mod.write_detail(session, account_id, data.folder, d.get("uid", ""), d)
         return {"ok": True, "cached": len(details)}
@@ -891,13 +941,16 @@ def delete_messages_batch(
 ) -> dict:
     """Löscht mehrere Mails in EINER IMAP-Session (statt N Einzel-Requests/Logins)."""
     acc = _account(account_id, user, session)
+    generation = _generation_args(session, account_id, data.folder, data.uidvalidity, write=True) if data.uids else {}
     try:
-        result = imap_mod.delete_messages(acc, _account_secret(acc), data.uids, folder=data.folder)
+        result = imap_mod.delete_messages(acc, _account_secret(acc), data.uids, folder=data.folder, **generation)
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         logger.warning("Batch-Löschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Löschen fehlgeschlagen")
     try:
-        cache_mod.hide_uids(session, account_id, data.folder, data.uids)
+        cache_mod.hide_uids(session, account_id, data.folder, data.uids, **generation)
     except Exception:  # noqa: BLE001
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": data.folder})
@@ -916,15 +969,19 @@ def set_flags_batch(
     """Setzt Seen/Flagged für VIELE Mails in EINER IMAP-Session (z. B. "alles als
     gelesen" bei tausenden Mails) — statt N Einzel-Requests/Logins."""
     acc = _account(account_id, user, session)
+    generation = _generation_args(session, account_id, data.folder, data.uidvalidity, write=True) if data.uids else {}
     try:
         n = imap_mod.set_flags_many(
             acc, _account_secret(acc), data.uids, folder=data.folder, seen=seen, flagged=flagged,
+            **generation,
         )
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         logger.warning("Batch-Markieren fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Markieren fehlgeschlagen")
     try:
-        cache_mod.set_flags_bulk(session, account_id, data.folder, data.uids, seen=seen, flagged=flagged)
+        cache_mod.set_flags_bulk(session, account_id, data.folder, data.uids, seen=seen, flagged=flagged, **generation)
     except Exception:  # noqa: BLE001 - Cache-Pflege darf die Aktion nie kippen
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": data.folder})
@@ -942,13 +999,16 @@ def move_messages_batch(
     if not data.dest:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Zielordner fehlt")
     acc = _account(account_id, user, session)
+    generation = _generation_args(session, account_id, data.folder, data.uidvalidity, write=True) if data.uids else {}
     try:
-        result = imap_mod.move_messages(acc, _account_secret(acc), data.uids, data.dest, folder=data.folder)
+        result = imap_mod.move_messages(acc, _account_secret(acc), data.uids, data.dest, folder=data.folder, **generation)
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         logger.warning("Batch-Verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Verschieben fehlgeschlagen")
     try:
-        cache_mod.hide_uids(session, account_id, data.folder, data.uids)
+        cache_mod.hide_uids(session, account_id, data.folder, data.uids, **generation)
     except Exception:  # noqa: BLE001
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": data.folder})
@@ -960,17 +1020,21 @@ def delete_message(
     account_id: int,
     uid: str,
     folder: str = "INBOX",
+    uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
     acc = _account(account_id, user, session)
+    generation = _generation_args(session, account_id, folder, uidvalidity, write=True)
     try:
-        result = imap_mod.delete_message(acc, _account_secret(acc), uid, folder=folder)
+        result = imap_mod.delete_message(acc, _account_secret(acc), uid, folder=folder, **generation)
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         logger.warning("Nachricht löschen fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Löschen fehlgeschlagen")
     try:
-        cache_mod.hide_uids(session, account_id, folder, [uid])
+        cache_mod.hide_uids(session, account_id, folder, [uid], **generation)
     except Exception:  # noqa: BLE001
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
@@ -1119,6 +1183,7 @@ async def send_read_receipt(
     account_id: int,
     uid: str,
     folder: str = "INBOX",
+    uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
@@ -1127,7 +1192,8 @@ async def send_read_receipt(
     # Sync-DB-Zugriff in einer async-Route -> Threadpool (Event-Loop nicht blocken).
     acc = await run_in_threadpool(_account, account_id, user, session)
     pw = _account_secret(acc)
-    msg = await run_in_threadpool(imap_mod.get_message, acc, pw, uid, folder)
+    generation = await run_in_threadpool(_generation_args, session, account_id, folder, uidvalidity, write=True)
+    msg = await run_in_threadpool(imap_mod.get_message, acc, pw, uid, folder, **generation)
     if msg is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nachricht nicht gefunden")
     req = (msg.get("mdn_request") or "").strip()
