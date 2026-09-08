@@ -25,6 +25,7 @@ from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount
 from .imap import FLAGGED, SEEN, _detail_dict, _mailbox, _snippet, keywords_of, thread_headers
 
 from . import imap as imap_mod
+from . import timing
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +246,7 @@ def known_empty(session: Session, account_id: int, folder: str) -> bool:
     return state is not None and state.last_sync is not None and state.total == 0
 
 
+@timing.measured("cache_list")
 def read_messages(
     session: Session, account_id: int, folder: str, limit: int = 50, offset: int = 0,
     *, pin_flagged: bool = False, keyword: str = "", unread: bool = False,
@@ -467,6 +469,7 @@ def write_folder_counts(session: Session, account_id: int, items: list[dict]) ->
     session.commit()
 
 
+@timing.measured("cache_read")
 def read_detail(session: Session, account_id: int, folder: str, uid: str) -> dict | None:
     """Gecachten Mail-Volltext zurückgeben (oder None, wenn noch nie geöffnet).
 
@@ -497,6 +500,7 @@ def read_detail(session: Session, account_id: int, folder: str, uid: str) -> dic
     return detail
 
 
+@timing.measured("cache_header")
 def read_header(session: Session, account_id: int, folder: str, uid: str) -> dict | None:
     """Nur den gecachten Kopf (Betreff/Absender/Datum/Vorschau) einer Mail.
 
@@ -530,6 +534,7 @@ def uncached_detail_uids(session: Session, account_id: int, folder: str, uids: l
     return [u for u in uids if u not in have]
 
 
+@timing.measured("cache_write")
 def write_detail(session: Session, account_id: int, folder: str, uid: str, detail: dict) -> None:
     """Legt den live geholten Mail-Volltext im Cache ab (für schnelles Wieder-Öffnen)."""
     row = session.exec(
@@ -717,6 +722,7 @@ def remove_uids(session: Session, account_id: int, folder: str, uids: list[str],
     session.commit()
 
 
+@timing.measured("cache_hide")
 def hide_uids(session: Session, account_id: int, folder: str, uids: list[str], *, uidvalidity: int | None = None) -> None:
     """Generationsgebundene Tombstones: ein später Sync darf gelöschte Mails nicht wiederbeleben."""
     for i in range(0, len(uids), 500):
@@ -750,6 +756,7 @@ def _folder_lock(account_id: int, folder: str) -> threading.Lock:
         return lock
 
 
+@timing.measured("sync_total")
 def sync_folder(
     session: Session, account: MailAccount, password: str, folder: str,
     cap: int = _SYNC_CAP, *, store_bodies: bool = False, lock_timeout: float | None = None, op: str = "sync",
@@ -773,8 +780,9 @@ def sync_folder(
     started = time.monotonic()
     budget = max(0.0, lock_timeout if lock_timeout is not None else imap_mod._LOCK_TIMEOUT)
     lock = _folder_lock(account.id, folder)
-    if not lock.acquire(timeout=0.0 if op == "sync-ui" else budget):
-        raise imap_mod.ImapBusyError()
+    with timing.phase("folder_lock_wait"):
+        if not lock.acquire(timeout=0.0 if op == "sync-ui" else budget):
+            raise imap_mod.ImapBusyError()
     try:
         waited = time.monotonic() - started
         result = _sync_folder_unlocked(
@@ -805,7 +813,8 @@ def _sync_folder_unlocked(
         # das naechste Kommando laeuft (gleich darunter das STATUS).
         _neuer_modseq = imap_mod.read_modseq(box)
         try:
-            st = box.folder.status(folder, ["UIDVALIDITY", "MESSAGES", "UNSEEN"])
+            with timing.phase("folder_status"):
+                st = box.folder.status(folder, ["UIDVALIDITY", "MESSAGES", "UNSEEN"])
         except Exception:  # noqa: BLE001
             st = {}
         uidvalidity = int(st.get("UIDVALIDITY", 0) or 0)
@@ -837,7 +846,8 @@ def _sync_folder_unlocked(
 
         cached_by_uid = {r.uid: r for r in cached_rows}
         cached_mids = {r.message_id for r in cached_rows if r.message_id}
-        server_uids = list(box.uids())            # aufsteigend (alt → neu)
+        with timing.phase("uid_search"):
+            server_uids = list(box.uids())            # aufsteigend (alt → neu)
         server_set = set(server_uids)
 
         # Zuverlässigkeit der Server-Antwort prüfen: Liefert die UID-Suche DEUTLICH

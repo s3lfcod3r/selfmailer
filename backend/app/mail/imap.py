@@ -18,6 +18,7 @@ from imap_tools import MailBox, AND
 
 from ..models import MailAccount
 from ..core.config import get_settings
+from . import timing
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class ImapBusyError(HTTPException):
         super().__init__(status.HTTP_503_SERVICE_UNAVAILABLE, "Konto gerade beschäftigt")
 
 
+@timing.measured("uidvalidity")
 def mailbox_generation(box: MailBox, folder: str, expected: int | None = None) -> int:
     """Prüfung AUF DERSELBEN Verbindung wie FETCH/STORE/MOVE, nicht davor.
 
@@ -188,14 +190,16 @@ def _pool_key(account: MailAccount, login: str) -> str:
 def _connect(account: MailAccount, login: str, password: str, folder: str) -> MailBox:
     # timeout bei der Konstruktion bindet schon den TCP-Connect; fällt die
     # imap_tools-Version ohne timeout-Param zurück, setzen wir es danach am Socket.
-    try:
-        box = MailBox(account.imap_host, port=account.imap_port, timeout=_IMAP_TIMEOUT)
-    except TypeError:
-        box = MailBox(account.imap_host, port=account.imap_port)
+    with timing.phase("connect"):
+        try:
+            box = MailBox(account.imap_host, port=account.imap_port, timeout=_IMAP_TIMEOUT)
+        except TypeError:
+            box = MailBox(account.imap_host, port=account.imap_port)
     # OHNE initial_folder anmelden: CONDSTORE muss VOR der ersten Ordnerauswahl
     # eingeschaltet sein, sonst liefert genau dieses SELECT den MODSEQ-Stand noch
     # nicht - und der Sync faellt jedes Mal auf den teuren Weg zurueck.
-    box.login(login, password, initial_folder=None)
+    with timing.phase("login"):
+        box.login(login, password, initial_folder=None)
     try:
         box.client.sock.settimeout(_IMAP_TIMEOUT)
     except Exception:  # noqa: BLE001 - best effort, falls Socket anders heißt
@@ -209,7 +213,8 @@ def _close(box: MailBox | None) -> None:
     if box is None:
         return
     try:
-        box.logout()
+        with timing.phase("logout"):
+            box.logout()
     except Exception:  # pragma: no cover - best effort
         pass
 
@@ -430,16 +435,17 @@ def _mailbox(
     limit = _POOL_SIZE + (_POOL_EXTRA if read_fallback else 0)
     frist = lock_timeout if lock_timeout is not None else _LOCK_TIMEOUT
 
-    wait0 = time.monotonic()
-    conn = _greife_zu(key, folder, limit)
-    while conn is None:
-        if time.monotonic() - wait0 >= frist:
-            with _POOL_LOCK:
-                belegte = list(_POOL.get(key, ()))
-            _log_busy(account, op, folder, belegte, time.monotonic() - wait0)
-            raise ImapBusyError()
-        time.sleep(_WAIT_TICK)
+    with timing.phase("pool_wait"):
+        wait0 = time.monotonic()
         conn = _greife_zu(key, folder, limit)
+        while conn is None:
+            if time.monotonic() - wait0 >= frist:
+                with _POOL_LOCK:
+                    belegte = list(_POOL.get(key, ()))
+                _log_busy(account, op, folder, belegte, time.monotonic() - wait0)
+                raise ImapBusyError()
+            time.sleep(_WAIT_TICK)
+            conn = _greife_zu(key, folder, limit)
     _log_wait(account, op, folder, time.monotonic() - wait0)
 
     conn.holder = (op, folder, time.monotonic())
@@ -1204,8 +1210,10 @@ def get_message(account: MailAccount, password: str, uid: str, folder: str = "IN
     # Lesezugriff: bei belegter Verbindung frische Kurzverbindung statt warten/503.
     with _mailbox(account, password, folder=folder, read_fallback=True, op="get_message") as box:
         generation = mailbox_generation(box, folder, uidvalidity)
-        for msg in box.fetch(AND(uid=uid), uid_list=[uid], mark_seen=False, limit=1):
-            return {**_detail_dict(msg, account), "uidvalidity": generation, "folder": folder}
+        with timing.phase("fetch_body"):
+            for msg in box.fetch(AND(uid=uid), uid_list=[uid], mark_seen=False, limit=1):
+                with timing.phase("parse_body"):
+                    return {**_detail_dict(msg, account), "uidvalidity": generation, "folder": folder}
     return None
 
 
@@ -1313,11 +1321,13 @@ def enable_condstore(box: MailBox) -> None:
     if not supports_condstore(box):
         return
     try:
-        box.client._simple_command("ENABLE", "CONDSTORE")
+        with timing.phase("condstore"):
+            box.client._simple_command("ENABLE", "CONDSTORE")
     except Exception:  # noqa: BLE001 - Kuer, nie Pflicht
         logger.debug("ENABLE CONDSTORE nicht moeglich", exc_info=True)
 
 
+@timing.measured("select")
 def _select(box: MailBox, folder: str) -> None:
     """Ordner auswaehlen und den dabei gemeldeten MODSEQ-Stand festhalten.
 
@@ -1402,6 +1412,7 @@ def flags_changed_since(box: MailBox, modseq: int) -> dict[str, set[str]] | None
         return None
 
 
+@timing.measured("folder_list")
 def _trash_folder(box: MailBox, current: str) -> str | None:
     """Findet den Papierkorb: erst per SPECIAL-USE-Flag \\Trash, dann per Namensheuristik."""
     names: list[str] = []
@@ -1551,9 +1562,14 @@ def delete_message(account: MailAccount, password: str, uid: str, folder: str = 
             mailbox_generation(box, folder, uidvalidity)
         trash = _trash_folder(box, folder)
         if trash and trash != folder:
-            box.move(uid, trash)
+            # Same capability test as imap_tools.move; no extra server command.
+            caps = getattr(getattr(box, "client", None), "capabilities", None)
+            timing.mark("move_mode", "unknown" if caps is None else "native" if "MOVE" in caps else "copy_delete")
+            with timing.phase("move"):
+                box.move(uid, trash)
             return "moved"
-        box.delete(uid)
+        with timing.phase("delete"):
+            box.delete(uid)
         return "deleted"
 
 
