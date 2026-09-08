@@ -155,6 +155,8 @@ class AccountUpdate(BaseModel):
 # ---- Mail ----------------------------------------------------------------
 class MessageHeader(BaseModel):
     uid: str
+    uidvalidity: int = 0
+    folder: str = ""
     subject: str
     from_: str = Field(alias="from")
     date: str
@@ -197,6 +199,7 @@ class AuthInfo(BaseModel):
     self_spoof: bool = False        # gibt vor, vom eigenen Konto zu kommen, ist es aber nicht
     from_domain: str = ""
     reasons: list[str] = []
+    analysis_version: int = 2
 
 
 class MessageDetail(MessageHeader):
@@ -264,6 +267,7 @@ class TransferRequest(BaseModel):
     kopieren/verschieben."""
     source_folder: str = "INBOX"
     uids: list[str] | None = None        # None = ganzer Ordner
+    uidvalidity: int | None = Field(default=None, ge=1, le=4294967295)
     dest_account_id: int
     dest_folder: str
     move: bool = False                   # True = nach Kopie aus Quelle löschen
@@ -274,6 +278,7 @@ class BatchRequest(BaseModel):
     """Mehrere Mails desselben Ordners in einem Rutsch löschen/verschieben."""
     folder: str = "INBOX"
     uids: list[str]
+    uidvalidity: int | None = Field(default=None, ge=1, le=4294967295)
     dest: str | None = None              # Zielordner (nur beim Verschieben)
 
 
@@ -694,8 +699,9 @@ class FolderNotifyIn(BaseModel):
 
 
 class DeviceTokenIn(BaseModel):
-    token: str
+    token: str = Field(max_length=4096)
     platform: str = "android"
+    session_id: str = Field(default="", max_length=128)
 
 
 # ---- Export-Feed-Token --------------------------------------------------

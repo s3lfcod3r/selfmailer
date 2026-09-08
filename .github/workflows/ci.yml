@@ -77,6 +77,9 @@ jobs:
       - name: Typecheck (tsc)
         run: npx tsc --noEmit
 
+      - name: Mail regression tests
+        run: npm test
+
   build:
     # Deploy-Gate: läuft NUR, wenn beide Test-Jobs grün sind.
     needs: [backend-test, frontend-check]
