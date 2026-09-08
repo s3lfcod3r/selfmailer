@@ -46,6 +46,19 @@ init_db()
 _ADMIN = {"username": "admin@self", "password": "supersecret-123", "display_name": "Admin"}
 
 
+@pytest.fixture(autouse=True)
+def no_background_pool_cleanup(monkeypatch):
+    """Tests own their fake pools; no worker may outlive a monkeypatch scope.
+
+    Cleanup tests explicitly restore the returned scheduler and join its worker.
+    """
+    from app.mail import imap
+
+    schedule = imap._schedule_reap_idle
+    monkeypatch.setattr(imap, "_schedule_reap_idle", lambda: None)
+    return schedule
+
+
 @pytest.fixture(scope="session")
 def client():
     with TestClient(app) as c:

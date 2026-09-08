@@ -1,6 +1,4 @@
-"""IMAP-Zugriff via imap-tools (synchron; FastAPI fährt sync-Endpunkte im
-Threadpool). Verbindungen sind kurzlebig: öffnen, lesen, schließen.
-"""
+"""Synchroner IMAP-Zugriff mit wiederverwendeten, einzeln gesperrten Verbindungen."""
 from __future__ import annotations
 
 import logging
@@ -70,12 +68,11 @@ def _reject_folder_ctrl(*names: str | None) -> None:
 # --- Verbindungs-Pool -------------------------------------------------------
 # IMAP-LOGIN (TCP+TLS+AUTH) kostet je Provider 0,5-3 s. Früher wurde pro
 # Aktion neu eingeloggt -> Ordnerwechsel/Mail-Öffnen fühlten sich zäh an.
-# Jetzt: pro Konto EINE Verbindung offen halten und wiederverwenden.
-#
-# imap_tools/imaplib sind NICHT thread-safe -> ein Lock je Konto serialisiert
-# die Nutzung (ein Konto kann ohnehin nur eine IMAP-Operation gleichzeitig).
-# Nach Leerlauf wird geschlossen; vor Wiederverwendung per NOOP geprüft und bei
-# Bedarf neu verbunden. Per Env SELFMAILER_IMAP_POOL=0 komplett abschaltbar.
+# Mehrere Verbindungen pro Konto; imap_tools/imaplib sind NICHT thread-safe,
+# deshalb sperrt jede Ausleihe genau ihre Verbindung. Kein NOOP pro Zugriff.
+# Leerlauf-Verbindungen werden begrenzt im Hintergrund geschlossen; eine gerade
+# ausgeliehene, abgelaufene Verbindung erneuert _ensure_box selbst.
+# Per Env SELFMAILER_IMAP_POOL=0 komplett abschaltbar.
 _POOL_ENABLED = os.getenv("SELFMAILER_IMAP_POOL", "1").strip().lower() not in {"0", "false", "no"}
 _IDLE_TTL = 240.0  # Sekunden Leerlauf, danach Verbindung schließen
 # Socket-Timeout je IMAP-Operation. OHNE das blockiert ein totes/langsames
@@ -124,6 +121,13 @@ _WAIT_TICK = 0.05
 
 _POOL: dict[str, list["_Conn"]] = {}
 _POOL_LOCK = threading.Lock()
+# Ein Aufraeumer pro Prozess, keine Warteschlange und kein Thread pro Anfrage.
+# Er wird nur bei Aktivitaet angestossen; ein haengendes LOGOUT darf weder weitere
+# Aufraeumer erzeugen noch die Rueckgabe einer fertigen Mail-Aktion aufhalten.
+_REAPER_INTERVAL = 30.0
+_REAPER_LOCK = threading.Lock()
+_REAPER_THREAD: threading.Thread | None = None
+_REAPER_NEXT = 0.0
 
 
 class _Conn:
@@ -243,9 +247,10 @@ def pool_status() -> list[dict]:
 def _reap_idle() -> None:
     """Schliesst Verbindungen, die laenger als _IDLE_TTL ungenutzt sind.
 
-    Nur solche, deren Sperre gerade frei ist (non-blocking) - das Aufraeumen darf
-    nie eine laufende Operation stoeren. Leere Pools werden entfernt, damit ein
-    geloeschtes Konto keine Karteileiche hinterlaesst.
+    Nur im Hintergrund aufrufen: LOGOUT kann auf das Netzwerk warten. Die
+    Verbindung bleibt bis zum Schliessen gesperrt UND im Kontingent gezaehlt.
+    Danach nur dieses Objekt entfernen, niemals einen alten Snapshot zurueck-
+    schreiben: waehrend LOGOUT koennen neue Verbindungen hinzugekommen sein.
     """
     now = time.monotonic()
     with _POOL_LOCK:
@@ -253,31 +258,58 @@ def _reap_idle() -> None:
     for key in keys:
         with _POOL_LOCK:
             conns = list(_POOL.get(key, ()))
-        uebrig = []
         for c in conns:
             if now - c.last_used <= _IDLE_TTL:
-                uebrig.append(c)
                 continue
             if not c.lock.acquire(blocking=False):
-                uebrig.append(c)          # in Benutzung -> in Ruhe lassen
                 continue
             try:
-                if c.box is not None and now - c.last_used > _IDLE_TTL:
-                    _close(c.box)
-                    c.box = None
-                    c.folder = None
-                # Die erste Verbindung bleibt als leeres Gerippe stehen (billig und
-                # spart beim naechsten Zugriff das Anlegen); weitere fliegen raus.
-                if not uebrig:
-                    uebrig.append(c)
+                # Eine Ausleihe kann zwischen erster Alterspruefung und Sperre
+                # fertig geworden sein. Dann ist die Verbindung wieder frisch.
+                if now - c.last_used <= _IDLE_TTL:
+                    continue
+                _close(c.box)  # niemals unter der globalen Pool-Sperre
+                c.box = None
+                c.folder = None
+                with _POOL_LOCK:
+                    current = _POOL.get(key)
+                    if current is not None and c in current:
+                        current.remove(c)
+                        if not current:
+                            _POOL.pop(key, None)
             finally:
                 c.lock.release()
-        with _POOL_LOCK:
-            if key in _POOL:
-                if uebrig:
-                    _POOL[key] = uebrig
-                else:
-                    _POOL.pop(key, None)
+
+
+def _run_idle_reaper() -> None:
+    try:
+        _reap_idle()
+    except Exception:  # noqa: BLE001 - Pflege darf keine Mail-Aktion kippen
+        # Keine Provider-Antwort/Zugangsdaten in diese Hintergrund-Fehlermeldung.
+        logger.warning("IMAP-Pool-Aufraeumen fehlgeschlagen; spaeter erneut versuchen")
+
+
+def _schedule_reap_idle() -> None:
+    """Best-effort, non-blocking: maximal ein Sweep je Intervall und Prozess."""
+    global _REAPER_THREAD, _REAPER_NEXT
+    if not _REAPER_LOCK.acquire(blocking=False):
+        return
+    try:
+        now = time.monotonic()
+        if now < _REAPER_NEXT or (_REAPER_THREAD is not None and _REAPER_THREAD.is_alive()):
+            return
+        _REAPER_NEXT = now + _REAPER_INTERVAL
+        worker = threading.Thread(target=_run_idle_reaper, name="selfmailer-imap-reaper", daemon=True)
+        try:
+            worker.start()
+        except RuntimeError:
+            # Thread-Limit/Shutdown: beim naechsten Intervall erneut probieren,
+            # aber nie die schon abgeschlossene Mail-Aktion als Fehler melden.
+            logger.warning("IMAP-Pool-Aufraeumer konnte nicht gestartet werden")
+        else:
+            _REAPER_THREAD = worker
+    finally:
+        _REAPER_LOCK.release()
 
 
 def _ensure_box(conn: _Conn, account: MailAccount, login: str, password: str, folder: str) -> MailBox:
@@ -426,7 +458,7 @@ def _mailbox(
     finally:
         conn.holder = None
         conn.lock.release()
-        _reap_idle()
+        _schedule_reap_idle()
 
 
 def quota(account: MailAccount, password: str) -> dict | None:
