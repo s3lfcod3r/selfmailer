@@ -87,8 +87,8 @@ def test_hintergrund_aufraeumen_blockiert_nicht():
     warteten. Reine Hintergrundarbeit darf das nicht.
     """
     quelle = inspect.getsource(imap_mod.sweep_block_folders)
-    assert quelle.count("read_fallback=True") >= 2, (
-        "Der Sweep belegt wieder die Konto-Verbindung - Nutzer-Aktionen warten dann darauf"
+    assert "read_fallback=True" not in quelle, (
+        "Der Sweep darf die fuer Nutzer reservierten Pool-Plaetze nicht belegen"
     )
 
 
@@ -99,7 +99,7 @@ def test_hintergrund_aufraeumen_blockiert_nicht():
 #   folder_counts/INBOX              seit 16.0s
 HINTERGRUND_LESER = [
     "folder_counts", "inbox_unseen", "list_folders",
-    "collect_thread", "list_messages", "search_messages", "get_messages",
+    "collect_thread", "get_messages", "quota", "fetch_new_headers", "_purge_folder", "iter_mbox",
 ]
 
 
@@ -108,9 +108,8 @@ def test_hintergrund_leser_blockieren_nicht():
     for name in HINTERGRUND_LESER:
         fn = getattr(imap_mod, name, None)
         assert fn is not None, f"{name} gibt es nicht mehr - Test anpassen"
-        if "read_fallback=True" not in inspect.getsource(fn):
+        if "read_fallback=True" in inspect.getsource(fn):
             blockierend.append(name)
     assert not blockierend, (
-        "Diese Leser belegen wieder die Konto-Verbindung; Sync und Loeschen "
-        f"warten dann darauf: {blockierend}"
+        f"Diese Hintergrund-Leser belegen die UI-Reserve: {blockierend}"
     )

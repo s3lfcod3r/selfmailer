@@ -84,7 +84,7 @@ def test_sync_speichert_volltext_mit(monkeypatch):
     _patch_mailbox(monkeypatch, [_fake_msg("101"), _fake_msg("102")])
     with Session(engine) as s:
         acc = _account(s)
-        res = cache_mod.sync_folder(s, acc, "pw", "INBOX")
+        res = cache_mod.sync_folder(s, acc, "pw", "INBOX", store_bodies=True)
         assert res["new"] == 2
 
         rows = s.exec(
@@ -110,7 +110,7 @@ def test_riesige_mail_wird_nicht_gecacht(monkeypatch):
     _patch_mailbox(monkeypatch, [_fake_msg("201", html=riesig)])
     with Session(engine) as s:
         acc = _account(s)
-        cache_mod.sync_folder(s, acc, "pw", "INBOX")
+        cache_mod.sync_folder(s, acc, "pw", "INBOX", store_bodies=True)
         row = s.exec(
             select(CachedMessage).where(CachedMessage.account_id == acc.id)
         ).first()

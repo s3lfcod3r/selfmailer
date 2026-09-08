@@ -25,6 +25,7 @@ function original(relative, name, env) {
 const page = 'src/pages/Mail.tsx';
 const messageKey = original('src/lib/mailIdentity.ts', 'messageKey', {});
 const messageGeneration = original('src/lib/mailIdentity.ts', 'messageGeneration', {});
+const withoutPendingDeletes = original('src/lib/mailIdentity.ts', 'withoutPendingDeletes', { messageKey, Date });
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
   let resolve, reject;
@@ -95,7 +96,10 @@ test('deletion remains bound to displayed account and generation after confirmat
   const { common, state } = listHarness();
   const confirm = deferred(), urls = [];
   const env = { ...common, activeId: 2, folder: 'INBOX', askConfirm: () => confirm.promise,
-    t: value => value, messageGeneration, api: { del: async url => urls.push(url) }, bumpUnseen() {}, open: null };
+    t: value => value, messageGeneration, api: { del: async url => urls.push(url) }, bumpUnseen() {}, open: null,
+    messageKey, withoutPendingDeletes, Date, pendingDeletesRef: { current: new Map() }, setDeleting() {},
+    threadReqRef: { current: 0 }, openThread: null, setMobilePane() {} };
+  env.deleteOptimistically = original(page, 'deleteOptimistically', env);
   const action = original(page, 'del', env)({ uid: '7', folder: 'Sent', account_id: 1, uidvalidity: 100, seen: true });
   common.selRef.current = { acc: 3, folder: 'INBOX' };
   state.messages = [{ uid: '7', account_id: 3 }];
@@ -156,4 +160,78 @@ test('overlapping background sync requests are deduplicated', async () => {
   network.resolve();
   await flush();
   assert.equal(env.bgSyncPendingRef.current.size, 0);
+});
+
+test('pending delete suppresses stale rows but not another account or generation', () => {
+  const row = { uid: '7', folder: 'INBOX', uidvalidity: 100, account_id: 1 };
+  const pending = new Map([[messageKey(row, 1, 'INBOX'), Infinity]]);
+  const result = withoutPendingDeletes([row, { ...row, account_id: 2 }, { ...row, uidvalidity: 101 }], pending, 1, 'INBOX');
+  assert.equal(result.length, 2);
+  pending.delete(messageKey(row, 1, 'INBOX'));
+  assert.equal(withoutPendingDeletes([row], pending, 1, 'INBOX').length, 1);
+});
+
+function deletionHarness() {
+  const { common, state } = listHarness();
+  const response = deferred();
+  const row = { uid: '7', account_id: 1, folder: 'INBOX', uidvalidity: 100, seen: false };
+  state.messages = [row];
+  state.deleting = 0;
+  state.badges = 0;
+  const env = { ...common, Date, Infinity, messageKey, messageGeneration, withoutPendingDeletes,
+    pendingDeletesRef: { current: new Map() }, threadReqRef: { current: 0 }, openThread: null, open: null,
+    api: { del: () => response.promise }, setDeleting: f => { state.deleting = f(state.deleting); },
+    bumpUnseen: () => { state.badges++; }, setMobilePane() {} };
+  const remove = original(page, 'deleteOptimistically', env);
+  return { env, state, row, response, remove };
+}
+
+test('single delete reacts before server response and success retains late-response protection', async () => {
+  const { env, state, row, response, remove } = deletionHarness();
+  const action = remove(row, 1, 'INBOX');
+  assert.equal(state.messages.length, 0);
+  assert.equal(state.deleting, 1);
+  assert.equal(state.badges, 0); // no success claim before acknowledgement
+  response.resolve();
+  await action;
+  assert.equal(state.deleting, 0);
+  assert.equal(state.badges, 1);
+  assert.equal(withoutPendingDeletes([row], env.pendingDeletesRef.current, 1, 'INBOX').length, 0);
+});
+
+test('failed delete restores the row and keeps the error visible', async () => {
+  const { state, row, response, remove } = deletionHarness();
+  const action = remove(row, 1, 'INBOX');
+  response.reject(new Error('Gmail offline'));
+  await action;
+  assert.equal(state.messages.length, 1);
+  assert.equal(state.errors.at(-1), 'Gmail offline');
+  assert.equal(state.deleting, 0);
+  assert.equal(state.badges, 0);
+});
+
+test('failed delete never restores old rows into a switched account or new generation', async () => {
+  for (const changed of ['account', 'generation']) {
+    const { env, state, row, response, remove } = deletionHarness();
+    const action = remove(row, 1, 'INBOX');
+    const replacement = { ...row, account_id: changed === 'account' ? 2 : 1, uidvalidity: 101 };
+    if (changed === 'account') env.selRef.current = { acc: 2, folder: 'INBOX' };
+    state.messages = [replacement];
+    response.reject(new Error('offline'));
+    await action;
+    assert.equal(state.messages.length, 1);
+    assert.equal(state.messages[0].uidvalidity, 101);
+  }
+});
+
+test('prefetch is limited to three headers and deduplicates identical attempts', async () => {
+  const requests = [];
+  const env = { messageKey, prefetchedRef: { current: new Set() },
+    api: { post: (url, body) => { requests.push(body); return Promise.resolve(); } } };
+  const warm = original(page, 'warmBodies', env);
+  const rows = Array.from({ length: 50 }, (_, i) => ({ uid: String(i + 1), uidvalidity: 101 }));
+  warm(1, 'INBOX', rows); warm(1, 'INBOX', rows);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].uids.length, 3);
+  assert.equal(requests[0].uidvalidity, 101);
 });
