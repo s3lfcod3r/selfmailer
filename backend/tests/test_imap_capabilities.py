@@ -23,7 +23,7 @@ class TranscriptIMAP(imaplib.IMAP4):
     def __init__(self, *, login_mode="tagged", caps=CAPS, query_status="OK",
                  query_error=None, login_status="OK", move_status="OK",
                  pre_caps=b"IMAP4rev1 AUTH=PLAIN", select_status="OK",
-                 condstore_select_status="OK", select_error=None, generation=b"123"):
+                 condstore_select_status="OK", select_error=None, generation=b"123", read_only=False):
         self.login_mode = login_mode
         self.auth_caps = caps
         self.query_status = query_status
@@ -35,6 +35,7 @@ class TranscriptIMAP(imaplib.IMAP4):
         self.condstore_select_status = condstore_select_status
         self.select_error = select_error
         self.generation = generation
+        self.read_only = read_only
         super().__init__()
 
     def open(self, host="", port=143, timeout=None):
@@ -85,6 +86,8 @@ class TranscriptIMAP(imaplib.IMAP4):
                 self.responses.append(b"* OK [UIDVALIDITY " + self.generation + b"] valid\r\n")
             if self.condstore:
                 self.responses.append(b"* OK [HIGHESTMODSEQ 7] modseq\r\n")
+            if self.read_only:
+                self.responses.append(b"* OK [READ-ONLY] not writable\r\n")
         elif verb == b"STATUS":
             self.responses.append(b'* STATUS "INBOX" (UIDVALIDITY 123)\r\n')
         elif verb == b"LIST":
@@ -307,3 +310,27 @@ def test_condstore_select_quotes_folder_and_rejects_control_characters(connect):
     with pytest.raises(HTTPException):
         imap._select(box, 'INBOX\r\nDELETE other')
     assert box.client.commands == before
+
+
+def test_select_option_is_not_smuggled_into_the_mailbox_argument(connect, monkeypatch):
+    """Do not depend on pre-3.13.15 select() accepting unquoted protocol syntax."""
+    calls = []
+    original = TranscriptIMAP._simple_command
+    def command(self, name, *args):
+        if name == "SELECT":
+            calls.append(args)
+        return original(self, name, *args)
+    monkeypatch.setattr(TranscriptIMAP, "_simple_command", command)
+    box = connect()
+    assert calls == [(b'"INBOX"', "(CONDSTORE)")]
+    assert box.client.state == "SELECTED" and not box.client.is_readonly
+    assert box.folder.get() == "INBOX"
+
+
+def test_read_only_selection_stops_before_any_uid_action(connect):
+    with pytest.raises(imaplib.IMAP4.readonly):
+        connect(read_only=True)
+    box, = connect.boxes
+    assert box.client.closed
+    assert not any(c.startswith(("UID ", "STATUS ")) for c in box.client.commands)
+    assert len([c for c in box.client.commands if c.startswith("SELECT ")]) == 1

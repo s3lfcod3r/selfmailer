@@ -1380,6 +1380,31 @@ def supports_condstore(box: MailBox) -> bool:
         return False
 
 
+def _select_condstore(box: MailBox, folder: str) -> tuple:
+    """SELECT with separate, safely encoded arguments on old/new imaplib.
+
+    Python 3.13.15 quotes select()'s complete mailbox argument. Options are
+    protocol syntax, not part of that name. Preserve select's response/state
+    and read-only handling without changing imaplib's argument validation.
+    """
+    _reject_folder_ctrl(folder)
+    client = box.client
+    client.untagged_responses = {}
+    client.is_readonly = False
+    box.folder._current_folder = None
+    try:
+        result = client._simple_command("SELECT", encode_folder(folder), "(CONDSTORE)")
+    except Exception:
+        client.state = "AUTH"
+        raise
+    client.state = "SELECTED" if result[0] == "OK" else "AUTH"
+    if result[0] == "OK":
+        if "READ-ONLY" in client.untagged_responses:
+            raise imaplib.IMAP4.readonly("Selected mailbox is not writable")
+        box.folder._current_folder = folder
+    return result
+
+
 @timing.measured("select")
 def _select(box: MailBox, folder: str) -> None:
     """Ordner auswaehlen und den dabei gemeldeten MODSEQ-Stand festhalten.
@@ -1392,19 +1417,16 @@ def _select(box: MailBox, folder: str) -> None:
     _reject_folder_ctrl(folder)
     setattr(box, "_sm_selected_generation", None)
     setattr(box, "_sm_modseq", None)
-    # select() resets imaplib's responses/state itself. Encode the complete
-    # folder name first; only a fixed protocol option is appended (RFC 7162).
+    # Keep the encoded mailbox name and the fixed protocol option separate.
     extended = supports_condstore(box) and not getattr(box, "_sm_condstore_rejected", False)
     if extended:
         try:
-            result = box.client.select(encode_folder(folder) + b" (CONDSTORE)")
+            result = _select_condstore(box, folder)
         except imaplib.IMAP4.abort:
             raise  # A dead/desynchronised connection must never continue.
         except imaplib.IMAP4.error:
             result = ("BAD", [])
         if result[0] == "OK":
-            # Same bookkeeping as imap_tools.folder.set after successful select.
-            box.folder._current_folder = folder
             timing.mark("condstore_mode", "select")
         else:
             setattr(box, "_sm_condstore_rejected", True)
