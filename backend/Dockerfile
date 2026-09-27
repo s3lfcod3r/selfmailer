@@ -2,7 +2,10 @@
 FROM node:24-alpine AS frontend
 WORKDIR /fe
 COPY frontend/package*.json ./
-RUN npm ci || npm install
+# Nur npm ci: der frueher angehaengte "|| npm install"-Fallback hat bei einem
+# kaputten Lockfile leise andere Versionen gezogen (Befund 19). Jetzt soll der
+# Build fehlschlagen, damit das Lockfile gilt, das auditiert wurde.
+RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
