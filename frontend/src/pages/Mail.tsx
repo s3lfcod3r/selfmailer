@@ -4,11 +4,10 @@ import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
 import { Compose, emptyDraft, replyDraft, forwardDraft, parseDraftBody, type Draft } from "../components/Compose";
-import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, avatarFor, trimQuotedHtml, trimQuotedText } from "../lib/mailview";
+import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, buildPrintBody, printCsp, fmtSize, avatarFor, trimQuotedHtml, trimQuotedText, MAIL_SANDBOX, MAIL_SANDBOX_PRINT } from "../lib/mailview";
 import { ThreadReader } from "../components/ThreadReader";
 import { messageGeneration, messageKey, withoutPendingDeletes } from "../lib/mailIdentity";
 import { groupThreads, normalizeSubject, type Conversation } from "../lib/threads";
-import DOMPurify from "dompurify";
 import { useMenuDismiss } from "../lib/useMenuDismiss";
 import { RequestCache } from "../lib/requestCache";
 import { SyncBackoff } from "../lib/syncBackoff";
@@ -21,20 +20,27 @@ function _esc(s: string): string {
 
 // Mail sauber drucken: baut ein eigenständiges Druck-Dokument (Kopf + Inhalt) in einem
 // versteckten iframe und ruft den nativen Browser-Druck. Kein Ausdruck der App-Oberfläche.
+// Befund 7: `block` sagt, ob externe Bilder auch beim Drucken blockiert bleiben.
+// Vorher hat der Druckpfad das ROHE Mail-HTML genommen und in Zeile 67-74 aktiv
+// auf cdoc.images gewartet - damit wurden Tracking-Pixel geladen, obwohl der
+// Nutzer die Bilder in der Ansicht blockiert hatte.
 function printMessage(
   msg: { subject: string; from: string; to?: string[]; date: string; html: string; text: string },
   de: boolean,
+  block: boolean,
 ): void {
   const L = de
     ? { from: "Von", to: "An", date: "Datum", nosubj: "(kein Betreff)" }
     : { from: "From", to: "To", date: "Date", nosubj: "(no subject)" };
+  // Genau derselbe aufbereitete Rumpf wie im Lese-iframe (DOMPurify + bei
+  // block=true externe Bildverweise entfernt).
   const body = msg.html
-    ? DOMPurify.sanitize(msg.html, { FORBID_TAGS: ["script"] })
+    ? buildPrintBody(msg.html, block)
     : `<pre style="white-space:pre-wrap;font-family:inherit;margin:0">${_esc(msg.text || "")}</pre>`;
   const toLine = msg.to && msg.to.length
     ? `<div class="r"><b>${L.to}:</b> ${_esc(msg.to.join(", "))}</div>` : "";
   const docHtml =
-    `<!doctype html><html><head><meta charset="utf-8"><title>${_esc(msg.subject || L.nosubj)}</title>` +
+    `<!doctype html><html><head><meta charset="utf-8">${printCsp(block)}<title>${_esc(msg.subject || L.nosubj)}</title>` +
     `<style>*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;` +
     `margin:0;padding:24px;font-size:13px;line-height:1.5}.h{border-bottom:2px solid #333;padding-bottom:10px;` +
     `margin-bottom:16px}.h .s{font-size:19px;font-weight:700;margin-bottom:8px}.h .r{font-size:12px;color:#333;` +
@@ -49,7 +55,7 @@ function printMessage(
   // dem Eltern-Fenster das Beschreiben + `print()`, `allow-modals` den Druckdialog —
   // aber OHNE `allow-scripts` führt die Mail selbst bei einem DOMPurify-Bypass keinen
   // Code aus (gleiche Härtung wie die Lese-iframes).
-  iframe.setAttribute("sandbox", "allow-same-origin allow-modals");
+  iframe.setAttribute("sandbox", MAIL_SANDBOX_PRINT);
   iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
   document.body.appendChild(iframe);
   const win = iframe.contentWindow;
@@ -2045,7 +2051,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
       if (!showFullQuote && r.trimmed) bodyText = r.text;
     }
     const body = open.html ? (
-      <iframe title="mail-body" sandbox="allow-popups allow-popups-to-escape-sandbox" className="mail-body-frame"
+      <iframe title="mail-body" sandbox={MAIL_SANDBOX} className="mail-body-frame"
         srcDoc={buildSrcDoc(bodyHtml, blockImages && !showImages, darkBody)} />
     ) : open.text ? (
       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--self-text)" }}>{bodyText}</div>
@@ -2555,7 +2561,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
                         {/* mail.forward/mail.reply bringen ihr Symbol schon mit — hier
                             KEIN zweites davorsetzen. */}
                         <button onClick={() => { setReadMenu(false); setDraft(forwardDraft(open, t)); }}>{t("mail.forward")}</button>
-                        <button onClick={() => { setReadMenu(false); printMessage(open, de); }}>🖨 {de ? "Drucken" : "Print"}</button>
+                        <button onClick={() => { setReadMenu(false); printMessage(open, de, blockImages && !showImages); }}>🖨 {de ? "Drucken" : "Print"}</button>
                         {translateEnabled && (
                           <button onClick={() => { setReadMenu(false); doTranslate(open); }}>
                             🌐 {translated != null ? (de ? "Original anzeigen" : "Show original") : (de ? "Übersetzen" : "Translate")}
@@ -2835,7 +2841,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
                     <div className="read-menu">
                       {/* mail.forward bringt sein Symbol schon mit. */}
                       <button onClick={() => { setPopupMenu(false); setDraft(forwardDraft(open, t)); setPopup(false); }}>{t("mail.forward")}</button>
-                      <button onClick={() => { setPopupMenu(false); printMessage(open, de); }}>🖨 {de ? "Drucken" : "Print"}</button>
+                      <button onClick={() => { setPopupMenu(false); printMessage(open, de, blockImages && !showImages); }}>🖨 {de ? "Drucken" : "Print"}</button>
                       <button onClick={() => { setPopupMenu(false); showRaw(open.uid); }}>📄 {de ? "Original anzeigen" : "View source"}</button>
                     </div>
                   </>
