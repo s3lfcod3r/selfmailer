@@ -57,6 +57,7 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("highest_modseq", "INTEGER DEFAULT 0"),
     ],
     "user": [
+        ("token_version", "INTEGER DEFAULT 0"),
         ("totp_secret", "VARCHAR"),
         ("totp_enabled", "INTEGER DEFAULT 0"),
         ("totp_last_step", "INTEGER DEFAULT 0"),
@@ -74,7 +75,15 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "mailrule": [("delete_msg", "INTEGER DEFAULT 0")],
     # TEXT (nicht VARCHAR) → kein ''-Backfill: write_token bleibt NULL, bis der
     # User ihn erzeugt (leerer Token darf niemals matchen).
-    "feedtoken": [("write_token", "TEXT")],
+    # expires_at/last_used_at bleiben bewusst NULL, bis die v3-Migration bzw.
+    # der erste Zugriff sie setzt (siehe _run_one_time_backfills).
+    "feedtoken": [
+        ("write_token", "TEXT"),
+        ("expires_at", "DATETIME"),
+        ("last_used_at", "DATETIME"),
+        ("write_expires_at", "DATETIME"),
+        ("write_last_used_at", "DATETIME"),
+    ],
     "cachedmessage": [
         ("uidvalidity", "INTEGER DEFAULT 0"),
         ("detail_json", "VARCHAR"),
@@ -262,6 +271,81 @@ def _run_one_time_backfills() -> None:
                 conn.execute(text("PRAGMA user_version = 2"))
         except Exception:  # noqa: BLE001 - Reparatur darf den Start nie blockieren
             logger.warning("Cache-Entdoppelung/UNIQUE-Index (v2) fehlgeschlagen", exc_info=True)
+        with engine.begin() as conn:
+            ver = int(conn.execute(text("PRAGMA user_version")).scalar() or 0)
+    if ver < 3:
+        # v3 (1.96.0, Durchsicht-Befund 3): Feed-Token nur noch als SHA-256-Hash
+        # speichern. Bestehende Klartext-Token werden gehasht UEBERNOMMEN, nicht
+        # neu erzeugt - jeder vorhandene Abo-Link und jede eingerichtete
+        # SelfDashboard-Kachel funktioniert danach unveraendert weiter. Nur
+        # ANZEIGEN kann man den Token nicht mehr (Hash ist einweg).
+        #
+        # Erkennung "schon gehasht": genau 64 Zeichen aus [0-9a-f]. Ein
+        # secrets.token_urlsafe(24) ist 32 Zeichen lang und enthaelt fast immer
+        # Grossbuchstaben/-/_ - eine Verwechslung ist praktisch ausgeschlossen,
+        # und der Test deckt beide Faelle ab. Dadurch ist der Schritt auch
+        # idempotent, falls user_version verloren geht.
+        #
+        # expires_at = Migrationszeit + FEED_TOKEN_TTL_DAYS: Bestandstoken laufen
+        # also nicht sofort ab, sondern bekommen das volle Fenster.
+        try:
+            _migrate_feed_tokens_to_hash()
+            with engine.begin() as conn:
+                conn.execute(text("PRAGMA user_version = 3"))
+        except Exception:  # noqa: BLE001 - Reparatur darf den Start nie blockieren
+            logger.warning("Feed-Token-Hashing (v3) fehlgeschlagen", exc_info=True)
+
+
+def _looks_hashed(value: str) -> bool:
+    """True, wenn der Wert schon ein SHA-256-Hex-Hash ist (64 Zeichen 0-9a-f)."""
+    return len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+
+
+def _migrate_feed_tokens_to_hash() -> None:
+    """Hasht vorhandene Klartext-Feed-Token in place und setzt das Ablaufdatum.
+
+    Bewusst als reines SQL ohne SQLModel-Objekte: laeuft beim Start, soll keine
+    Modell-Importe/Validierungen brauchen und nur die noetigen Zeilen anfassen.
+    """
+    import datetime as _dt
+    import hashlib
+
+    now = _dt.datetime.now(_dt.timezone.utc)
+    # Muss zu api/feeds.FEED_TOKEN_TTL_DAYS passen; hier hart, damit core/db
+    # nicht auf die API-Schicht zeigt.
+    expiry = now + _dt.timedelta(days=180)
+    with engine.begin() as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table'")
+            )
+        }
+        if "feedtoken" not in tables:
+            return
+        rows = list(conn.execute(text("SELECT id, token, write_token FROM feedtoken")))
+        migrated = 0
+        for row_id, tok, wtok in rows:
+            new_tok = tok
+            if tok and not _looks_hashed(tok):
+                new_tok = hashlib.sha256(tok.encode("utf-8")).hexdigest()
+            new_wtok = wtok
+            if wtok and not _looks_hashed(wtok):
+                new_wtok = hashlib.sha256(wtok.encode("utf-8")).hexdigest()
+            conn.execute(
+                text(
+                    "UPDATE feedtoken SET token = :t, write_token = :w, "
+                    "expires_at = COALESCE(expires_at, :exp), "
+                    "write_expires_at = CASE WHEN :w IS NULL THEN write_expires_at "
+                    "ELSE COALESCE(write_expires_at, :exp) END "
+                    "WHERE id = :id"
+                ),
+                {"t": new_tok, "w": new_wtok, "exp": expiry, "id": row_id},
+            )
+            if new_tok != tok or new_wtok != wtok:
+                migrated += 1
+    if migrated:
+        logger.info("Feed-Token auf SHA-256 umgestellt: %d Zeile(n)", migrated)
 
 
 def get_session() -> Iterator[Session]:
