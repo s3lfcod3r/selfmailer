@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, copyText, type Account, type DavAccount, type DavKind, type FeedToken, type GcalCalendar, type MigrateResult, type SyncResult } from "../lib/api";
+import { api, copyText, type Account, type DavAccount, type DavKind, type FeedToken, type GcalCalendar, type MigrateResult, type SyncResult, type WriteToken } from "../lib/api";
 import { useLang, dateLocale, type Lang, type TFunc } from "../lib/i18n";
 import { Fold } from "../components/Fold";
 import { confirmDialog } from "../lib/dialog";
@@ -21,7 +21,10 @@ function fmt(iso: string | null, lang: Lang, t: TFunc): string {
 export function Sync() {
   const { t, lang } = useLang();
   const [feed, setFeed] = useState<FeedToken | null>(null);
-  const [writeTok, setWriteTok] = useState("");  // Schreib-Token (erst auf Klick geladen)
+  // Schreib-Token: Klartext gibt es nur direkt nach dem Erzeugen/Rotieren,
+  // sonst kennt der Server nur noch den Hash (siehe WriteToken in api.ts).
+  const [writeTok, setWriteTok] = useState("");
+  const [writeState, setWriteState] = useState<WriteToken | null>(null);
   const [accounts, setAccounts] = useState<DavAccount[]>([]);
   const [form, setForm] = useState({ ...EMPTY });
   // Bearbeiten-Modus: editId = welches Konto, editForm = dessen Felder.
@@ -136,13 +139,17 @@ export function Sync() {
     catch (e) { setErr((e as Error).message); }
   }
   async function showWriteToken() {
-    try { setWriteTok((await api.get<{ write_token: string }>("/feeds/write-token")).write_token); }
-    catch (e) { setErr((e as Error).message); }
+    try {
+      const w = await api.get<WriteToken>("/feeds/write-token");
+      setWriteState(w); setWriteTok(w.write_token);
+    } catch (e) { setErr((e as Error).message); }
   }
   async function rotateWriteToken() {
     if (!(await confirmDialog("Neuen Schreib-Token erzeugen? Schreibende Clients (z. B. Dashboard) müssen dann mit dem neuen Token neu konfiguriert werden."))) return;
-    try { setWriteTok((await api.post<{ write_token: string }>("/feeds/write-token/rotate")).write_token); setNote(t("sync.rotated")); }
-    catch (e) { setErr((e as Error).message); }
+    try {
+      const w = await api.post<WriteToken>("/feeds/write-token/rotate");
+      setWriteState(w); setWriteTok(w.write_token); setNote(t("sync.rotated"));
+    } catch (e) { setErr((e as Error).message); }
   }
 
   async function add(e: React.FormEvent) {
@@ -317,20 +324,42 @@ export function Sync() {
         <Fold title={<>{t("sync.feedHeading")}</>} hint={<>{t("sync.feedHint")}</>} defaultOpen>
         {feed && (
           <div className="stack">
-            {[
-              { label: t("sync.feedCalendar"), url: feed.calendar_url },
-              { label: t("sync.feedContacts"), url: feed.contacts_url },
-            ].map((f) => (
-              <div className="card row" style={{ padding: "0.7rem 1rem" }} key={f.label}>
-                <div className="grow" style={{ overflow: "hidden" }}>
-                  <div style={{ fontWeight: 600 }}>{f.label}</div>
-                  <div className="mail-from" style={{ wordBreak: "break-all" }}>{absolute(f.url)}</div>
+            {/* Die Abo-URLs enthalten den Klartext-Token. Den kennt der Server nur
+                im Moment des Erzeugens/Rotierens (in der DB liegt nur der Hash),
+                also zeigen wir sie auch nur dann. Sonst: Zustand + Rotieren. */}
+            {feed.token ? (
+              <>
+                <div className="note">{lang === "de"
+                  ? "Diese Adressen enthalten dein Token und werden nur JETZT angezeigt. Kopiere sie in deinen Kalender/dein Adressbuch — nach dem Verlassen der Seite kannst du sie nur noch neu erzeugen."
+                  : "These addresses contain your token and are shown ONLY NOW. Copy them into your calendar/address book — once you leave this page you can only create new ones."}</div>
+                {[
+                  { label: t("sync.feedCalendar"), url: feed.calendar_url },
+                  { label: t("sync.feedContacts"), url: feed.contacts_url },
+                ].map((f) => (
+                  <div className="card row" style={{ padding: "0.7rem 1rem" }} key={f.label}>
+                    <div className="grow" style={{ overflow: "hidden" }}>
+                      <div style={{ fontWeight: 600 }}>{f.label}</div>
+                      <div className="mail-from" style={{ wordBreak: "break-all" }}>{absolute(f.url)}</div>
+                    </div>
+                    <button className="ghost" onClick={() => copy(f.url)}>{t("sync.copy")}</button>
+                    <a className="ghost" href={safeLinkUrl(absolute(f.url)) ?? "#"} target="_blank" rel="noreferrer"
+                       style={{ textDecoration: "none" }}>{t("sync.open")}</a>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <div className="card" style={{ padding: "0.7rem 1rem" }}>
+                <div style={{ fontWeight: 600 }}>{lang === "de" ? "Abo-Token vorhanden" : "Subscription token exists"}</div>
+                <div className="mail-from">{lang === "de"
+                  ? "Der Token wird nur noch als Hash gespeichert und kann nicht erneut angezeigt werden. Abo-Adresse verloren? Dann neu erzeugen — alte Abos hören danach auf zu funktionieren."
+                  : "The token is stored as a hash only and cannot be shown again. Lost the subscription address? Create a new one — existing subscriptions will stop working."}</div>
+                <div className="mail-from">
+                  {(lang === "de" ? "Gültig bis: " : "Valid until: ") + fmt(feed.expires_at, lang, t)}
+                  {" · "}
+                  {(lang === "de" ? "Zuletzt genutzt: " : "Last used: ") + fmt(feed.last_used_at, lang, t)}
                 </div>
-                <button className="ghost" onClick={() => copy(f.url)}>{t("sync.copy")}</button>
-                <a className="ghost" href={safeLinkUrl(absolute(f.url)) ?? "#"} target="_blank" rel="noreferrer"
-                   style={{ textDecoration: "none" }}>{t("sync.open")}</a>
               </div>
-            ))}
+            )}
             <div className="row">
               <span className="grow" />
               <button className="ghost" onClick={rotate}>{t("sync.regenToken")}</button>
@@ -347,11 +376,24 @@ export function Sync() {
         {writeTok ? (
           <div className="card row" style={{ padding: "0.7rem 1rem" }}>
             <div className="grow" style={{ overflow: "hidden" }}>
-              <div style={{ fontWeight: 600 }}>Schreib-Token</div>
+              <div style={{ fontWeight: 600 }}>Schreib-Token — {lang === "de" ? "nur jetzt sichtbar" : "shown only now"}</div>
               <div className="mail-from" style={{ wordBreak: "break-all" }}>{writeTok}</div>
             </div>
             <button className="ghost" onClick={async () => { const ok = await copyText(writeTok); setNote(ok ? t("sync.copied") : writeTok); }}>{t("sync.copy")}</button>
             <button className="ghost" onClick={rotateWriteToken}>Neu erzeugen</button>
+          </div>
+        ) : writeState?.has_write_token ? (
+          <div className="card" style={{ padding: "0.7rem 1rem" }}>
+            <div style={{ fontWeight: 600 }}>{lang === "de" ? "Schreib-Token vorhanden" : "Write token exists"}</div>
+            <div className="mail-from">{lang === "de"
+              ? "Gespeichert wird nur der Hash — der Token lässt sich nicht erneut anzeigen. Verloren? Neu erzeugen und im Dashboard-Plugin eintragen."
+              : "Only the hash is stored — the token cannot be shown again. Lost it? Create a new one and enter it in the dashboard plugin."}</div>
+            <div className="mail-from">
+              {(lang === "de" ? "Gültig bis: " : "Valid until: ") + fmt(writeState.expires_at, lang, t)}
+              {" · "}
+              {(lang === "de" ? "Zuletzt genutzt: " : "Last used: ") + fmt(writeState.last_used_at, lang, t)}
+            </div>
+            <div className="row"><span className="grow" /><button className="ghost" onClick={rotateWriteToken}>Neu erzeugen</button></div>
           </div>
         ) : (
           <div className="row"><button className="ghost" onClick={showWriteToken}>Schreib-Token anzeigen</button></div>
