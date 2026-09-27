@@ -54,6 +54,16 @@ jobs:
           SELFMAILER_SECRET: ci-test-secret-this-is-long-enough-1234567890
         run: pytest -q
 
+      - name: Abhaengigkeiten pruefen (pip-audit)
+        # Befund 20: meldet bekannte Schwachstellen in den aufgeloesten
+        # Versionen. Nicht blockierend (continue-on-error), damit ein neues Advisory in
+        # einer Fremdbibliothek nicht ueber Nacht den Deploy stoppt - der
+        # Befund steht im Job-Protokoll.
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --desc
+
   frontend-check:
     runs-on: ubuntu-latest
     defaults:
@@ -79,6 +89,12 @@ jobs:
 
       - name: Mail regression tests
         run: npm test
+
+      - name: Abhaengigkeiten pruefen (npm audit)
+        # Befund 20: nur Laufzeit-Pakete, Dev-Werkzeuge landen nicht im Image.
+        # Nicht blockierend, siehe pip-audit oben.
+        continue-on-error: true
+        run: npm audit --omit=dev
 
   build:
     # Deploy-Gate: läuft NUR, wenn beide Test-Jobs grün sind.
