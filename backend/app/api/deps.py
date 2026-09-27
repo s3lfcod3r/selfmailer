@@ -31,6 +31,18 @@ def get_current_user(
     user = session.exec(select(User).where(User.username == payload.get("sub"))).first()
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Konto inaktiv/unbekannt")
+    # Sitzungs-Widerruf (Befund 4): Passwortwechsel, 2FA-Abschalten und
+    # "ueberall abmelden" erhoehen User.token_version. Ein Token mit einer
+    # aelteren Version ist damit sofort ungueltig, auch wenn es formal noch
+    # bis zu 7 Tage laufen wuerde.
+    # Bestands-Token ohne den Claim: Version 0 == Default in der DB, sie
+    # bleiben also gueltig - das Update meldet niemanden ab.
+    try:
+        claimed_version = int(payload.get("tv", 0))
+    except (TypeError, ValueError):
+        claimed_version = -1
+    if claimed_version != int(user.token_version or 0):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sitzung wurde beendet")
     return user
 
 

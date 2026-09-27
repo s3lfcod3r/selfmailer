@@ -45,6 +45,12 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 # nicht verrät, ob der Benutzer existiert.
 _DUMMY_HASH = hash_password("selfmailer-timing-dummy-do-not-use")
 
+# Hinweis-Text (Befund 5): nach Passwortwechsel / 2FA-Abschalten / "überall
+# abmelden" werden die Feed-Token NICHT automatisch getauscht, weil das die
+# eingerichtete SelfDashboard-Kachel und jeden Abo-Link sofort stillegen
+# würde. Die UI zeigt diesen Text mit einem Link auf "Token rotieren".
+_FEED_HINT = "Feed-Token jetzt rotieren?"
+
 
 def _user_count(session: Session) -> int:
     return session.exec(select(func.count()).select_from(User)).one()
@@ -136,7 +142,7 @@ def setup(
     session.add(admin)
     session.commit()
     session.refresh(admin)
-    token = create_access_token(admin.username, admin.role.value)
+    token = create_access_token(admin.username, admin.role.value, admin.token_version)
     set_session_cookie(response, token)
     return TokenResponse(access_token=token)
 
@@ -163,7 +169,7 @@ def login(
     # (noch KEIN Session-Cookie — erst nach erfolgreichem zweiten Faktor).
     if user.totp_enabled and user.totp_secret:
         return LoginResponse(needs_totp=True, mfa_token=create_mfa_token(user.username))
-    token = create_access_token(user.username, user.role.value)
+    token = create_access_token(user.username, user.role.value, user.token_version)
     set_session_cookie(response, token)
     return LoginResponse(access_token=token)
 
@@ -188,7 +194,7 @@ def login_totp(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA-Sitzung ungültig")
     if not _verify_second_factor(session, user, data.code):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Code falsch")
-    token = create_access_token(user.username, user.role.value)
+    token = create_access_token(user.username, user.role.value, user.token_version)
     set_session_cookie(response, token)
     return TokenResponse(access_token=token)
 
@@ -196,9 +202,35 @@ def login_totp(
 @router.post("/logout")
 def logout(response: Response) -> dict:
     """Löscht das Session-Cookie (Web). Bearer-Tokens der APK sind davon nicht
-    betroffen — die App verwirft ihr Token lokal."""
+    betroffen — die App verwirft ihr Token lokal. Wer wirklich ALLE Sitzungen
+    beenden will (gestohlenes Bearer-Token), nimmt /logout-all."""
     clear_session_cookie(response)
     return {"ok": True}
+
+
+@router.post("/logout-all")
+def logout_all(
+    response: Response,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Überall abmelden: macht ALLE ausgegebenen JWTs dieses Kontos ungültig.
+
+    Setzt User.token_version eins höher (Befund 4). Jedes Token trägt die
+    Version beim Ausstellen als Claim "tv"; danach passt keines mehr — auch
+    nicht das Bearer-Token der Android-App und auch nicht ein gestohlenes.
+    Das eigene Cookie wird gleich mitgelöscht, der Nutzer muss sich also auch
+    hier neu anmelden. Das ist gewollt: sonst wäre "überall" nicht wahr.
+
+    Die Feed-Token (Abo-Links, SelfDashboard-Kachel) bleiben bewusst
+    UNBERÜHRT — sie sind keine Sitzungen und würden sonst still ausfallen.
+    Wer sie auch tauschen will, rotiert sie unter Sync ausdrücklich.
+    """
+    user.token_version = int(user.token_version or 0) + 1
+    session.add(user)
+    session.commit()
+    clear_session_cookie(response)
+    return {"ok": True, "feed_token_hint": _FEED_HINT}
 
 
 @router.get("/me", response_model=UserOut)
@@ -209,6 +241,7 @@ def me(user: User = Depends(get_current_user)) -> User:
 @router.post("/password")
 def change_password(
     data: PasswordChange,
+    response: Response,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
@@ -218,9 +251,23 @@ def change_password(
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Aktuelles Passwort falsch")
     user.password_hash = hash_password(data.new_password)
+    # Befund 4: alte JWTs (bis zu 7 Tage Restlaufzeit) müssen nach einem
+    # Passwortwechsel ungültig werden — sonst behält ein Angreifer mit
+    # gestohlenem Token trotz neuem Passwort Zugriff.
+    user.token_version = int(user.token_version or 0) + 1
     session.add(user)
     session.commit()
-    return {"ok": True}
+    session.refresh(user)
+    # Der Aufrufer selbst soll nicht rausfliegen: frisches Token mit der neuen
+    # Version ausstellen und als Cookie setzen. Die Android-App nimmt
+    # access_token aus der Antwort; ignoriert ein alter Client das Feld, muss
+    # er sich einmal neu anmelden (erwartetes Verhalten nach Passwortwechsel).
+    token = create_access_token(user.username, user.role.value, user.token_version)
+    set_session_cookie(response, token)
+    # Befund 5: Feed-Token werden ABSICHTLICH nicht automatisch rotiert — das
+    # würde eine eingerichtete SelfDashboard-Kachel und alle Abo-Links ohne
+    # Vorwarnung brechen. Stattdessen der Hinweis an die UI.
+    return {"ok": True, "access_token": token, "feed_token_hint": _FEED_HINT}
 
 
 # ---- 2FA / TOTP-Verwaltung (eigener Account) ----------------------------
@@ -292,6 +339,7 @@ def totp_enable(
 @router.post("/totp/disable")
 def totp_disable(
     data: TotpDisableRequest,
+    response: Response,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
@@ -303,7 +351,15 @@ def totp_disable(
     user.totp_secret = ""
     user.totp_enabled = False
     user.totp_last_step = 0
+    # Wie bei change_password: die zweite Stufe fällt weg, also dürfen alte
+    # Sitzungen nicht weiterlaufen (Befund 4).
+    user.token_version = int(user.token_version or 0) + 1
     session.add(user)
     _clear_backup_codes(session, user.id)
     session.commit()
-    return {"ok": True}
+    session.refresh(user)
+    token = create_access_token(user.username, user.role.value, user.token_version)
+    set_session_cookie(response, token)
+    # Befund 5: Feed-Token NICHT automatisch rotieren (bricht die Kachel),
+    # sondern anbieten.
+    return {"ok": True, "access_token": token, "feed_token_hint": _FEED_HINT}

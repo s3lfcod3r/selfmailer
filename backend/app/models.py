@@ -15,6 +15,12 @@ def _now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
+# Oeffentlicher Name fuer denselben Zeitstempel: alle DB-Zeitstempel sind UTC.
+# Andere Module (api/feeds.py, core/db.py) sollen nicht auf den privaten Namen
+# zugreifen muessen.
+utc_now = _now
+
+
 class Role(str, Enum):
     admin = "admin"
     user = "user"
@@ -39,6 +45,13 @@ class User(SQLModel, table=True):
     password_hash: str
     role: Role = Field(default=Role.user)
     is_active: bool = True
+    # Sitzungs-Widerruf (Durchsicht 2026-09-27, Befund 4): die Version wandert
+    # als Claim "tv" in jedes JWT und wird bei jedem Request gegen diesen Wert
+    # geprueft. Erhoehen = alle bisher ausgegebenen JWTs sind ungueltig
+    # (Passwortwechsel, 2FA abschalten, "ueberall abmelden").
+    # WICHTIG: Bestands-JWTs haben den Claim nicht und gelten als Version 0 -
+    # deshalb ist der Default 0 und niemand wird durch das Update abgemeldet.
+    token_version: int = 0
     # 2FA (TOTP). secret ist Fernet-VERSCHLÜSSELT, solange totp_enabled.
     # totp_last_step verhindert Replay (jeder Zeitschritt nur einmal nutzbar).
     totp_secret: str = ""
@@ -478,9 +491,23 @@ class FeedToken(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, unique=True, foreign_key="user.id")
+    # Seit 1.96.0 steht hier NUR der SHA-256-Hex-Hash des Tokens, nie der
+    # Klartext (Durchsicht 2026-09-27, Befund 3). Ohne Salt, weil der Token
+    # 192 Bit Entropie hat - siehe api/feeds.py. Bestehende Klartext-Token
+    # werden beim Start gehasht uebernommen (core/db.py, user_version 3) und
+    # funktionieren unveraendert weiter.
     token: str = Field(index=True, unique=True)
     # Getrennter SCHREIB-Token: nur er darf schreiben (Termine anlegen/ändern/
     # löschen). Der obige Lese-Token steckt in leck-anfälligen Abo-URLs
     # (.ics?token=…) und darf deshalb NICHT schreiben. None = noch nicht erzeugt.
+    # Ebenfalls nur als SHA-256-Hash gespeichert.
     write_token: str | None = Field(default=None, index=True)
     created_at: dt.datetime = Field(default_factory=_now)
+    # Ablauf und letzte Nutzung, getrennt fuer Lese- und Schreib-Token.
+    # None = kein Ablauf (nur bei sehr alten Zeilen, die die Migration nicht
+    # erfasst hat) bzw. noch nie benutzt. last_used_at wird gedrosselt
+    # geschrieben (die Kachel pollt oft) - siehe api/feeds.py.
+    expires_at: dt.datetime | None = None
+    last_used_at: dt.datetime | None = None
+    write_expires_at: dt.datetime | None = None
+    write_last_used_at: dt.datetime | None = None
