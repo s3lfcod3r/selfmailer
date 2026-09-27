@@ -89,7 +89,7 @@ def _sweep_faellig(account_id: int) -> bool:
     _last_sweep[account_id] = time.monotonic()
     return True
 _STARTUP_DELAY = 15.0              # nicht direkt beim Boot loslegen
-_BACKUP_HOUR = 3                   # nächtliches DB-Backup ~03:00 Ortszeit
+_BACKUP_HOUR = 3                   # nächtliches DB-Backup ab 03:00 UTC (Befund 21)
 
 # Konten pro Tick PARALLEL warmhalten (statt seriell) — ein langsames/hängendes Konto
 # (z. B. gedrosseltes Gmail, das mehrere 15s-Timeouts kassiert) blockierte sonst Push +
@@ -284,15 +284,21 @@ def _sync_dav() -> None:
 
 
 def _maybe_backup() -> None:
-    """Einmal pro Tag (ab ~03:00) ein konsistentes DB-Backup ziehen.
+    """Einmal pro Tag (ab 03:00 UTC) ein konsistentes DB-Backup ziehen.
 
     Der Loop tickt im Sync-Intervall; dieser Wachposten löst höchstens einmal
     je Kalendertag aus, sobald die Backup-Stunde erreicht ist. Ein Fehler im
     Backup darf den Scheduler/Container NIE kippen (try/except + Logging, wie
     überall hier). Lazy-Import vermeidet Import-Zyklen beim Boot.
+
+    Durchsicht 2026-09-27, Befund 21: hier stand datetime.now(), also die naive
+    Ortszeit des Containers. Ohne gesetzte TZ ist das UTC, mit gesetzter TZ
+    wanderte die Backup-Zeit. Jetzt ausdrücklich UTC - dieselbe Zeitbasis wie
+    alle DB-Zeitstempel (models._now()), und der Tageswechsel von
+    _last_backup_date passt zur Stunde.
     """
     global _last_backup_date
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     if now.hour < _BACKUP_HOUR:
         return
     if _last_backup_date == now.date():

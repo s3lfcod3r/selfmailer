@@ -123,6 +123,26 @@ def validate_external_url(url: str) -> None:
     _validate_dav_url(url)
 
 
+def resolve_pinned_host(host: str, port: int) -> str:
+    """Hostnamen prüfen und die IP zurückgeben, zu der verbunden werden darf.
+
+    Durchsicht 2026-09-27, Befund 10: IMAP/SMTP prüften den Hostnamen beim
+    Speichern des Kontos, verbanden danach aber wieder PER NAMEN - ein zweites
+    DNS konnte also auf 127.0.0.1 oder 169.254.169.254 zeigen (DNS-Rebinding).
+    Diese Funktion ist der gemeinsame Einstiegspunkt für IMAP und SMTP: gleiche
+    Blockliste wie bei DAV/ntfy, und der Aufrufer verbindet zur ZURÜCKGEGEBENEN
+    IP (TLS-Name bleibt der Hostname).
+
+    Raises ``DavUrlError``, wenn Auflösung oder Blockliste das Ziel verbieten.
+    """
+    name = (host or "").strip()
+    if not name:
+        raise DavUrlError("Kein Host angegeben")
+    huelle = f"[{name}]" if ":" in name and not name.startswith("[") else name
+    ip, _host, _port = _resolve_validated(f"http://{huelle}:{int(port)}/")
+    return ip
+
+
 _PROPFIND_BODY = (
     '<?xml version="1.0" encoding="utf-8"?>'
     '<d:propfind xmlns:d="DAV:">'
