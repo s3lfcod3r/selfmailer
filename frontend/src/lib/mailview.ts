@@ -1,3 +1,5 @@
+import DOMPurify from "dompurify";
+
 // Reine Darstellungs-Helfer rund um Mails. Ausgelagert aus Mail.tsx, damit sowohl
 // die Listen-/Leseansicht als auch der Thread-Lesebereich (ThreadReader) dieselbe
 // Formatierung und dasselbe iframe-Gerüst nutzen — ohne Zirkelbezug zwischen den
@@ -25,14 +27,73 @@ export function listDate(s: string): string {
   });
 }
 
-// CSP, die im Mail-iframe ALLE externen Ladevorgänge (Bilder/Schriften/Medien)
-// blockiert — nur eingebettete data:/cid:-Bilder und Inline-Styles sind erlaubt.
-// So laden keine Tracking-Pixel; Skripte sind ohnehin per sandbox="" geblockt.
+// CSP fuers Mail-iframe. Es gibt ZWEI Varianten und immer genau eine davon ist
+// gesetzt (Befund 6: frueher stand gar keine CSP mehr im Dokument, sobald der
+// Nutzer "Bilder anzeigen" geklickt hat - damit waren frame-src, object-src,
+// media-src und font-src wieder offen und nur noch das sandbox-Attribut hat
+// geschuetzt).
+//  - _CSP_BLOCK: nichts Externes, nur eingebettete data:/cid:-Bilder.
+//  - _CSP_ALLOW: genau EINE Oeffnung, naemlich Bilder ueber http(s). Alles
+//    andere (Skripte, Rahmen, Plugins, Schriften, Medien) bleibt zu.
 const _CSP_BLOCK =
   `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; font-src data:; media-src data:;">`;
+const _CSP_ALLOW =
+  `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid: https: http:; style-src 'unsafe-inline'; font-src data:; media-src data:;">`;
+
+// sandbox-Werte fuer Mail-HTML an EINER Stelle (Befund 9: es gab drei
+// verschiedene, einer davon mit allow-same-origin). Keiner enthaelt
+// allow-scripts - fremdes Mail-HTML darf niemals Code ausfuehren.
+//
+// MAIL_SANDBOX ist der Normalfall (Leseansicht), ohne same-origin.
+// MAIL_SANDBOX_MEASURED braucht der ThreadReader, weil er die Inhaltshoehe
+// ueber contentDocument.scrollHeight misst; das geht ohne same-origin nicht,
+// und ohne Skripte gibt es auch keinen postMessage-Weg. Ohne allow-scripts
+// ist same-origin folgenlos - deshalb darf an diesen Konstanten NIE
+// allow-scripts ergaenzt werden (Test: tests/mailview-security.cjs).
+export const MAIL_SANDBOX = "allow-popups allow-popups-to-escape-sandbox";
+export const MAIL_SANDBOX_MEASURED = "allow-popups allow-popups-to-escape-sandbox allow-same-origin";
+// Druck-iframe: das Elternfenster schreibt das Dokument hinein und ruft
+// print(); dafuer sind same-origin und modals noetig, Popups nicht.
+export const MAIL_SANDBOX_PRINT = "allow-same-origin allow-modals";
+
+// Prueft, ob die Mail externe Inhalte nachladen wuerde (Tracking-Pixel).
+// Befund 17: frueher liefen dafuer zwei regulaere Ausdruecke ueber den Rohtext.
+// Das meldete "externe Inhalte" auch dann, wenn src=http nur als sichtbarer
+// Text oder in einem Kommentar stand, und uebersah Attribute mit Zeilenumbruch.
+// Jetzt wird derselbe DOM gefragt, der nachher auch gerendert wird. Der alte
+// Ausdruck bleibt Rueckfallebene, falls DOMParser wirft - dann lieber einmal zu
+// viel warnen als zu wenig.
+function _remoteRegex(html: string): boolean {
+  return /(?:src|background)\s*=\s*["']?\s*https?:/i.test(html) || /url\(\s*['"]?\s*https?:/i.test(html);
+}
 
 export function hasRemoteContent(html: string): boolean {
-  return /(?:src|background)\s*=\s*["']?\s*https?:/i.test(html) || /url\(\s*['"]?\s*https?:/i.test(html);
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const remote = (v: string | null) => !!v && /^\s*https?:/i.test(v);
+    const tags = "img, source, video, audio, embed, iframe, object, input, track";
+    for (const el of Array.from(doc.querySelectorAll(tags))) {
+      if (remote(el.getAttribute("src"))) return true;
+      if (remote(el.getAttribute("srcset"))) return true;
+      if (remote(el.getAttribute("data"))) return true;
+      if (remote(el.getAttribute("poster"))) return true;
+    }
+    for (const el of Array.from(doc.querySelectorAll("[background]"))) {
+      if (remote(el.getAttribute("background"))) return true;
+    }
+    for (const el of Array.from(doc.querySelectorAll("link[href]"))) {
+      if (remote(el.getAttribute("href"))) return true;
+    }
+    for (const el of Array.from(doc.querySelectorAll("[style]"))) {
+      if (/url\(\s*['"]?\s*https?:/i.test(el.getAttribute("style") || "")) return true;
+    }
+    for (const el of Array.from(doc.querySelectorAll("style"))) {
+      if (/url\(\s*['"]?\s*https?:/i.test(el.textContent || "")) return true;
+    }
+    return false;
+  } catch {
+    return _remoteRegex(html);
+  }
 }
 
 // "Lese-Dunkelmodus": dunkler Hintergrund + Schrift IMMER hell erzwingen
@@ -64,9 +125,18 @@ const _DARK_STYLE =
 //  - Bei ``block`` zusätzlich: externe Bild-/Hintergrund-Verweise KOMPLETT raus
 //    (sonst zeigt der Browser trotz CSP das „kaputtes Bild"-Symbol). „Bilder
 //    anzeigen" rendert den Original-HTML dann ohne block neu.
+//  - Befund 8: das Mail-HTML laeuft zuerst durch DOMPurify. Auf dem Schreibpfad
+//    (Compose/RichEditor) war das schon immer so, auf dem LESEpfad hing der
+//    ganze Schutz am sandbox-Attribut. Die Sandbox bleibt selbstverstaendlich -
+//    das hier ist die zweite Verteidigungslinie, falls ein Browser die Sandbox
+//    einmal falsch umsetzt oder jemand spaeter allow-scripts ergaenzt.
 function _prepareMailHtml(html: string, block: boolean): string {
   try {
-    const doc = new DOMParser().parseFromString(html, "text/html");
+    const sauber = DOMPurify.sanitize(html, {
+      FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "base"],
+      FORBID_ATTR: ["srcdoc", "formaction", "ping"],
+    });
+    const doc = new DOMParser().parseFromString(sauber, "text/html");
     // Links härten (immer).
     doc.querySelectorAll("a").forEach((a) => {
       a.setAttribute("rel", "noopener noreferrer");
@@ -98,7 +168,22 @@ function _prepareMailHtml(html: string, block: boolean): string {
 
 export function buildSrcDoc(html: string, block: boolean, dark: boolean): string {
   const body = _prepareMailHtml(html, block);
-  return `<!DOCTYPE html><meta charset="utf-8">${block ? _CSP_BLOCK : ""}${dark ? _DARK_STYLE : ""}<base target="_blank">${body}`;
+  // Immer eine CSP, nur der Bild-Teil unterscheidet sich (Befund 6).
+  const csp = block ? _CSP_BLOCK : _CSP_ALLOW;
+  return `<!DOCTYPE html><meta charset="utf-8">${csp}${dark ? _DARK_STYLE : ""}<base target="_blank">${body}`;
+}
+
+// Druckfassung einer Mail: derselbe aufbereitete Rumpf wie in der Leseansicht
+// (Befund 7 - der Druckpfad hat frueher das ROHE Mail-HTML genommen und dabei
+// externe Bilder nachgeladen, obwohl der Nutzer sie in der Ansicht blockiert
+// hatte; ueber den Druckknopf war die Bildblockade also umgehbar).
+export function buildPrintBody(html: string, block: boolean): string {
+  return _prepareMailHtml(html, block);
+}
+
+// CSP-Zeile fuers Druckdokument, gleiche Regel wie im Lese-iframe (Befund 7).
+export function printCsp(block: boolean): string {
+  return block ? _CSP_BLOCK : _CSP_ALLOW;
 }
 
 export function fmtSize(bytes: number): string {
