@@ -13,7 +13,10 @@ from urllib.parse import quote
 
 from aiosmtplib.errors import SMTPRecipientsRefused
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import AfterValidator
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from sqlmodel import Session, select
@@ -66,6 +69,81 @@ def _reject_ctrl(*values: str) -> None:
     for v in values:
         if v and _CTRL_RE.search(v):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ungültige Zeichen im Namen")
+
+
+def _pruefe_ordner(v: str) -> str:
+    """Ordnername aus einem Query-Parameter auf Steuerzeichen prüfen.
+
+    Durchsicht 2026-09-27, Befund 13: _reject_ctrl wurde von Hand aufgerufen und
+    dabei auf den vielen Lese-Endpunkten mit `folder: str = "INBOX"` vergessen.
+    Als Annotated-Typ ruft pydantic die Prüfung für JEDEN so deklarierten
+    Parameter selbst auf - kein Endpunkt kann sie mehr übersehen.
+    Antwort bleibt 400 mit derselben Meldung wie bisher (geprüft: HTTPException
+    aus einem AfterValidator kommt unverändert beim Client an).
+    """
+    _reject_ctrl(v)
+    return v
+
+
+# Zentraler Typ für Ordner-Parameter (Befund 13). Verhalten wie vorher: der Wert
+# bleibt ein freier String (IMAP-Ordnernamen dürfen Leerzeichen, /, Umlaute und
+# UTF-7 enthalten), nur Steuerzeichen inkl. CR/LF sind verboten.
+FolderParam = Annotated[str, AfterValidator(_pruefe_ordner)]
+
+
+# Durchsicht 2026-09-27, Befund 16: der Content-Type eines Anhangs kommt
+# unverändert aus der fremden Mail und landete so im Antwort-Header. Praktisch
+# entschärft durch Content-Disposition: attachment und X-Content-Type-Options:
+# nosniff, bleibt aber eine ungeprüfte Fremdangabe. Deshalb Allowlist: was nicht
+# draufsteht, wird als application/octet-stream ausgeliefert (Download statt
+# Anzeige). Bewusst OHNE text/html und ohne image/svg+xml - beide könnten im
+# Browser-Tab Skript ausführen, wenn jemand die Datei direkt öffnet.
+_ATTACHMENT_TYPES_OK = frozenset({
+    "application/pdf",
+    "application/json",
+    "application/rtf",
+    "application/zip",
+    "application/gzip",
+    "application/x-7z-compressed",
+    "application/x-tar",
+    "application/msword",
+    "application/vnd.ms-excel",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.oasis.opendocument.text",
+    "application/vnd.oasis.opendocument.spreadsheet",
+    "application/vnd.oasis.opendocument.presentation",
+    "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm", "audio/mp4",
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+    "image/tiff", "image/avif", "image/heic",
+    "message/rfc822",
+    "text/calendar", "text/csv", "text/plain", "text/vcard", "text/x-vcard",
+    "video/mp4", "video/mpeg", "video/ogg", "video/webm", "video/quicktime",
+})
+_ATTACHMENT_FALLBACK = "application/octet-stream"
+
+
+def _safer_attachment_type(content_type: str | None) -> str:
+    """Content-Type eines Anhangs auf die Allowlist abbilden (Befund 16).
+
+    Parameter wie charset/name werden für den Vergleich abgeschnitten und nur
+    charset wieder angehängt, wenn es harmlos aussieht. Alles Unbekannte,
+    text/html und image/svg+xml werden zu application/octet-stream.
+    """
+    roh = (content_type or "").strip()
+    if not roh:
+        return _ATTACHMENT_FALLBACK
+    haupt, _, rest = roh.partition(";")
+    haupt = haupt.strip().lower()
+    if haupt not in _ATTACHMENT_TYPES_OK:
+        return _ATTACHMENT_FALLBACK
+    if haupt.startswith("text/") or haupt == "application/json":
+        m = re.search(r"charset\s*=\s*\"?([A-Za-z0-9._:+-]{1,40})\"?", rest)
+        if m:
+            return f"{haupt}; charset={m.group(1)}"
+    return haupt
 
 
 def _valid_keyword(keyword: str) -> None:
@@ -413,7 +491,7 @@ def unified_messages(
 @router.get("/{account_id}/messages", response_model=list[MessageHeader])
 def messages(
     account_id: int,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     limit: int = Query(default=50, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     pin_flagged: bool = Query(default=False),
@@ -500,7 +578,7 @@ def counterparts(
 def search(
     account_id: int,
     q: str = Query(default="", max_length=200),
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     all_folders: bool = Query(default=False),
     limit: int = Query(default=200, ge=1, le=500),
     from_: str = Query(default="", max_length=200, alias="from"),
@@ -551,7 +629,7 @@ def search(
 @router.get("/{account_id}/folder-uids", response_model=list[str])
 def folder_uids(
     account_id: int,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -576,7 +654,7 @@ def folder_uids(
 @router.post("/{account_id}/sync")
 def sync_messages(
     account_id: int,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
@@ -691,7 +769,7 @@ def transfer(
 def message(
     account_id: int,
     uid: str,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -760,7 +838,7 @@ def message(
 @router.get("/{account_id}/thread")
 def thread(
     account_id: int,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     uid: str = "",
     uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
@@ -792,7 +870,7 @@ def thread(
 def message_raw(
     account_id: int,
     uid: str,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -811,7 +889,7 @@ def attachment(
     account_id: int,
     uid: str,
     index: int,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -823,13 +901,14 @@ def attachment(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Anhang nicht gefunden")
     filename, content_type, data = result
     disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
-    return Response(content=data, media_type=content_type, headers={"Content-Disposition": disposition})
+    return Response(content=data, media_type=_safer_attachment_type(content_type),
+                    headers={"Content-Disposition": disposition})
 
 
 @router.get("/{account_id}/export.mbox")
 def export_mbox(
     account_id: int,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     limit: int = Query(default=5000, ge=1, le=50000),
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -850,7 +929,7 @@ def export_mbox(
 def set_flags(
     account_id: int,
     uid: str,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     seen: bool | None = None,
     flagged: bool | None = None,
     uidvalidity: int | None = None,
@@ -880,7 +959,7 @@ def set_label(
     uid: str,
     keyword: str,
     on: bool = True,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -907,7 +986,7 @@ def move_message(
     account_id: int,
     uid: str,
     dest: str,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -1051,7 +1130,7 @@ def move_messages_batch(
 def delete_message(
     account_id: int,
     uid: str,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -1216,7 +1295,7 @@ async def schedule_send(
 async def send_read_receipt(
     account_id: int,
     uid: str,
-    folder: str = "INBOX",
+    folder: FolderParam = "INBOX",
     uidvalidity: int | None = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),

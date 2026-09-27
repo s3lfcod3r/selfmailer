@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
+import os
+import socket
 from email.message import EmailMessage, Message
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -11,6 +14,47 @@ from email.utils import formataddr, formatdate, make_msgid, parseaddr
 import aiosmtplib
 
 from ..models import MailAccount
+from ..dav.client import DavUrlError, resolve_pinned_host
+
+logger = logging.getLogger(__name__)
+
+
+class SMTPZielNichtErlaubt(RuntimeError):
+    """Der konfigurierte SMTP-Host zeigt auf eine gesperrte Adresse (Befund 10)."""
+
+
+# Zeitlimit fuer den TCP-Connect zum SMTP-Server (aiosmtplib-Default ist 60 s
+# fuer den ganzen Dialog; hier geht es nur um das Aufbauen der Verbindung).
+_SMTP_CONNECT_TIMEOUT = float(os.getenv("SELFMAILER_SMTP_TIMEOUT", "20") or 20)
+
+
+def _socket_schliessen(sock: socket.socket) -> None:
+    """Gepinnten Socket schliessen. aiosmtplib schliesst den Transport selbst;
+    ein zweites close() auf einem bereits geschlossenen Socket ist harmlos."""
+    try:
+        sock.close()
+    except OSError:  # pragma: no cover - defensiv
+        pass
+
+
+def _gepinnter_socket(account: MailAccount) -> socket.socket:
+    """Socket, der zur vorab GEPRUEFTEN IP des SMTP-Hosts verbunden ist.
+
+    Durchsicht 2026-09-27, Befund 10: api/accounts.py prueft smtp_host beim
+    Speichern (SSRF/Loopback/Cloud-Metadata), verbunden wurde danach aber wieder
+    per Hostname - ein zweites DNS konnte also auf eine interne Adresse zeigen.
+    Jetzt wird EINMAL aufgeloest und genau zu dieser IP verbunden. Der Socket
+    geht an aiosmtplib (sock=), hostname bleibt der echte Name, damit TLS-SNI
+    und Zertifikatspruefung unveraendert gegen den Hostnamen laufen.
+    """
+    try:
+        ip = resolve_pinned_host(account.smtp_host, account.smtp_port)
+    except DavUrlError as exc:
+        raise SMTPZielNichtErlaubt(f"SMTP-Server nicht erlaubt: {exc}") from exc
+    sock = socket.create_connection((ip, account.smtp_port), timeout=_SMTP_CONNECT_TIMEOUT)
+    # asyncio uebernimmt nur nicht-blockierende Sockets.
+    sock.setblocking(False)
+    return sock
 
 
 def _decode_b64(raw: str) -> bytes:
@@ -114,28 +158,45 @@ def _tls_mode(account: MailAccount) -> tuple[bool, bool]:
 async def _send(account: MailAccount, password: str, msg, recipients: list[str]) -> None:
     """Standard-Versand ohne DSN (der überwiegende Fall)."""
     use_tls, start_tls = _tls_mode(account)
-    await aiosmtplib.send(
-        msg,
-        hostname=account.smtp_host,
-        port=account.smtp_port,
-        username=account.auth_user or account.email,
-        password=password,
-        use_tls=use_tls,
-        start_tls=start_tls,
-        recipients=recipients,
-    )
+    # sock= statt host/port: die Verbindung steht schon auf der geprueften IP
+    # (Befund 10). hostname bleibt gesetzt, weil aiosmtplib daraus den
+    # TLS-server_hostname nimmt - Zertifikatspruefung wie vorher.
+    sock = _gepinnter_socket(account)
+    try:
+        await aiosmtplib.send(
+            msg,
+            hostname=account.smtp_host,
+            sock=sock,  # port bewusst NICHT setzen: aiosmtplib verbietet sock+port
+            username=account.auth_user or account.email,
+            password=password,
+            use_tls=use_tls,
+            start_tls=start_tls,
+            recipients=recipients,
+        )
+    finally:
+        _socket_schliessen(sock)
 
 
 async def _send_with_dsn(account: MailAccount, password: str, msg, recipients: list[str]) -> None:
     """Versand mit SMTP-DSN (NOTIFY=SUCCESS,DELAY,FAILURE). Kann der Server keine
     DSN, wird ganz normal ohne NOTIFY gesendet (kein Fehler für den Nutzer)."""
     use_tls, start_tls = _tls_mode(account)
+    sock = _gepinnter_socket(account)  # Befund 10: gepinnte IP
     client = aiosmtplib.SMTP(
         hostname=account.smtp_host,
-        port=account.smtp_port,
+        sock=sock,  # port bewusst NICHT setzen: aiosmtplib verbietet sock+port
         use_tls=use_tls,
         start_tls=start_tls,
     )
+    try:
+        await _dsn_dialog(client, account, password, msg, recipients)
+    finally:
+        _socket_schliessen(sock)
+
+
+async def _dsn_dialog(client, account: MailAccount, password: str, msg, recipients: list[str]) -> None:
+    """Der eigentliche DSN-Dialog - herausgezogen, damit der gepinnte Socket in
+    jedem Fall geschlossen wird (Befund 10)."""
     async with client:
         await client.login(account.auth_user or account.email, password)
         try:

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import imaplib
 import logging
+import socket
+import ssl
 import os
 import queue
 import re
@@ -11,18 +13,70 @@ import threading
 import time
 from contextlib import contextmanager
 from collections.abc import Iterator
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 
 from fastapi import HTTPException, status
-from imap_tools import MailBox, AND
+from imap_tools import MailBox, MailBoxStartTls, AND
 from imap_tools.utils import encode_folder
 
 from ..models import MailAccount
 from ..core.config import get_settings
+from ..dav.client import DavUrlError, resolve_pinned_host
 from . import timing
 
 logger = logging.getLogger(__name__)
+
+# Durchsicht 2026-09-27, Befund 15: In 24 Stunden standen 42 Tracebacks im Log,
+# praktisch alle nur abgerissene IMAP-Verbindungen (ConnectionResetError 104,
+# BrokenPipeError, EOF, Read-Timeout). Das Verhalten ist richtig - wir bauen die
+# Verbindung neu auf -, aber echte Fehler gehen in dem Rauschen unter. Deshalb:
+# erwartbare Netzfehler als WARNING mit kurzem Grund OHNE Traceback, alles
+# Unerwartete weiterhin mit vollem Traceback.
+_ERWARTBARE_NETZFEHLER: tuple[type[BaseException], ...] = (
+    ConnectionError,          # deckt ConnectionReset/Aborted/Refused/BrokenPipe ab
+    TimeoutError,             # ab Python 3.10 auch socket.timeout
+    socket.gaierror,
+    socket.herror,
+    ssl.SSLEOFError,
+    ssl.SSLZeroReturnError,
+    imaplib.IMAP4.abort,      # Server hat die Sitzung einseitig beendet
+    EOFError,
+)
+
+# Textmuster fuer Faelle, die als generisches imaplib.IMAP4.error oder OSError
+# ankommen (imap_tools verpackt manches). Bewusst klein gehalten.
+_NETZFEHLER_MUSTER = (
+    "connection reset",
+    "broken pipe",
+    "socket error: eof",
+    "eof occurred",
+    "timed out",
+    "connection closed",
+    "connection aborted",
+    "terminating connection",
+)
+
+
+def _ist_netzfehler(exc: BaseException) -> bool:
+    """True, wenn die Ausnahme ein erwartbarer Verbindungsabbruch ist."""
+    if isinstance(exc, _ERWARTBARE_NETZFEHLER):
+        return True
+    text = str(exc).lower()
+    return any(m in text for m in _NETZFEHLER_MUSTER)
+
+
+def _log_imap_problem(msg: str, *args: object, exc: BaseException) -> None:
+    """WARNING loggen - mit Traceback nur, wenn der Fehler nicht erwartbar ist.
+
+    Der Grund steht in beiden Faellen in der Zeile, damit man beim Suchen nach
+    "ConnectionResetError" trotzdem etwas findet.
+    """
+    grund = f"{type(exc).__name__}: {str(exc)[:200]}"
+    if _ist_netzfehler(exc):
+        logger.warning(msg + " [%s]", *args, grund)
+    else:
+        logger.warning(msg + " [%s]", *args, grund, exc_info=True)
 
 
 class ImapBusyError(HTTPException):
@@ -245,14 +299,106 @@ def _refresh_capabilities(box: MailBox) -> None:
     client.capabilities = caps
 
 
+# --- Befund 10/11: geprüfte IP festhalten, imap_ssl wirklich benutzen ---------
+# Befund 10: _check_mail_host (api/accounts.py) loest den Hostnamen auf und
+# blockiert Loopback/Link-Local - verbunden wurde danach aber wieder PER NAMEN.
+# Ein Host, der bei der Pruefung oeffentlich aufloest und beim Verbinden auf
+# 127.0.0.1 oder 169.254.169.254 zeigt, umging den Schutz (DNS-Rebinding).
+# Wie beim DAV-Client (dav/client.py _pinned_request) wird deshalb genau EINMAL
+# aufgeloest und zu DIESER IP verbunden; TLS-SNI und Zertifikatspruefung laufen
+# weiter gegen den Hostnamen (server_hostname=self.host).
+# Befund 11: das Feld imap_ssl wurde nie gelesen - MailBox machte immer
+# implizites TLS. Jetzt: True (Default, wie bisher) = implizites TLS auf 993,
+# False = Klartext-Verbindung mit STARTTLS (MailBoxStartTls, z. B. Port 143).
+
+
+class _GepinntesIMAP4SSL(imaplib.IMAP4_SSL):
+    """IMAP4_SSL, das zur vorab geprueften IP verbindet (Zertifikat: Hostname)."""
+
+    def __init__(self, host: str, port: int, *, pinned_ip: str, timeout: float | None = None) -> None:
+        self._pinned_ip = pinned_ip
+        super().__init__(host, port, timeout=timeout)
+
+    def _create_socket(self, timeout: float | None = None) -> "ssl.SSLSocket":  # type: ignore[override]
+        sock = socket.create_connection((self._pinned_ip, self.port), timeout)
+        return self.ssl_context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _GepinntesIMAP4(imaplib.IMAP4):
+    """IMAP4 (Klartext + spaeteres STARTTLS) zur vorab geprueften IP."""
+
+    def __init__(self, host: str, port: int, *, pinned_ip: str, timeout: float | None = None) -> None:
+        self._pinned_ip = pinned_ip
+        super().__init__(host, port, timeout=timeout)
+
+    def _create_socket(self, timeout: float | None = None) -> socket.socket:  # type: ignore[override]
+        return socket.create_connection((self._pinned_ip, self.port), timeout)
+
+
+class _GepinnteMailBox(MailBox):
+    """imap_tools-MailBox mit implizitem TLS auf die gepinnte IP."""
+
+    def __init__(self, host: str, port: int, *, pinned_ip: str, timeout: float | None = None) -> None:
+        self._pinned_ip = pinned_ip
+        super().__init__(host=host, port=port, timeout=timeout)
+
+    def _get_mailbox_client(self) -> imaplib.IMAP4:
+        return _GepinntesIMAP4SSL(self._host, self._port, pinned_ip=self._pinned_ip, timeout=self._timeout)
+
+
+class _GepinnteMailBoxStartTls(MailBoxStartTls):
+    """imap_tools-MailBox mit STARTTLS auf die gepinnte IP (imap_ssl=False)."""
+
+    def __init__(self, host: str, port: int, *, pinned_ip: str, timeout: float | None = None) -> None:
+        self._pinned_ip = pinned_ip
+        super().__init__(host=host, port=port, timeout=timeout)
+
+    def _get_mailbox_client(self) -> imaplib.IMAP4:
+        client = _GepinntesIMAP4(self._host, self._port, pinned_ip=self._pinned_ip, timeout=self._timeout)
+        client.starttls(ssl_context=self._ssl_context)
+        return client
+
+
+def _pinned_ip_fuer(account: MailAccount) -> str:
+    """Geprueste IP fuer den IMAP-Host holen; DavUrlError -> HTTP 400 mit Grund."""
+    try:
+        return resolve_pinned_host(account.imap_host, account.imap_port)
+    except DavUrlError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"IMAP-Server nicht erlaubt: {exc}"
+        ) from exc
+
+
+def _implizites_tls(account: MailAccount) -> bool:
+    """Soll implizites TLS benutzt werden? (Befund 11)
+
+    Wichtig fuer Bestandskonten: das Feld imap_ssl wurde bisher NIE gelesen,
+    alle Verbindungen liefen mit implizitem TLS. Es gibt also Konten, bei denen
+    der Schalter aus ist und die trotzdem funktionieren - typischerweise auf
+    Port 993. Port 993 ist per Definition implizites TLS, deshalb hat der Port
+    hier Vorrang vor dem Schalter. Nur bei einem anderen Port (z. B. 143) und
+    ausgeschaltetem Schalter wird wirklich STARTTLS benutzt.
+    """
+    if account.imap_port == 993:
+        return True
+    return bool(getattr(account, "imap_ssl", True))
+
+
+def _neue_mailbox(account: MailAccount) -> MailBox:
+    """MailBox passend zu imap_ssl bauen - immer zur gepinnten IP (Befund 10/11)."""
+    ip = _pinned_ip_fuer(account)
+    klasse = _GepinnteMailBox if _implizites_tls(account) else _GepinnteMailBoxStartTls
+    try:
+        return klasse(account.imap_host, account.imap_port, pinned_ip=ip, timeout=_IMAP_TIMEOUT)
+    except TypeError:  # pragma: no cover - imap_tools ohne timeout-Param
+        return klasse(account.imap_host, account.imap_port, pinned_ip=ip)
+
+
 def _connect(account: MailAccount, login: str, password: str, folder: str) -> MailBox:
     # timeout bei der Konstruktion bindet schon den TCP-Connect; fällt die
     # imap_tools-Version ohne timeout-Param zurück, setzen wir es danach am Socket.
     with timing.phase("connect"):
-        try:
-            box = MailBox(account.imap_host, port=account.imap_port, timeout=_IMAP_TIMEOUT)
-        except TypeError:
-            box = MailBox(account.imap_host, port=account.imap_port)
+        box = _neue_mailbox(account)
     try:
         # No initial SELECT: authenticated capabilities and CONDSTORE must be
         # ready first. Discard any pre-login CAPABILITY response before LOGIN.
@@ -845,8 +991,8 @@ def set_keyword(
         return True
     except HTTPException:
         raise
-    except Exception:  # noqa: BLE001 - Server ohne PERMANENTFLAGS \\* o. Ä.
-        logger.warning("Keyword %r setzen fehlgeschlagen (account_id=%s)", keyword, account.id, exc_info=True)
+    except Exception as exc:  # noqa: BLE001 - Server ohne PERMANENTFLAGS \\* o. Ä.
+        _log_imap_problem("Keyword %r setzen fehlgeschlagen (account_id=%s)", keyword, account.id, exc=exc)
         return False
 
 
@@ -962,8 +1108,8 @@ def collect_thread(
         try:
             with _mailbox(account, password, folder=fol, op="collect_thread") as box:
                 collect_in(box, fol)
-        except Exception:  # noqa: BLE001 - einzelner Ordner darf die Sammlung nicht kippen
-            logger.warning("Thread-Suche in %r fehlgeschlagen (account_id=%s)", fol, account.id, exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - einzelner Ordner darf die Sammlung nicht kippen
+            _log_imap_problem("Thread-Suche in %r fehlgeschlagen (account_id=%s)", fol, account.id, exc=exc)
             continue
     return out
 
@@ -1081,10 +1227,10 @@ def search_messages(
                             "_sort": msg.date,
                         }
                     )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             # Ein kaputter/gesperrter Ordner darf die ganze Suche nicht kippen —
             # die übrigen Ordner liefern weiter Treffer.
-            logger.warning("Suche im Ordner %r fehlgeschlagen (account_id=%s)", folder, account.id, exc_info=True)
+            _log_imap_problem("Suche im Ordner %r fehlgeschlagen (account_id=%s)", folder, account.id, exc=exc)
             continue
     # Über alle Ordner hinweg nach Datum sortieren. Über den Zeitstempel statt über
     # das datetime-Objekt: so kollidieren naive und zeitzonenbehaftete Datumsangaben
@@ -1571,7 +1717,10 @@ def _purge_folder(account: MailAccount, password: str, folder: str | None, older
         if older_than_days == 0:
             criteria = AND(all=True)
         else:
-            cutoff = (datetime.now() - timedelta(days=older_than_days)).date()
+            # Befund 22 der Durchsicht 2026-09-27: hier stand die naive Ortszeit,
+            # während alle DB-Zeitstempel UTC sind. Das verschob die Aufräum-
+            # grenze je nach Container-TZ um Stunden.
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).date()
             criteria = AND(date_lt=cutoff)
         uids = [m.uid for m in box.fetch(criteria, mark_seen=False, headers_only=True, bulk=True) if m.uid]
         if uids:
@@ -1602,8 +1751,8 @@ def _soft_delete(box: MailBox, uids: list[str], current_folder: str) -> None:
     trash = _trash_folder(box, current_folder)
     try:
         box.flag(uids, SEEN, True)  # im Papierkorb nicht als ungelesen zählen
-    except Exception:  # noqa: BLE001 - Markieren ist Beiwerk, darf das Verschieben nicht kippen
-        logger.warning("SEEN-Flag vor Soft-Delete fehlgeschlagen", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 - Markieren ist Beiwerk, darf das Verschieben nicht kippen
+        _log_imap_problem("SEEN-Flag vor Soft-Delete fehlgeschlagen", exc=exc)
     if trash and trash != current_folder:
         box.move(uids, trash)
     else:
@@ -1644,8 +1793,8 @@ def delete_by_sender(
                 if to_del:
                     _soft_delete(box, to_del, folder)
                     total += len(to_del)
-        except Exception:  # noqa: BLE001 - ein Ordner darf den Rest nicht kippen
-            logger.warning("delete_by_sender fehlgeschlagen (account_id=%s, folder=%s)", account.id, folder, exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - ein Ordner darf den Rest nicht kippen
+            _log_imap_problem("delete_by_sender fehlgeschlagen (account_id=%s, folder=%s)", account.id, folder, exc=exc)
     return {"deleted": total}
 
 
@@ -2028,8 +2177,8 @@ def sweep_block_folders(
         with _mailbox(account, password, op="sweep_block_folders") as box:
             spam = _spam_folder(box)
             trash = _trash_folder(box, "INBOX")
-    except Exception:  # noqa: BLE001 - ohne Ordnerliste keinen Sweep, aber nie den Sync kippen
-        logger.warning("Block-Sweep: Ordnerermittlung fehlgeschlagen (account_id=%s)", account.id, exc_info=True)
+    except Exception as exc:  # noqa: BLE001 - ohne Ordnerliste keinen Sweep, aber nie den Sync kippen
+        _log_imap_problem("Block-Sweep: Ordnerermittlung fehlgeschlagen (account_id=%s)", account.id, exc=exc)
         return {"deleted": 0}
 
     targets: list[str] = []
@@ -2058,9 +2207,9 @@ def sweep_block_folders(
                 if to_del:
                     _soft_delete(box, to_del, folder)
                     total += len(to_del)
-        except Exception:  # noqa: BLE001 - ein Ordner darf den Rest nicht kippen
-            logger.warning(
-                "Block-Sweep fehlgeschlagen (account_id=%s, folder=%s)", account.id, folder, exc_info=True
+        except Exception as exc:  # noqa: BLE001 - ein Ordner darf den Rest nicht kippen
+            _log_imap_problem(
+                "Block-Sweep fehlgeschlagen (account_id=%s, folder=%s)", account.id, folder, exc=exc
             )
     return {"deleted": total}
 
