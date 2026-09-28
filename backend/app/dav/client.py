@@ -44,7 +44,7 @@ def _ip_blocked(ip: ipaddress._BaseAddress, block_private: bool) -> bool:
     return False
 
 
-def _resolve_validated(url: str) -> tuple[str, str, int]:
+def _resolve_validated(url: str, *, prefer_ipv4: bool = False) -> tuple[str, str, int]:
     """SSRF-Schutz + IP-Pinning-Vorbereitung. Prüft Schema und ALLE aufgelösten
     IPs gegen die Blockliste und gibt ``(pinned_ip, host, port)`` zurück.
 
@@ -71,7 +71,7 @@ def _resolve_validated(url: str) -> tuple[str, str, int]:
         ip = ipaddress.ip_address(sockaddr[0])
         if _ip_blocked(ip, block_private):
             raise DavUrlError(f"Interne/gesperrte Adresse blockiert: {host} → {ip}")
-        if pinned is None:
+        if pinned is None or (prefer_ipv4 and ":" in pinned and ip.version == 4):
             pinned = sockaddr[0]
     if pinned is None:
         raise DavUrlError(f"Keine Adresse fuer {host}")
@@ -139,7 +139,10 @@ def resolve_pinned_host(host: str, port: int) -> str:
     if not name:
         raise DavUrlError("Kein Host angegeben")
     huelle = f"[{name}]" if ":" in name and not name.startswith("[") else name
-    ip, _host, _port = _resolve_validated(f"http://{huelle}:{int(port)}/")
+    # Docker-Bridge-Netze haben meist kein IPv6. Ohne Pinning probierte
+    # create_connection alle Adressen durch; mit Pinning zaehlt nur eine.
+    # Deshalb aus den GEPRUEFTEN Adressen eine IPv4 bevorzugen.
+    ip, _host, _port = _resolve_validated(f"http://{huelle}:{int(port)}/", prefer_ipv4=True)
     return ip
 
 

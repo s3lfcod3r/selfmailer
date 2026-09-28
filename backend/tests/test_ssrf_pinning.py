@@ -179,3 +179,18 @@ def test_socket_wird_nach_dem_versand_geschlossen():
         assert a.fileno() == -1
     finally:
         b.close()
+
+
+def test_pinning_bevorzugt_gepruefte_ipv4(monkeypatch):
+    """Docker-Bridges haben oft kein IPv6: kommt die IPv6-Adresse zuerst, muss
+    trotzdem die (ebenfalls gepruefte) IPv4 gepinnt werden."""
+    from app.dav import client as dav_client
+
+    def fake_getaddrinfo(host, port, *a, **kw):
+        return [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:db8::7", port, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("203.0.113.7", port)),
+        ]
+
+    monkeypatch.setattr(dav_client.socket, "getaddrinfo", fake_getaddrinfo)
+    assert resolve_pinned_host("mail.example.org", 993) == "203.0.113.7"

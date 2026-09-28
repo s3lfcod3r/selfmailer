@@ -1,6 +1,7 @@
 """SMTP-Versand via aiosmtplib (async)."""
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import logging
@@ -161,7 +162,8 @@ async def _send(account: MailAccount, password: str, msg, recipients: list[str])
     # sock= statt host/port: die Verbindung steht schon auf der geprueften IP
     # (Befund 10). hostname bleibt gesetzt, weil aiosmtplib daraus den
     # TLS-server_hostname nimmt - Zertifikatspruefung wie vorher.
-    sock = _gepinnter_socket(account)
+    # Aufloesen + Connect blockieren; im Thread, damit die App so lange weiterlaeuft.
+    sock = await asyncio.to_thread(_gepinnter_socket, account)
     try:
         await aiosmtplib.send(
             msg,
@@ -181,7 +183,7 @@ async def _send_with_dsn(account: MailAccount, password: str, msg, recipients: l
     """Versand mit SMTP-DSN (NOTIFY=SUCCESS,DELAY,FAILURE). Kann der Server keine
     DSN, wird ganz normal ohne NOTIFY gesendet (kein Fehler für den Nutzer)."""
     use_tls, start_tls = _tls_mode(account)
-    sock = _gepinnter_socket(account)  # Befund 10: gepinnte IP
+    sock = await asyncio.to_thread(_gepinnter_socket, account)  # Befund 10: gepinnte IP
     client = aiosmtplib.SMTP(
         hostname=account.smtp_host,
         sock=sock,  # port bewusst NICHT setzen: aiosmtplib verbietet sock+port
