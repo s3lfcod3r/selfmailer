@@ -709,11 +709,20 @@ class DeviceTokenIn(BaseModel):
 
 # ---- Export-Feed-Token --------------------------------------------------
 class FeedTokenOut(BaseModel):
-    token: str
-    calendar_url: str
-    contacts_url: str
+    # Klartext-Token und Abo-URLs gibt es seit 1.96.0 NUR unmittelbar nach dem
+    # Erzeugen/Rotieren (in der DB liegt nur der Hash). Sonst sind sie leer und
+    # has_token sagt der UI: Token existiert, kann aber nur noch rotiert werden.
+    token: str = ""
+    calendar_url: str = ""
+    contacts_url: str = ""
     dashboard_url: str = ""   # gebündelte Mail-Übersicht für ein externes Dashboard
+    has_token: bool = False
+    expires_at: dt.datetime | None = None
+    last_used_at: dt.datetime | None = None
 
 
 class WriteTokenOut(BaseModel):
-    write_token: str   # Schreib-Token fürs Dashboard/Kalender-Widget (nicht in Abo-URLs)
+    write_token: str = ""   # Schreib-Token fürs Dashboard/Kalender-Widget (nicht in Abo-URLs)
+    has_write_token: bool = False
+    expires_at: dt.datetime | None = None
+    last_used_at: dt.datetime | None = None

@@ -293,7 +293,7 @@ def test_connect_select_and_swallowed_logout_failure(monkeypatch, caplog):
                        capabilities=("IMAP4REV1",), capability=lambda: ("OK", [b"IMAP4rev1"])),
              folder=NS(set=lambda f: calls.append("select")),
              login=lambda *a, **kw: calls.append("login"), logout=fail_logout)
-    monkeypatch.setattr(imap, "MailBox", lambda *a, **kw: box)
+    monkeypatch.setattr(imap, "_neue_mailbox", lambda *a, **kw: box)  # Seam: Befund 10
     monkeypatch.setattr(imap, "supports_condstore", lambda b: False)
     with timing.request_scope(1, "read") as trace:
         timing.authorize(1)

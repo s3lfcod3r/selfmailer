@@ -188,7 +188,19 @@ export type DavAccount = {
   id: number; kind: DavKind; label: string; url: string;
   username: string; last_sync: string | null; last_status: string;
 };
-export type FeedToken = { token: string; calendar_url: string; contacts_url: string };
+// Seit 1.96.0 liegt in der Datenbank nur noch der Hash des Feed-Tokens.
+// Klartext (token) und die fertigen Abo-URLs kommen deshalb NUR in der Antwort
+// direkt nach dem Erzeugen oder Rotieren. Danach sind sie leer und nur noch
+// has_token/expires_at/last_used_at sind gefüllt — die UI muss damit umgehen
+// können und dem Nutzer das Rotieren anbieten.
+export type FeedToken = {
+  token: string; calendar_url: string; contacts_url: string; dashboard_url: string;
+  has_token: boolean; expires_at: string | null; last_used_at: string | null;
+};
+export type WriteToken = {
+  write_token: string; has_write_token: boolean;
+  expires_at: string | null; last_used_at: string | null;
+};
 export type Rule = {
   id: number; field: string; value: string; target_folder: string;
   mark_read: boolean; star: boolean; delete_msg: boolean; enabled: boolean; position: number;

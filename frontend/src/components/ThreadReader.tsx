@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, download, type MsgHeader, type MsgDetail, type MailLabel } from "../lib/api";
 import { useLang } from "../lib/i18n";
-import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, trimQuotedHtml, trimQuotedText, avatarFor } from "../lib/mailview";
+import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, trimQuotedHtml, trimQuotedText, avatarFor, MAIL_SANDBOX_MEASURED } from "../lib/mailview";
 import type { Conversation } from "../lib/threads";
 import { useMenuDismiss } from "../lib/useMenuDismiss";
 import { messageKey, messageGeneration } from "../lib/mailIdentity";
@@ -332,7 +332,7 @@ export function ThreadReader({
                     <>
                       {bodyHtml ? (
                         <iframe title={`mail-${m.uid}`}
-                          sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+                          sandbox={MAIL_SANDBOX_MEASURED}
                           className="mail-body-frame thread-body-frame"
                           style={{ height: heights[key] ? `${heights[key]}px` : undefined }}
                           ref={(el) => { if (el) frameRefs.current.set(key, el); else frameRefs.current.delete(key); }}

@@ -1,12 +1,35 @@
+# Laufzeit-Abhaengigkeiten SelfMailer (Backend)
+#
+# Befund 20: bis 1.95.5 standen hier fast nur Untergrenzen. Zwei Builds
+# desselben Commits konnten dadurch unterschiedliche Pakete enthalten - man
+# konnte nicht sagen, welche Versionen im laufenden Container stecken. Jeder
+# Eintrag hat jetzt zusaetzlich eine Obergrenze beim naechsten Hauptsprung,
+# damit ein Major-Upgrade (das erfahrungsgemaess Verhalten aendert) bewusst
+# hier eingetragen werden muss und nicht beim naechsten Image-Build passiert.
+#
+# Konkreter Anlass: aiosmtplib ist von 3.x auf 5.x gewandert, ohne dass sich
+# im Repo etwas geaendert hat; in 5.x verbietet send() sock= zusammen mit
+# port=. Mit Obergrenze waere das beim Aktualisieren aufgefallen statt im
+# Betrieb.
+#
+# Noch offen: echtes Lockfile mit Hashes (pip-compile/uv lock auf Python 3.13,
+# passend zum Laufzeit-Image). Die Abhaengigkeiten werden zusaetzlich im CI
+# mit pip-audit gegen bekannte Schwachstellen geprueft (.github/workflows/ci.yml).
+
 fastapi>=0.115,<1.0
-uvicorn[standard]>=0.30
-sqlmodel>=0.0.22
-pydantic-settings>=2.4
-argon2-cffi>=23.1
-pyjwt>=2.9
-cryptography>=43.0
+uvicorn[standard]>=0.30,<1.0
+# sqlmodel EXAKT festgenagelt: ab 0.0.47 speichert/liefert sqlmodel datetime-Felder
+# nur noch MIT Zeitzone (UTCDateTime) und lehnt naive Werte ab. SelfMailer
+# speichert bewusst naive UTC-Zeitstempel und vergleicht sie mit naivem "jetzt" -
+# ein Upgrade braucht eine eigene Umstellung, nicht nur eine neue Versionsnummer.
+# 0.0.42 ist die Version im laufenden Image (geprueft am 28.09.2026).
+sqlmodel==0.0.42
+pydantic-settings>=2.4,<3.0
+argon2-cffi>=23.1,<26.0
+pyjwt>=2.9,<3.0
+cryptography>=44.0.1,<51.0
 imap-tools>=1.15,<2
-aiosmtplib>=3.0
-python-multipart>=0.0.9
-email-validator>=2.2
-httpx>=0.27
+aiosmtplib>=3.0,<6.0
+python-multipart>=0.0.18,<0.1
+email-validator>=2.2,<3.0
+httpx>=0.27,<1.0

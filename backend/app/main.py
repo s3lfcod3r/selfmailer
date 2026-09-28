@@ -5,6 +5,7 @@ SPA mitausgeliefert (Single-Container-Deployment).
 """
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -14,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .core.config import get_settings
 from .core.db import init_db
+from .core.logfilter import install_secret_log_filter
 from .mail import timing as mail_timing
 from .api import (
     accounts,
@@ -44,9 +46,59 @@ from .api import settings as settings_api
 
 settings = get_settings()
 
+# Geheimnisse aus den Logzeilen maskieren (Befund 1). Zweimal aufrufen ist
+# Absicht und idempotent: hier beim Import (uvicorn hat sein Logging da schon
+# per dictConfig gesetzt, unsere Filter am Logger ueberleben das) und noch
+# einmal im Lifespan-Start, falls die App vor der Logging-Konfiguration
+# importiert wurde (Tests, gunicorn, uvicorn --reload).
+install_secret_log_filter()
+
+# Reverse-Proxy-Betrieb (Befund 23): ein zu weiter CORS-Eintrag hebelt die
+# Same-Origin-Grenze aus, und weil allow_credentials=True gesetzt ist, wuerde
+# ein fremdes Origin das Session-Cookie mitschicken duerfen. Starlette lehnt
+# "*" zusammen mit Credentials selbst ab; alles andere pruefen wir hier.
+_CORS_FORBIDDEN = {"*", "null", "http://*", "https://*"}
+
+
+def _check_cors_origins(origins: list[str]) -> list[str]:
+    """Verwirft unsichere CORS-Origins und meldet sie laut im Log.
+
+    Erlaubt sind nur exakte Origins der Form schema://host[:port] - kein
+    Wildcard, kein Pfad, kein leerer Eintrag. Bewusst nur WARNEN und den
+    Eintrag fallen lassen (nicht den Start abbrechen): SelfMailer soll nach
+    einem Konfigurationsfehler erreichbar bleiben, statt still nicht mehr zu
+    starten.
+    """
+    ok: list[str] = []
+    for raw in origins:
+        origin = (raw or "").strip()
+        if not origin:
+            continue
+        low = origin.lower()
+        bad = (
+            low in _CORS_FORBIDDEN
+            or "*" in low
+            or not (low.startswith("http://") or low.startswith("https://"))
+            or low.rstrip("/").count("/") != 2
+        )
+        if bad:
+            _cors_logger.warning(
+                "CORS-Origin verworfen: %r. Erlaubt sind nur exakte Origins wie "
+                "https://mail.example.org - niemals Wildcards.",
+                origin,
+            )
+            continue
+        ok.append(origin.rstrip("/"))
+    return ok
+
+
+_cors_logger = logging.getLogger("selfmailer.cors")
+_cors_origins = _check_cors_origins(list(settings.cors_list or []))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    install_secret_log_filter()
     init_db()
     # Event-Loop dem Live-Sync-Bus geben (für thread-sicheres publish).
     import asyncio
@@ -64,7 +116,7 @@ async def lifespan(app: FastAPI):
 # Server-Version: mit README-Badge, Git-Tag und frontend/package*.json abstimmen.
 # Die WebUI zeigt sie über /api/health an. Reine Backend-Releases brauchen keine
 # neue APK; dann die kompatible Android-Version ausdrücklich im Release nennen.
-APP_VERSION = "1.95.5"
+APP_VERSION = "1.96.0"
 
 # Öffentliche API-Docs (Swagger/ReDoc/OpenAPI-Schema) in Produktion abschalten —
 # reduziert die Angriffsfläche/Info-Preisgabe; die WebUI/APK brauchen sie nicht.
@@ -172,10 +224,13 @@ async def security_headers(request: Request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_list,
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    # X-Feed-Token (Befund 1): der Feed-Token darf statt im Query-String im
+    # Header stehen. Ohne diesen Eintrag wuerde ein Browser-Client (Dashboard-
+    # Kachel auf fremdem Origin) am CORS-Preflight scheitern.
+    allow_headers=["Authorization", "Content-Type", "X-Feed-Token"],
 )
 
 app.include_router(auth.router)
@@ -204,7 +259,7 @@ app.include_router(settings_api.router)
 
 # Build-Marker: erlaubt von außen zu prüfen, welche Version wirklich LÄUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhöhen.
-APP_BUILD = "2026-09-08-v1.95.5"
+APP_BUILD = "2026-09-28-v1.96.0"
 
 
 @app.get("/api/health")
