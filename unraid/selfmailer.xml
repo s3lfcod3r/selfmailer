@@ -11,6 +11,10 @@
   <TemplateURL>https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/unraid/selfmailer.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/frontend/public/icon.png</Icon>
   <Network>bridge</Network>
+  <!-- Befund 12: ohne ExtraParams setzt Unraid restart=no - nach Absturz oder
+       Host-Neustart lief SelfMailer nicht wieder an. Speichergrenze schuetzt
+       den Host. Gleiche Einstellung wie in docker-compose.yml. -->
+  <ExtraParams>--restart=unless-stopped --memory=1g</ExtraParams>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
   <Config Name="Daten-Pfad" Target="/data" Default="/mnt/user/appdata/selfmailer/data" Mode="rw" Description="Path where the SQLite database is stored." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/selfmailer/data</Config>

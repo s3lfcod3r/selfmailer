@@ -44,7 +44,7 @@ def _ip_blocked(ip: ipaddress._BaseAddress, block_private: bool) -> bool:
     return False
 
 
-def _resolve_validated(url: str) -> tuple[str, str, int]:
+def _resolve_validated(url: str, *, prefer_ipv4: bool = False) -> tuple[str, str, int]:
     """SSRF-Schutz + IP-Pinning-Vorbereitung. Prüft Schema und ALLE aufgelösten
     IPs gegen die Blockliste und gibt ``(pinned_ip, host, port)`` zurück.
 
@@ -71,7 +71,7 @@ def _resolve_validated(url: str) -> tuple[str, str, int]:
         ip = ipaddress.ip_address(sockaddr[0])
         if _ip_blocked(ip, block_private):
             raise DavUrlError(f"Interne/gesperrte Adresse blockiert: {host} → {ip}")
-        if pinned is None:
+        if pinned is None or (prefer_ipv4 and ":" in pinned and ip.version == 4):
             pinned = sockaddr[0]
     if pinned is None:
         raise DavUrlError(f"Keine Adresse fuer {host}")
@@ -121,6 +121,29 @@ def validate_external_url(url: str) -> None:
     ``SELFMAILER_DAV_BLOCK_PRIVATE=true``. Raises ``DavUrlError``.
     """
     _validate_dav_url(url)
+
+
+def resolve_pinned_host(host: str, port: int) -> str:
+    """Hostnamen prüfen und die IP zurückgeben, zu der verbunden werden darf.
+
+    Durchsicht 2026-09-27, Befund 10: IMAP/SMTP prüften den Hostnamen beim
+    Speichern des Kontos, verbanden danach aber wieder PER NAMEN - ein zweites
+    DNS konnte also auf 127.0.0.1 oder 169.254.169.254 zeigen (DNS-Rebinding).
+    Diese Funktion ist der gemeinsame Einstiegspunkt für IMAP und SMTP: gleiche
+    Blockliste wie bei DAV/ntfy, und der Aufrufer verbindet zur ZURÜCKGEGEBENEN
+    IP (TLS-Name bleibt der Hostname).
+
+    Raises ``DavUrlError``, wenn Auflösung oder Blockliste das Ziel verbieten.
+    """
+    name = (host or "").strip()
+    if not name:
+        raise DavUrlError("Kein Host angegeben")
+    huelle = f"[{name}]" if ":" in name and not name.startswith("[") else name
+    # Docker-Bridge-Netze haben meist kein IPv6. Ohne Pinning probierte
+    # create_connection alle Adressen durch; mit Pinning zaehlt nur eine.
+    # Deshalb aus den GEPRUEFTEN Adressen eine IPv4 bevorzugen.
+    ip, _host, _port = _resolve_validated(f"http://{huelle}:{int(port)}/", prefer_ipv4=True)
+    return ip
 
 
 _PROPFIND_BODY = (

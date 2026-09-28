@@ -129,7 +129,9 @@ def connect(monkeypatch):
             boxes.append(box)
             return box
 
-        monkeypatch.setattr(imap, "MailBox", factory)
+        # Seam seit Befund 10 (IP-Pinning): _connect baut die MailBox ueber
+        # _neue_mailbox, damit vorher genau einmal aufgeloest/geprueft wird.
+        monkeypatch.setattr(imap, "_neue_mailbox", factory)
         return imap._connect(NS(imap_host="offline.invalid", imap_port=993), "test-user", "test-password", "INBOX")
 
     run.boxes = boxes

@@ -5,7 +5,11 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const { JSDOM } = require('jsdom');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://selfmailer.test/' });
-for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'HTMLInputElement', 'HTMLTextAreaElement', 'Event', 'MouseEvent', 'KeyboardEvent', 'localStorage', 'sessionStorage']) {
+// DOMParser/NodeFilter/Node gehoeren dazu: der Lesepfad (mailview.ts) parst das
+// Mail-HTML damit und faengt Fehler selbst ab - fehlten die Globals, lief im
+// Test stillschweigend nur die Rueckfallebene, und die Reinigung waere
+// ungeprueft geblieben.
+for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'HTMLInputElement', 'HTMLTextAreaElement', 'Event', 'MouseEvent', 'KeyboardEvent', 'localStorage', 'sessionStorage', 'DOMParser', 'NodeFilter', 'Node']) {
   Object.defineProperty(globalThis, name, { value: dom.window[name], configurable: true, writable: true });
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
