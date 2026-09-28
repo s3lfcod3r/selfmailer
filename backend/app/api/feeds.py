@@ -133,13 +133,20 @@ def get_or_create_write_token(user: User, session: Session) -> tuple[FeedToken, 
 
 
 def _touch(ft: FeedToken, kind: str, session: Session) -> None:
-    """Schreibt last_used_at - hoechstens alle _LAST_USED_MIN_INTERVAL_S."""
+    """Schreibt last_used_at - hoechstens alle _LAST_USED_MIN_INTERVAL_S.
+
+    Verschiebt dabei auch den Ablauf: ein Token laeuft erst nach
+    FEED_TOKEN_TTL_DAYS OHNE Nutzung ab. Ein fester Ablauf haette jede
+    Dashboard-Kachel und jedes Handy-Kalender-Abo nach 180 Tagen still
+    abgeschaltet; so fallen nur vergessene Token weg.
+    """
     now = utc_now()
     field = "last_used_at" if kind == "read" else "write_last_used_at"
     last = _aware(getattr(ft, field, None))
     if last is not None and (now - last).total_seconds() < _LAST_USED_MIN_INTERVAL_S:
         return
     setattr(ft, field, now)
+    setattr(ft, "expires_at" if kind == "read" else "write_expires_at", _expiry())
     session.add(ft)
     session.commit()
 
@@ -149,8 +156,11 @@ def _warn_write_token_on_read(ft: FeedToken) -> None:
     key = ft.write_token or ""
     now = time.monotonic()
     with _warn_lock:
-        last = _write_on_read_warned.get(key, 0.0)
-        if now - last < _WRITE_ON_READ_WARN_INTERVAL_S:
+        # Kein Default 0.0: time.monotonic() zaehlt ab Systemstart; in der
+        # ersten Stunde nach einem Neustart waere "now - 0.0" sonst kleiner als
+        # das Intervall und die erste Warnung fiele stillschweigend weg.
+        last = _write_on_read_warned.get(key)
+        if last is not None and now - last < _WRITE_ON_READ_WARN_INTERVAL_S:
             return
         _write_on_read_warned[key] = now
         # Schutz gegen unbegrenztes Wachstum (ein Eintrag je Token).

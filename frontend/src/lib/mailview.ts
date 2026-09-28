@@ -64,13 +64,13 @@ export const MAIL_SANDBOX_PRINT = "allow-same-origin allow-modals";
 // Ausdruck bleibt Rueckfallebene, falls DOMParser wirft - dann lieber einmal zu
 // viel warnen als zu wenig.
 function _remoteRegex(html: string): boolean {
-  return /(?:src|background)\s*=\s*["']?\s*https?:/i.test(html) || /url\(\s*['"]?\s*https?:/i.test(html);
+  return /(?:src|background)\s*=\s*["']?\s*(?:https?:)?\/\//i.test(html) || /url\(\s*['"]?\s*(?:https?:)?\/\//i.test(html);
 }
 
 export function hasRemoteContent(html: string): boolean {
   try {
     const doc = new DOMParser().parseFromString(html, "text/html");
-    const remote = (v: string | null) => !!v && /^\s*https?:/i.test(v);
+    const remote = (v: string | null) => !!v && /^\s*(?:https?:)?\/\//i.test(v);
     const tags = "img, source, video, audio, embed, iframe, object, input, track";
     for (const el of Array.from(doc.querySelectorAll(tags))) {
       if (remote(el.getAttribute("src"))) return true;
@@ -85,10 +85,10 @@ export function hasRemoteContent(html: string): boolean {
       if (remote(el.getAttribute("href"))) return true;
     }
     for (const el of Array.from(doc.querySelectorAll("[style]"))) {
-      if (/url\(\s*['"]?\s*https?:/i.test(el.getAttribute("style") || "")) return true;
+      if (/url\(\s*['"]?\s*(?:https?:)?\/\//i.test(el.getAttribute("style") || "")) return true;
     }
     for (const el of Array.from(doc.querySelectorAll("style"))) {
-      if (/url\(\s*['"]?\s*https?:/i.test(el.textContent || "")) return true;
+      if (/url\(\s*['"]?\s*(?:https?:)?\/\//i.test(el.textContent || "")) return true;
     }
     return false;
   } catch {
@@ -142,7 +142,7 @@ function _prepareMailHtml(html: string, block: boolean): string {
       a.setAttribute("rel", "noopener noreferrer");
     });
     if (block) {
-      const isRemote = (v: string | null) => !!v && /^\s*https?:/i.test(v);
+      const isRemote = (v: string | null) => !!v && /^\s*(?:https?:)?\/\//i.test(v);
       doc.querySelectorAll("img, source").forEach((el) => {
         if (isRemote(el.getAttribute("src"))) el.removeAttribute("src");
         if (isRemote(el.getAttribute("srcset"))) el.removeAttribute("srcset");
@@ -155,8 +155,8 @@ function _prepareMailHtml(html: string, block: boolean): string {
       doc.querySelectorAll<HTMLElement>("[background], [style*='url(']").forEach((el) => {
         if (isRemote(el.getAttribute("background"))) el.removeAttribute("background");
         const st = el.getAttribute("style");
-        if (st && /url\(\s*['"]?\s*https?:/i.test(st)) {
-          el.setAttribute("style", st.replace(/url\(\s*['"]?\s*https?:[^)]*\)/gi, "none"));
+        if (st && /url\(\s*['"]?\s*(?:https?:)?\/\//i.test(st)) {
+          el.setAttribute("style", st.replace(/url\(\s*['"]?\s*(?:https?:)?\/\/[^)]*\)/gi, "none"));
         }
       });
     }

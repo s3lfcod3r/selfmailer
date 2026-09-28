@@ -237,3 +237,23 @@ def test_rate_limit_ist_grosszuegig_aber_vorhanden(client, admin):
     r = client.get("/api/v1/dashboard/summary", headers=kopfzeilen)
     assert r.status_code == 429
     assert r.headers.get("Retry-After")
+
+def test_nutzung_verschiebt_den_ablauf(client, leser):
+    """Ein benutzter Token (Kachel, Kalender-Abo) laeuft nicht nach 180 Tagen
+    fest ab - jede Nutzung schiebt das Ablaufdatum nach vorn."""
+    roh = _frischer_lesetoken(client, leser)
+    h = _hash(roh)
+    bald = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=2)
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE feedtoken SET expires_at = :e, last_used_at = NULL WHERE token = :h"),
+            {"e": bald, "h": h},
+        )
+    assert client.get("/api/v1/dashboard/summary",
+                      headers={"X-Feed-Token": roh}).status_code == 200
+    neu = _spalte(h, "expires_at")
+    if isinstance(neu, str):
+        neu = dt.datetime.fromisoformat(neu)
+    if neu.tzinfo is None:
+        neu = neu.replace(tzinfo=dt.timezone.utc)
+    assert neu > dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=170)

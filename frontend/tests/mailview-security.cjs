@@ -88,3 +88,10 @@ test('hasRemoteContent fragt den DOM, nicht den Rohtext', () => {
   assert.equal(mv.hasRemoteContent('<p>schreib mir: src="https://example.com/bild.png" ist gemeint</p>'), false);
   assert.equal(mv.hasRemoteContent('<!-- <img src="https://example.com/a.png"> -->text'), false);
 });
+
+test("protokollrelative Bild-URLs (//host/x) gelten als extern und werden blockiert", () => {
+  assert.equal(mv.hasRemoteContent('<img src="//t.example/p.gif">'), true);
+  assert.equal(mv.hasRemoteContent('<div style="background:url(//t.example/b.png)">a</div>'), true);
+  const doc = mv.buildSrcDoc('<p>x</p><img src="//t.example/p.gif">', true, false);
+  assert.ok(!doc.includes("t.example"), "protokollrelative URL muss im Block-Modus raus");
+});
