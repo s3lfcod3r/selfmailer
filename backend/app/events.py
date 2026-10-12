@@ -41,9 +41,14 @@ class EventBus:
         loop = self._loop
         if loop is None:
             return
+        def deliver(q: asyncio.Queue) -> None:
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                logger.debug("EventBus: Event für user_id=%s verworfen (volle Queue)", user_id)
         for q in list(self._subs.get(user_id, ())):
             try:
-                loop.call_soon_threadsafe(q.put_nowait, event)
+                loop.call_soon_threadsafe(deliver, q)
             except Exception:  # noqa: BLE001 - Zustellung ist best-effort
                 # QueueFull o. ae.: verworfenes Event sichtbar machen (z. B. ein
                 # Client, der nicht schnell genug konsumiert).

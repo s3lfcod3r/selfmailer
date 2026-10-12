@@ -28,6 +28,7 @@ from .counts_control import counts_gate
 from datetime import date, datetime, timezone
 
 from sqlmodel import Session, select
+from sqlalchemy import update
 
 from ..core.crypto import decrypt
 from ..core.db import engine
@@ -305,6 +306,10 @@ def _maybe_backup() -> None:
         return
     try:
         from ..core.backup import create_backup
+        from ..core.sessions import prune_expired
+        with Session(engine) as session:
+            prune_expired(session)
+            session.commit()
         create_backup()
         _last_backup_date = now.date()
     except Exception:  # noqa: BLE001 - Backup darf den Scheduler nie kippen
@@ -315,28 +320,45 @@ def _maybe_backup() -> None:
 
 
 def _send_due_scheduled() -> None:
-    """Fällige geplante Mails (send_at <= jetzt, status=pending) per SMTP versenden.
-    Nach Erfolg wird payload_json geleert (Body/Anhänge nicht länger als nötig halten)."""
+    """Vor dem SMTP-Aufruf persistent beanspruchen; nach einem Crash nicht erneut senden."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     try:
         with Session(engine) as s:
             due = list(s.exec(
-                select(ScheduledMail)
+                select(ScheduledMail.id)
                 .where(ScheduledMail.status == "pending", ScheduledMail.send_at <= now)
                 .limit(50)
             ).all())
             if not due:
                 return
-            for row in due:
-                acc = s.get(MailAccount, row.account_id)
-                if acc is None:
-                    row.status = "failed"
-                    row.error = "Konto nicht mehr vorhanden"
-                    s.add(row)
+        for row_id in due:
+            with Session(engine) as s:
+                row = s.get(ScheduledMail, row_id)
+                if row is None or row.status != "pending":
                     continue
+                acc = s.exec(select(MailAccount).join(User, MailAccount.user_id == User.id).where(
+                    MailAccount.id == row.account_id, MailAccount.user_id == row.user_id,
+                    User.is_active == True,  # noqa: E712
+                )).first()
+                if acc is None:
+                    continue
+                attempted = False
                 try:
                     pw = decrypt(acc.secret_enc)
                     p = json.loads(row.payload_json or "{}")
+                    claimed = s.execute(update(ScheduledMail).where(
+                        ScheduledMail.id == row_id, ScheduledMail.status == "pending",
+                    ).values(status="sending"))
+                    s.commit()
+                    if claimed.rowcount != 1:
+                        continue
+                    # Frische Lookup nach dem Claim: Löschung/Sperre nicht aus
+                    # dem alten Session-Snapshot übersehen.
+                    s.expire_all()
+                    owner = s.get(User, row.user_id)
+                    if owner is None or not owner.is_active or s.get(MailAccount, row.account_id) is None:
+                        raise ValueError("Konto nicht mehr aktiv")
+                    attempted = True
                     raw = asyncio.run(smtp_mod.send_message(
                         acc, pw,
                         to=[str(x) for x in p.get("to", [])],
@@ -356,18 +378,32 @@ def _send_due_scheduled() -> None:
                         imap_mod.save_to_sent(acc, pw, raw)
                     except Exception:  # noqa: BLE001
                         pass
-                    row.status = "sent"
-                    row.sent_at = now
-                    row.payload_json = ""
+                    s.execute(update(ScheduledMail).where(ScheduledMail.id == row_id, ScheduledMail.status == "sending").values(
+                        status="sent", sent_at=now, payload_json="", error="",
+                    ))
+                    s.commit()
                     bus.publish(row.user_id, {"type": "mail", "account_id": row.account_id, "folder": "INBOX"})
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Geplanter Versand fehlgeschlagen (id=%s)", row.id, exc_info=True)
-                    row.status = "failed"
-                    row.error = str(exc)[:300]
-                s.add(row)
-            s.commit()
+                except Exception:  # noqa: BLE001
+                    logger.warning("Geplanter Versand fehlgeschlagen (id=%s)", row_id, exc_info=True)
+                    s.rollback()
+                    # Sobald SMTP lief, kann der Server die Mail schon angenommen
+                    # haben. Kein automatischer Retry bei unklarem Ergebnis.
+                    s.execute(update(ScheduledMail).where(ScheduledMail.id == row_id).values(
+                        status="uncertain" if attempted else "failed",
+                        error="Versandergebnis unklar; Gesendet-Ordner prüfen" if attempted else "Versand nicht gestartet",
+                    ))
+                    s.commit()
     except Exception:  # noqa: BLE001 - der Scheduler darf nie sterben
         logger.warning("Scheduled-Send-Lauf fehlgeschlagen", exc_info=True)
+
+
+def recover_interrupted_sends() -> None:
+    """Nur beim Prozessstart: frühere Claims nicht blind noch einmal versenden."""
+    with Session(engine) as session:
+        session.execute(update(ScheduledMail).where(ScheduledMail.status == "sending").values(
+            status="uncertain", error="Serverneustart während Versand; Gesendet-Ordner prüfen",
+        ))
+        session.commit()
 
 
 def _loop() -> None:

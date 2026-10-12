@@ -1,0 +1,68 @@
+SelfMailer – Sicherheitskorrekturen für Release 1.96.2 / 12.10.2026
+
+Basis: GitHub main 0e5dd277d41fcb259fe3fb4a9b7e905df3d6ea09 (1.96.0).
+Server-Build: 2026-10-12-v1.96.2. Korrekturen für Release v1.96.2.
+Android-Quellen: F:\09_Cloude\Github SelfCoder\Android\selfmailer-app.
+Signierter App-Build: 1.96.2 / versionCode 109.
+
+Sitzungen
+- Jedes neue JWT hat eine zufällige jti. Logout widerruft genau die aktuelle
+  Cookie-/Bearer-Sitzung dauerhaft über den SHA-256-Hash; andere Geräte bleiben angemeldet.
+- Passwortwechsel, Admin-Reset, Sperre, 2FA an/aus und logout-all erhöhen die
+  Sitzungs-Version atomar und entfernen die zugehörigen FCM-Registrierungen.
+- REST, MFA und SSE nutzen dieselbe Versions-/Widerrufsprüfung. Offene SSE-Verbindungen
+  werden vor jeder Datenlieferung und nach spätestens 20 Sekunden Leerlauf geprüft.
+- MFA-Challenges sind versionsgebunden und atomar einmalig; neue Konten erhalten
+  eine zufällige Ausgangsversion. Legacy-Tokens bleiben nur für migrierte Version-0-Konten gültig.
+- Abgelaufene Widerrufe werden beim Start, Logout und vor dem täglichen Backup entfernt.
+- Web-Logout wartet auf die Serverantwort und zeigt Fehler statt einer falschen Erfolgsmeldung.
+  Android entfernt lokale Daten sofort und widerruft online zusätzlich das erfasste alte Token.
+
+Datenbereinigung
+- Gemeinsames transaktionales Cleanup löscht Kinder über sämtliche account_id-,
+  dav_account_id- und user_id-Beziehungen; auch geplante Mails, Abwesenheit, Push,
+  Feed-Tokens und Wiederherstellungscodes werden berücksichtigt.
+- SQLite foreign_keys=ON verhindert neue verwaiste Einträge durch verspätete Worker.
+- EntitySequence reserviert monotone User-/Mail-/DAV-IDs auch auf bestehenden DBs.
+  Startup berücksichtigt alte verwaiste Fremdschlüssel, damit sie nie einem neuen Besitzer zugeordnet werden.
+- Alte Job-Ergebnisse eines gelöschten Users werden entfernt; IMAP-Pools authentifizieren
+  nach Änderungen verschlüsselter Zugangsdaten oder des TLS-Modus erneut.
+
+DAV / Netzwerk
+- Basic-/Bearer-Credentials bleiben am konfigurierten Origin (Schema, Host, effektiver Port).
+  Fremde Ressourcen-hrefs, Discovery-Ziele, authentifizierte Redirects und TLS-Downgrades
+  werden vor dem Request abgelehnt. Relative Links und Same-Origin-Redirects bleiben möglich.
+- Anonyme ICS-Abos dürfen weiterhin SSRF-geprüfte Redirects ohne Auth-Header verfolgen.
+- Das vorhandene IP-Pinning bleibt erhalten; Host-Header behandeln IPv6 korrekt.
+
+Weitere Korrekturen
+- Globale Pooldiagnose ist nur für Admins verfügbar; EventBus fängt QueueFull im Callback ab.
+- Geplanter Versand wird vor SMTP persistent auf sending gesetzt. Unterbrochene/unklare
+  Versuche werden uncertain und nie automatisch erneut gesendet; die Oberfläche zeigt den Prüfbedarf.
+  Ein bereits laufender Versand kann nicht als erfolgreich abgebrochen quittiert werden.
+- POP3 wird nicht angeboten/akzeptiert: API verweigert nicht implementierte Konfigurationen,
+  README beschreibt den tatsächlichen IMAP-/SMTP-Umfang. Eine POP3-Implementierung wurde nicht ergänzt.
+- .dockerignore schließt Secrets, Daten, Backups, Keystores, APKs, Cache-/Paket-/Testbestände aus.
+- Docker und CI verwenden backend/requirements.lock mit exakten Versionen und SHA-256-Hashes.
+  Neu erzeugen: uv pip compile --universal --python-version 3.13 --generate-hashes
+  --output-file backend/requirements.lock backend/requirements.txt
+- DOMPurify auf 3.4.17 aktualisiert. Runtime-Audits: keine bekannten Schwachstellen.
+
+Migration / Betrieb
+Beim regulären App-Start werden RevokedToken und EntitySequence additiv angelegt.
+Bestehende IDs und Daten bleiben erhalten. Bekannte alte Waisen werden reserviert,
+aber nicht ungefragt global gelöscht. Im Projektordner wurde keine Produktiv-DB verändert.
+DB und Master-Secret vor einem produktiven Rollout separat sichern. Ein neues
+Container-Image muss neu gebaut/gestartet werden; ein Git-Update aktualisiert keinen laufenden Container.
+Bereits an SMTP übergebene Nachrichten können nicht zurückgerufen werden; bei uncertain
+den Provider/Gesendet-Ordner prüfen. Offline-App-Logout kann den Server nicht erreichen.
+
+Prüfung
+Python 3.13.14: 391 Backendtests bestanden; Ruff und Dependency-Check erfolgreich.
+Node 24.16.0: 48 Frontendtests, TypeScript und Produktionsbuild erfolgreich.
+Echter lokaler Uvicorn-HTTP-Start: Health, Web-Shell/CSP und alle referenzierten Assets 200;
+Logout/Logout-all ergeben die erwarteten 401, eine unabhängige Sitzung bleibt 200.
+Android: compileDebugKotlin, testDebugUnitTest und assembleRelease erfolgreich;
+APK-Signatur kryptografisch geprüft, gleiches Release-Zertifikat wie bisher, ZIP-CRC OK.
+Docker CLI fehlt; kein Container-/Linux-End-to-End-Test. Kein Android-Gerät angeschlossen.
+Echte IMAP/SMTP/DAV-/FCM-/ntfy-Verbindungen wurden für die Tests nicht benutzt.

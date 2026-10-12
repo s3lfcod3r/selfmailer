@@ -68,6 +68,13 @@ def get_job(job_id: str, user_id: int) -> dict[str, Any] | None:
         return dict(job)
 
 
+def forget_user(user_id: int) -> None:
+    """Auch bei später wiederverwendeter User-ID keine alten Ergebnisse zeigen."""
+    with _LOCK:
+        for job_id in [key for key, job in _JOBS.items() if job["user_id"] == user_id]:
+            _JOBS.pop(job_id, None)
+
+
 def _set(job_id: str, **fields: Any) -> None:
     with _LOCK:
         job = _JOBS.get(job_id)

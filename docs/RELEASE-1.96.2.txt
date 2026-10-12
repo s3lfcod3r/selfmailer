@@ -1,0 +1,18 @@
+SelfMailer 1.96.2 verbessert Sitzungen, Datenbereinigung und DAV-Sicherheit. Die APK trägt Version 1.96.2 / versionCode 109 und ist mit dem bisherigen Release-Zertifikat signiert.
+
+Änderungen
+- Logout widerruft die aktuelle Sitzung dauerhaft; Passwort-/2FA-Änderungen und Admin-Sperren widerrufen auch SSE-Zugriff und Push-Registrierungen. MFA-Challenges sind einmalig und versionsgebunden.
+- Benutzer- und Kontolöschung bereinigen abhängige Daten transaktional. Fremdschlüssel und monotone IDs verhindern verwaiste Daten und die Wiederzuordnung gelöschter Konten.
+- DAV-Zugangsdaten bleiben am konfigurierten Origin. Fremde Ressourcen/Redirects und TLS-Downgrades werden abgelehnt. Anonyme ICS-Abos behalten ihre geprüfte Redirect-Unterstützung.
+- Geplanter SMTP-Versand wird dauerhaft beansprucht. Unklare Versuche erscheinen als uncertain und werden nicht automatisch erneut gesendet.
+- Web-Logout meldet Serverfehler; Android widerruft online zusätzlich das bisherige Token beim Abmelden.
+- DOMPurify aktualisiert; Python-Laufzeitabhängigkeiten mit Versions-/Hash-Lockfile; Docker-Kontext schließt Daten und Secrets aus. Nicht implementierte POP3-Konfigurationen werden abgelehnt.
+
+Prüfung
+391 Backendtests, 48 Frontendtests und 12 Android-Unit-Tests; Ruff, TypeScript, Web-/Android-Releasebuild, HTTP-Smoke und APK-Signatur geprüft. Keine bekannten Schwachstellen in den geprüften Runtime-Abhängigkeiten. GitHub CI prüft zusätzlich Linux und baut das Container-Image. Der Container-Smoke prüft UID 99, Healthcheck, CSP/Assets und Datenpersistenz nach Neustart.
+Kein Android-Gerät angeschlossen; echte Mail-/DAV-/Push-Provider wurden nicht für End-to-End-Tests verwendet.
+
+Betrieb
+Neue SQLite-Tabellen werden beim Start additiv angelegt. Vor dem Rollout Datenbank und Master-Secret sichern und den Container aktualisieren. Historische verwaiste Daten werden nicht ungefragt gelöscht. Bei uncertain vor manuellem Neuversand den Provider/Gesendet-Ordner prüfen. Offline-App-Logout kann kein Server-Token widerrufen.
+
+Android-Quelländerungen einschließlich Regressionstest: android/SelfMailer-security-local.patch (gegen das externe Android-Quellprojekt 1.96.1). APK und SHA-256-Prüfsumme stehen als Release-Assets bereit.

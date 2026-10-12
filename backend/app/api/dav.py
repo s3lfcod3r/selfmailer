@@ -19,6 +19,7 @@ from sqlmodel import Session, select
 
 from ..core.crypto import decrypt, encrypt
 from ..core.db import get_session
+from ..core.ids import allocate_id
 from ..dav import client, google
 from ..dav.client import DavUrlError
 from ..dav.ical import parse_events
@@ -98,6 +99,7 @@ def add_dav_account(
     session: Session = Depends(get_session),
 ) -> DavAccount:
     acc = DavAccount(
+        id=allocate_id(session, DavAccount),
         user_id=user.id,
         kind=data.kind,
         label=data.label or data.url,
@@ -149,6 +151,7 @@ def add_google_account(
         logger.warning("Google-OAuth-Test fehlgeschlagen: %s", exc)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Google-Zugang ungültig (client_id/secret/refresh_token prüfen)")
     acc = DavAccount(
+        id=allocate_id(session, DavAccount),
         user_id=user.id,
         kind=DavKind.gcal,
         label=data.label or data.email,

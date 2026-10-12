@@ -13,8 +13,8 @@ RUN npm run build
 FROM python:3.13-slim AS runtime
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 SELFMAILER_DB_PATH=/data/selfmailer.db
-COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 COPY backend/ ./
 COPY --from=frontend /fe/dist ./frontend/dist
 

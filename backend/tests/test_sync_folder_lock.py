@@ -94,12 +94,12 @@ def test_verschiedene_konten_blockieren_sich_nicht(monkeypatch):
 # ---------------------------------------------------------------------------
 # 2) Der UNIQUE-Index weist ein echtes Duplikat ab (Sicherheitsnetz).
 # ---------------------------------------------------------------------------
-def test_unique_index_weist_duplikat_ab(client):
+def test_unique_index_weist_duplikat_ab(client, account):
     """init_db() (in conftest) hat den UNIQUE-Index angelegt. Ein zweites INSERT
     derselben (account_id, folder, uid) muss scheitern."""
     from sqlalchemy.exc import IntegrityError
 
-    acc_id = 991001
+    acc_id = account
     with Session(db_mod.engine) as s:
         s.add(CachedMessage(account_id=acc_id, folder="INBOX", uid="7"))
         s.commit()

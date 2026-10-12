@@ -6,12 +6,13 @@ Zugangsdaten werden ebenfalls verschlüsselt gespeichert (secret_enc).
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete as sa_delete
 from sqlmodel import Session, select
 
 from ..core.crypto import encrypt
+from ..core.cleanup import delete_mail_account
 from ..core.db import get_session
-from ..models import CachedFolder, CachedMessage, FolderSync, MailAccount, MailIdentity, MailRule, User
+from ..core.ids import allocate_id
+from ..models import MailAccount, User
 from ..schemas import AccountCreate, AccountOut
 from .accounts import _check_mail_host
 from .deps import require_admin
@@ -50,6 +51,7 @@ def add_user_account(
     _check_mail_host("IMAP-Host", data.imap_host, data.imap_port)
     _check_mail_host("SMTP-Host", data.smtp_host, data.smtp_port)
     acc = MailAccount(
+        id=allocate_id(session, MailAccount),
         user_id=user_id,
         label=data.label or data.email,
         email=data.email,
@@ -79,10 +81,5 @@ def delete_user_account(
     acc = session.get(MailAccount, account_id)
     if acc is None or acc.user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Konto nicht gefunden")
-    # Kinder-Zeilen zuerst entfernen (sonst verwaiste Cache-/Regel-Daten) —
-    # identisch zu accounts.delete_account. MailIdentity gehört dazu, sonst bleiben
-    # Geister-Identitäten zurück, die auf ein gelöschtes Konto zeigen.
-    for model in (CachedMessage, FolderSync, CachedFolder, MailRule, MailIdentity):
-        session.execute(sa_delete(model).where(model.account_id == account_id))
-    session.delete(acc)
+    delete_mail_account(session, acc)
     session.commit()

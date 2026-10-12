@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
+from sqlalchemy import delete
 
 from ..core.db import get_session
 from ..models import ScheduledMail, User
@@ -20,7 +21,7 @@ def list_scheduled(
     """Anstehende (pending) + fehlgeschlagene geplante Mails, älteste Fälligkeit zuerst."""
     rows = session.exec(
         select(ScheduledMail)
-        .where(ScheduledMail.user_id == user.id, ScheduledMail.status.in_(["pending", "failed"]))
+        .where(ScheduledMail.user_id == user.id, ScheduledMail.status.in_(["pending", "failed", "sending", "uncertain"]))
         .order_by(ScheduledMail.send_at)
         .limit(500)
     ).all()
@@ -45,5 +46,10 @@ def cancel_scheduled(
     row = session.get(ScheduledMail, scheduled_id)
     if row is None or row.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Geplante Mail nicht gefunden")
-    session.delete(row)
+    result = session.execute(delete(ScheduledMail).where(
+        ScheduledMail.id == scheduled_id, ScheduledMail.user_id == user.id, ScheduledMail.status != "sending",
+    ))
+    if result.rowcount != 1:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Versand läuft bereits und kann nicht mehr abgebrochen werden")
     session.commit()

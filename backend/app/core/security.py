@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import secrets
 from typing import Any
 
 import jwt
@@ -47,6 +48,7 @@ def create_access_token(subject: str, role: str, token_version: int = 0) -> str:
         "sub": subject,
         "role": role,
         "tv": int(token_version),
+        "jti": secrets.token_urlsafe(24),
         "iss": JWT_ISSUER,
         "aud": JWT_AUDIENCE,
         "iat": now,
@@ -55,7 +57,7 @@ def create_access_token(subject: str, role: str, token_version: int = 0) -> str:
     return jwt.encode(payload, jwt_key(), algorithm=settings.jwt_algorithm)
 
 
-def create_mfa_token(subject: str) -> str:
+def create_mfa_token(subject: str, token_version: int = 0) -> str:
     """Kurzlebiger Zwischen-Token nach Passwort-OK, vor 2FA-Code.
 
     Trägt claim stage=mfa und ist NUR für den /login/totp-Schritt gültig –
@@ -66,6 +68,8 @@ def create_mfa_token(subject: str) -> str:
     payload: dict[str, Any] = {
         "sub": subject,
         "stage": "mfa",
+        "tv": int(token_version),
+        "jti": secrets.token_urlsafe(24),
         "iss": JWT_ISSUER,
         "aud": JWT_AUDIENCE,
         "iat": now,
@@ -89,7 +93,7 @@ def decode_token(token: str) -> dict[str, Any] | None:
             token,
             jwt_key(),
             algorithms=[settings.jwt_algorithm],
-            options={"verify_aud": False},
+            options={"verify_aud": False, "require": ["sub", "iat", "exp"]},
         )
     except jwt.PyJWTError:
         return None
