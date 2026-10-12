@@ -38,7 +38,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          pip install --require-hashes -r requirements.lock
+          pip install -r requirements-dev.txt
 
       - name: Lint (ruff)
         # Blockierend (Lint-Gate): ruff-Config in backend/pyproject.toml
@@ -62,7 +63,7 @@ jobs:
         continue-on-error: true
         run: |
           pip install pip-audit
-          pip-audit -r requirements.txt --desc
+          pip-audit -r requirements.lock --desc
 
   frontend-check:
     runs-on: ubuntu-latest
@@ -131,6 +132,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push
+        id: image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -140,3 +142,60 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Container runtime smoke test
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          container="selfmailer-smoke-${GITHUB_RUN_ID}"
+          volume="selfmailer-smoke-${GITHUB_RUN_ID}"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; docker volume rm "$volume" >/dev/null 2>&1 || true' EXIT
+          image="$REGISTRY/$IMAGE_NAME@$IMAGE_DIGEST"
+          docker pull "$image"
+          docker volume create "$volume"
+          docker run -d --name "$container" -v "$volume:/data" \
+            -e SELFMAILER_SECRET=ci-container-synthetic-secret-0123456789 \
+            -e SELFMAILER_SYNC_DISABLE=1 -e SELFMAILER_COOKIE_SECURE=false "$image"
+          for phase in initial restarted; do
+            if [ "$phase" = restarted ]; then docker restart "$container"; fi
+            healthy=false
+            for attempt in $(seq 1 30); do
+              if [ "$(docker inspect -f '{{.State.Health.Status}}' "$container")" = healthy ]; then
+                healthy=true
+                break
+              fi
+              sleep 2
+            done
+            if [ "$healthy" != true ]; then docker logs "$container"; exit 1; fi
+            docker exec -i -e SMOKE_PHASE="$phase" "$container" python - <<'PY'
+          import json, os, re, urllib.request, urllib.error
+          assert os.getuid() == 99, "Container must run as UID 99"
+          base = "http://127.0.0.1:8090"
+          with urllib.request.urlopen(base + "/api/health") as response:
+              health = json.load(response)
+              assert health["status"] == "ok" and health["version"]
+          with urllib.request.urlopen(base + "/") as response:
+              assert response.headers.get("Content-Security-Policy")
+              shell = response.read().decode()
+          assets = re.findall(r'(?:src|href)="(/assets/[^"<>]+)"', shell)
+          assert assets
+          for asset in assets:
+              with urllib.request.urlopen(base + asset) as response:
+                  assert response.status == 200
+          request = urllib.request.Request(base + "/api/v1/auth/setup",
+              data=json.dumps({"username": "ci-smoke-admin", "password": "synthetic-password-123"}).encode(),
+              headers={"Content-Type": "application/json"}, method="POST")
+          if os.environ["SMOKE_PHASE"] == "initial":
+              with urllib.request.urlopen(request) as response:
+                  assert response.status == 201
+          else:
+              try:
+                  urllib.request.urlopen(request)
+                  raise AssertionError("Setup must stay completed after restart")
+              except urllib.error.HTTPError as error:
+                  assert error.code == 409, error.code
+          assert os.path.getsize("/data/selfmailer.db") > 0
+          print("PASS", os.environ["SMOKE_PHASE"], health, "UID 99, CSP, assets, persistent setup")
+          PY
+          done

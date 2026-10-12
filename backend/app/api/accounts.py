@@ -8,20 +8,16 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete as sa_delete
 from sqlmodel import Session, select
 
 from ..core.crypto import decrypt, encrypt
+from ..core.cleanup import delete_mail_account
 from ..core.db import get_session
+from ..core.ids import allocate_id
 from ..dav.client import DavUrlError, validate_external_url
 from ..mail import imap as imap_mod
 from ..models import (
-    CachedFolder,
-    CachedMessage,
-    FolderSync,
     MailAccount,
-    MailIdentity,
-    MailRule,
     Protocol,
     User,
 )
@@ -74,6 +70,7 @@ def add_account(
     _check_mail_host("IMAP-Host", data.imap_host, data.imap_port)
     _check_mail_host("SMTP-Host", data.smtp_host, data.smtp_port)
     acc = MailAccount(
+        id=allocate_id(session, MailAccount),
         user_id=user.id,
         label=data.label or data.email,
         email=data.email,
@@ -153,11 +150,5 @@ def delete_account(
     session: Session = Depends(get_session),
 ) -> None:
     acc = _owned(account_id, user, session)
-    # Kinder-Zeilen zuerst per Bulk-DELETE entfernen (sonst Waisen + langsames
-    # Commit hinter laufendem Sync = "hängt"). account_id ist indiziert.
-    # MailIdentity mit aufräumen — sonst bleiben Geister-Identitäten sichtbar,
-    # die auf ein gelöschtes Konto zeigen.
-    for model in (CachedMessage, FolderSync, CachedFolder, MailRule, MailIdentity):
-        session.execute(sa_delete(model).where(model.account_id == account_id))
-    session.delete(acc)
+    delete_mail_account(session, acc)
     session.commit()

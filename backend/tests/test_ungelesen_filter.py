@@ -25,7 +25,7 @@ from sqlmodel import Session, delete
 import app.api.mail as mail_api
 import app.mail.cache as cache_mod
 from app.core.db import engine
-from app.models import CachedMessage
+from app.models import CachedMessage, MailAccount, User
 
 FOLDER = "INBOX"
 KONTO = 4242
@@ -36,6 +36,12 @@ def _fuelle(neu_gelesen: int, alt_ungelesen: int) -> None:
     ungelesenen liegen ALT -- also ausserhalb der ersten Seite."""
     basis = dt.datetime(2026, 9, 3, 12, 0, tzinfo=dt.timezone.utc)
     with Session(engine) as s:
+        if s.get(User, KONTO) is None:
+            s.add(User(id=KONTO, username="unread-fixture", password_hash="unused"))
+            s.commit()
+        if s.get(MailAccount, KONTO) is None:
+            s.add(MailAccount(id=KONTO, user_id=KONTO, email="fixture@example.test", secret_enc="unused"))
+            s.commit()
         s.exec(delete(CachedMessage).where(CachedMessage.account_id == KONTO))
         s.commit()
         for i in range(neu_gelesen):
@@ -54,6 +60,8 @@ def _fuelle(neu_gelesen: int, alt_ungelesen: int) -> None:
 def teardown_function():
     with Session(engine) as s:
         s.exec(delete(CachedMessage).where(CachedMessage.account_id == KONTO))
+        s.exec(delete(MailAccount).where(MailAccount.id == KONTO))
+        s.exec(delete(User).where(User.id == KONTO))
         s.commit()
 
 

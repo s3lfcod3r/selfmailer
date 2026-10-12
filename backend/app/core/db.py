@@ -43,9 +43,9 @@ def _sqlite_pragmas(dbapi_conn, _record) -> None:
     cur.execute("PRAGMA busy_timeout=30000")
     cur.execute("PRAGMA temp_store=MEMORY")
     cur.execute("PRAGMA cache_size=-16000")  # ~16 MB Page-Cache je Verbindung
-    # KEIN foreign_keys=ON: das Schema definiert keine ON DELETE CASCADE-Regeln.
-    # Mit erzwungenen FKs würde z. B. das Löschen eines Kontos mit Cache-Zeilen
-    # an einer Constraint scheitern. Kinder werden im Code aufgeräumt.
+    # Cleanup löscht alle Kinder transaktional. FKs verhindern insbesondere,
+    # dass ein schon gestarteter Hintergrund-Sync nach Löschung Waisen schreibt.
+    cur.execute("PRAGMA foreign_keys=ON")
     cur.close()
 
 
@@ -212,6 +212,12 @@ def init_db() -> None:
     _ensure_columns()
     _ensure_indexes()
     _run_one_time_backfills()
+    from .sessions import prune_expired
+    from .ids import initialize_sequences
+    with Session(engine) as session:
+        initialize_sequences(session)
+        prune_expired(session)
+        session.commit()
 
 
 # v2-Backfill: doppelte Cache-Zeilen entfernen, dann UNIQUE-Index. Als Konstanten,

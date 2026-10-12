@@ -7,7 +7,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_serializer
+from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
 
 from .models import DavKind, Protocol, Role
 
@@ -75,6 +75,7 @@ class TotpEnableRequest(BaseModel):
 
 class TotpEnableOut(BaseModel):
     backup_codes: list[str]  # nur EINMAL sichtbar – Nutzer muss sie sichern
+    access_token: str = ""
 
 
 class TotpDisableRequest(BaseModel):
@@ -110,6 +111,13 @@ class AccountCreate(BaseModel):
     smtp_starttls: bool = True
     auth_user: str = ""
     password: str  # Klartext nur im Request; wird verschlüsselt gespeichert
+
+    @field_validator("protocol")
+    @classmethod
+    def implemented_protocol(cls, value: Protocol) -> Protocol:
+        if value != Protocol.imap:
+            raise ValueError("POP3 wird derzeit nicht unterstützt; bitte ein IMAP-Konto verwenden")
+        return value
 
 
 class AccountOut(BaseModel):
@@ -150,6 +158,13 @@ class AccountUpdate(BaseModel):
     # -1 = aus | 0 = sofort | N>0 = Mails älter als N Tage endgültig löschen
     spam_purge_days: int | None = Field(default=None, ge=-1, le=3650)
     trash_purge_days: int | None = Field(default=None, ge=-1, le=3650)
+
+    @field_validator("protocol")
+    @classmethod
+    def implemented_protocol(cls, value: Protocol | None) -> Protocol | None:
+        if value != Protocol.imap:
+            raise ValueError("Nur IMAP wird unterstützt")
+        return value
 
 
 # ---- Mail ----------------------------------------------------------------

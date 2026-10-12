@@ -6,7 +6,7 @@
 **Self-hosted, multi-user e-mail client — with calendar, contacts, notes, a native Android app, and real-time sync. Your own alternative to Synology MailPlus.**
 
 [![Build](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml/badge.svg)](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-1.96.0-33A78C)
+![Version](https://img.shields.io/badge/version-1.96.2-33A78C)
 ![License](https://img.shields.io/badge/license-private-8A9CAA)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-009688)
 ![Web](https://img.shields.io/badge/web-React%20%2B%20Vite-43D3AD)
@@ -19,6 +19,8 @@
 ---
 
 Security update notes / Hinweise zum Sicherheitsupdate:
+[1.96.2: Sitzungswiderruf, transaktionale Datenbereinigung, DAV-Origin-Schutz und aktualisierte Android-APK](docs/RELEASE-1.96.2.txt).
+
 [1.96.0 (Sept 2026): session revocation, hashed feed tokens, hardened mail view — requires re-login and new subscription URLs](docs/SICHERHEIT-1.96.0.md).
 [September 2026: coordinated backend, web and Android update](docs/SECURITY-UPDATE-2026-09.md).
 
@@ -32,7 +34,7 @@ Latest server update / Aktuelles Serverupdate:
 
 ## 🇬🇧 English
 
-A single Docker container that is **not a mail server** — it's a **client** for the mailboxes you already have. It connects to any **IMAP / POP3** account to read and to **SMTP** to send, and adds a **calendar, contacts, notes and tasks** on top. A polished **web UI** and a **native Android app** share **one JSON API** — and stay in sync **live** across devices.
+A single Docker container that is **not a mail server** — it's a **client** for the mailboxes you already have. It connects to any **IMAP** account to read and to **SMTP** to send, and adds a **calendar, contacts, notes and tasks** on top. A polished **web UI** and a **native Android app** share **one JSON API** — and stay in sync **live** across devices.
 
 Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …) — same design system, same deploy style (GHCR → Unraid).
 
@@ -44,7 +46,7 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
 ### ✨ Features
 
 **📬 Mail**
-- Multiple **IMAP / POP3 / SMTP** accounts per user
+- Multiple **IMAP / SMTP** accounts per user
 - **Thunderbird-style** stacked accounts with a per-account folder tree and **unread counters**
 - Read **HTML mail** (hardened), download/open **attachments**, **SPF/DKIM/DMARC** spoofing check
 - **Compose / reply / forward** with a per-account **From** picker and **signatures**; drafts, read/delivery receipts
@@ -108,7 +110,7 @@ To recover a specific message, open it in the **Trash** folder and move it back 
                  │  + event bus     │  in-memory pub/sub → live sync
                  └────────┬─────────┘
         ┌──────────┬──────┴───────┬──────────────┬───────────┐
-   IMAP / POP3   SMTP      CalDAV / CardDAV     FCM         ntfy
+   IMAP   SMTP      CalDAV / CardDAV     FCM         ntfy
   (read mail) (send mail) (sync cal & contacts) (Google push) (self-hosted push)
 ```
 
@@ -275,7 +277,7 @@ Interactive API docs: `http://localhost:8090/docs`
 
 ### 🗺️ Roadmap
 
-- [x] Mail (IMAP/POP3/SMTP) · stacked accounts · folder tree + unread counts
+- [x] Mail (IMAP/SMTP) · stacked accounts · folder tree + unread counts
 - [x] Calendar · Contacts · Notes · Tasks · CalDAV/CardDAV + ICS/vCard feeds
 - [x] 2FA / TOTP · filter rules · cross-account transfer · multi-select · search filters
 - [x] Native Android app (Synology-style, biometric lock)
@@ -292,7 +294,7 @@ Interactive API docs: `http://localhost:8090/docs`
 
 ## 🇩🇪 Deutsch
 
-Ein einzelner Docker-Container, der **kein Mailserver** ist — sondern ein **Client** für die Postfächer, die du schon hast. Er verbindet sich mit jedem **IMAP-/POP3**-Konto zum Lesen und mit **SMTP** zum Senden und bringt **Kalender, Kontakte, Notizen und Aufgaben** mit. Eine ausgefeilte **Web-Oberfläche** und eine **native Android-App** teilen sich **eine JSON-API** — und bleiben **live** über Geräte hinweg synchron.
+Ein einzelner Docker-Container, der **kein Mailserver** ist — sondern ein **Client** für die Postfächer, die du schon hast. Er verbindet sich mit jedem **IMAP**-Konto zum Lesen und mit **SMTP** zum Senden und bringt **Kalender, Kontakte, Notizen und Aufgaben** mit. Eine ausgefeilte **Web-Oberfläche** und eine **native Android-App** teilen sich **eine JSON-API** — und bleiben **live** über Geräte hinweg synchron.
 
 Teil der **Self**-Reihe (SelfAuthenticator, SelfArchiver, SelfDashboard …) — gleiches Design-System, gleicher Deploy-Stil (GHCR → Unraid).
 
@@ -301,7 +303,7 @@ Teil der **Self**-Reihe (SelfAuthenticator, SelfArchiver, SelfDashboard …) —
 ### ✨ Funktionen
 
 **📬 Mail**
-- Mehrere **IMAP-/POP3-/SMTP**-Konten pro Nutzer
+- Mehrere **IMAP-/SMTP**-Konten pro Nutzer
 - **Thunderbird-Ansicht**: gestapelte Konten mit Ordnerbaum und **Ungelesen-Zählern**
 - **HTML-Mails** lesen (gehärtet), **Anhänge** öffnen, **SPF/DKIM/DMARC**-Spoofing-Check
 - **Schreiben / Antworten / Weiterleiten** mit **Von-Konto-Auswahl** und **Signaturen**; Entwürfe, Lese-/Empfangsbestätigung
@@ -514,7 +516,7 @@ Interaktive API-Doku: `http://localhost:8090/docs`
 
 ### 🗺️ Roadmap
 
-- [x] Mail (IMAP/POP3/SMTP) · gestapelte Konten · Ordnerbaum + Ungelesen-Zähler
+- [x] Mail (IMAP/SMTP) · gestapelte Konten · Ordnerbaum + Ungelesen-Zähler
 - [x] Kalender · Kontakte · Notizen · Aufgaben · CalDAV/CardDAV + ICS/vCard-Feeds
 - [x] 2FA / TOTP · Filterregeln · Konto-übergreifend übertragen · Mehrfachauswahl · Such-Filter
 - [x] Native Android-App (Synology-Stil, Biometrie-Sperre)

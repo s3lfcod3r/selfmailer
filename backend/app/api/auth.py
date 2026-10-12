@@ -10,7 +10,9 @@ from sqlmodel import Session, func, select
 from ..core.config import get_settings
 from ..core.crypto import decrypt, encrypt
 from ..core.db import get_session
+from ..core.ids import allocate_id
 from ..core.ratelimit import check_rate_limit, client_ip
+from ..core.sessions import claim_mfa, revoke_all, revoke_session, token_user
 from ..core.security import (
     clear_session_cookie,
     create_access_token,
@@ -36,7 +38,7 @@ from ..schemas import (
     TotpStatusOut,
     UserOut,
 )
-from .deps import get_current_user
+from .deps import get_current_user, request_token
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -134,6 +136,7 @@ def setup(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin-Token falsch")
 
     admin = User(
+        id=allocate_id(session, User),
         username=data.username,
         display_name=data.display_name or data.username,
         password_hash=hash_password(data.password),
@@ -168,7 +171,7 @@ def login(
     # 2FA aktiv -> Passwort allein reicht nicht; Zwischen-Token ausstellen
     # (noch KEIN Session-Cookie — erst nach erfolgreichem zweiten Faktor).
     if user.totp_enabled and user.totp_secret:
-        return LoginResponse(needs_totp=True, mfa_token=create_mfa_token(user.username))
+        return LoginResponse(needs_totp=True, mfa_token=create_mfa_token(user.username, user.token_version))
     token = create_access_token(user.username, user.role.value, user.token_version)
     set_session_cookie(response, token)
     return LoginResponse(access_token=token)
@@ -189,21 +192,28 @@ def login_totp(
     # Angreifer den 6-stelligen Code eines bekannten mfa_token über viele IPs schneller
     # durchprobieren, als das IP-Limit vorsieht.
     check_rate_limit(f"totp-user:{payload.get('sub')}", limit=8, window_s=60)
-    user = session.exec(select(User).where(User.username == payload.get("sub"))).first()
+    user = token_user(data.mfa_token, session, mfa=True)
     if user is None or not user.is_active or not user.totp_enabled:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA-Sitzung ungültig")
+    if not claim_mfa(data.mfa_token, user, session):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA-Sitzung bereits verwendet")
     if not _verify_second_factor(session, user, data.code):
+        session.rollback()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Code falsch")
+    session.commit()
     token = create_access_token(user.username, user.role.value, user.token_version)
     set_session_cookie(response, token)
     return TokenResponse(access_token=token)
 
 
 @router.post("/logout")
-def logout(response: Response) -> dict:
-    """Löscht das Session-Cookie (Web). Bearer-Tokens der APK sind davon nicht
-    betroffen — die App verwirft ihr Token lokal. Wer wirklich ALLE Sitzungen
-    beenden will (gestohlenes Bearer-Token), nimmt /logout-all."""
+def logout(request: Request, response: Response, session: Session = Depends(get_session)) -> dict:
+    """Beendet die aktuelle Cookie-/Bearer-Sitzung auch serverseitig."""
+    raw = request_token(request)
+    user = token_user(raw, session) if raw else None
+    if user is not None:
+        revoke_session(raw, user, session)
+        session.commit()
     clear_session_cookie(response)
     return {"ok": True}
 
@@ -226,8 +236,7 @@ def logout_all(
     UNBERÜHRT — sie sind keine Sitzungen und würden sonst still ausfallen.
     Wer sie auch tauschen will, rotiert sie unter Sync ausdrücklich.
     """
-    user.token_version = int(user.token_version or 0) + 1
-    session.add(user)
+    revoke_all(user, session)
     session.commit()
     clear_session_cookie(response)
     return {"ok": True, "feed_token_hint": _FEED_HINT}
@@ -254,8 +263,8 @@ def change_password(
     # Befund 4: alte JWTs (bis zu 7 Tage Restlaufzeit) müssen nach einem
     # Passwortwechsel ungültig werden — sonst behält ein Angreifer mit
     # gestohlenem Token trotz neuem Passwort Zugriff.
-    user.token_version = int(user.token_version or 0) + 1
     session.add(user)
+    revoke_all(user, session)
     session.commit()
     session.refresh(user)
     # Der Aufrufer selbst soll nicht rausfliegen: frisches Token mit der neuen
@@ -304,6 +313,7 @@ def totp_setup(
 @router.post("/totp/enable", response_model=TotpEnableOut)
 def totp_enable(
     data: TotpEnableRequest,
+    response: Response,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> TotpEnableOut:
@@ -322,6 +332,7 @@ def totp_enable(
     user.totp_enabled = True
     user.totp_last_step = step
     session.add(user)
+    revoke_all(user, session)
     # Neue Backup-Codes (alte verwerfen).
     _clear_backup_codes(session, user.id)
     codes = totp_lib.generate_backup_codes()
@@ -333,7 +344,10 @@ def totp_enable(
             )
         )
     session.commit()
-    return TotpEnableOut(backup_codes=codes)
+    session.refresh(user)
+    token = create_access_token(user.username, user.role.value, user.token_version)
+    set_session_cookie(response, token)
+    return TotpEnableOut(backup_codes=codes, access_token=token)
 
 
 @router.post("/totp/disable")
@@ -353,8 +367,8 @@ def totp_disable(
     user.totp_last_step = 0
     # Wie bei change_password: die zweite Stufe fällt weg, also dürfen alte
     # Sitzungen nicht weiterlaufen (Befund 4).
-    user.token_version = int(user.token_version or 0) + 1
     session.add(user)
+    revoke_all(user, session)
     _clear_backup_codes(session, user.id)
     session.commit()
     session.refresh(user)

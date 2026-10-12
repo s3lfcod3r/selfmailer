@@ -3,14 +3,24 @@ from __future__ import annotations
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from ..core.config import get_settings
 from ..core.db import get_session
-from ..core.security import decode_token
+from ..core.sessions import token_user
 from ..models import Role, User
 
 _bearer = HTTPBearer(auto_error=False)
+
+
+def request_token(request: Request, creds: HTTPAuthorizationCredentials | None = None) -> str:
+    if creds:
+        return creds.credentials
+    auth = request.headers.get("Authorization", "")
+    scheme, _, raw = auth.partition(" ")
+    if scheme.lower() == "bearer":
+        return raw.strip()
+    return request.cookies.get(get_settings().cookie_name, "")
 
 
 def get_current_user(
@@ -19,30 +29,12 @@ def get_current_user(
     session: Session = Depends(get_session),
 ) -> User:
     # Token aus Bearer-Header (APK) ODER httpOnly-Cookie (Web).
-    token = creds.credentials if creds else request.cookies.get(get_settings().cookie_name)
+    token = request_token(request, creds)
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Nicht angemeldet")
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token ungültig")
-    # Der 2FA-Zwischen-Token (stage=mfa) gewährt KEINEN Vollzugriff.
-    if payload.get("stage") == "mfa":
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "2FA nicht abgeschlossen")
-    user = session.exec(select(User).where(User.username == payload.get("sub"))).first()
-    if user is None or not user.is_active:
+    user = token_user(token, session)
+    if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Konto inaktiv/unbekannt")
-    # Sitzungs-Widerruf (Befund 4): Passwortwechsel, 2FA-Abschalten und
-    # "ueberall abmelden" erhoehen User.token_version. Ein Token mit einer
-    # aelteren Version ist damit sofort ungueltig, auch wenn es formal noch
-    # bis zu 7 Tage laufen wuerde.
-    # Bestands-Token ohne den Claim: Version 0 == Default in der DB, sie
-    # bleiben also gueltig - das Update meldet niemanden ab.
-    try:
-        claimed_version = int(payload.get("tv", 0))
-    except (TypeError, ValueError):
-        claimed_version = -1
-    if claimed_version != int(user.token_version or 0):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sitzung wurde beendet")
     return user
 
 

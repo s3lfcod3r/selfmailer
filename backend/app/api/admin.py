@@ -9,7 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from ..core.db import get_session
+from ..core.ids import allocate_id
+from ..core.cleanup import delete_user_data
+from ..core import jobs
 from ..core.security import hash_password
+from ..core.sessions import revoke_all
 from ..models import User
 from ..schemas import PasswordReset, UserCreate, UserOut
 from .deps import require_admin
@@ -34,6 +38,7 @@ def create_user(
     if exists:
         raise HTTPException(status.HTTP_409_CONFLICT, "Benutzername bereits vergeben")
     user = User(
+        id=allocate_id(session, User),
         username=data.username,
         display_name=data.display_name or data.username,
         password_hash=hash_password(data.password),
@@ -59,6 +64,8 @@ def set_active(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User nicht gefunden")
     user.is_active = active
     session.add(user)
+    if not active:
+        revoke_all(user, session)
     session.commit()
     session.refresh(user)
     return user
@@ -78,6 +85,7 @@ def reset_password(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User nicht gefunden")
     user.password_hash = hash_password(data.new_password)
     session.add(user)
+    revoke_all(user, session)
     session.commit()
     session.refresh(user)
     return user
@@ -94,5 +102,6 @@ def delete_user(
     user = session.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User nicht gefunden")
-    session.delete(user)
+    delete_user_data(session, user)
     session.commit()
+    jobs.forget_user(user_id)

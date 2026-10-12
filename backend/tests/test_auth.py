@@ -73,9 +73,8 @@ def test_alte_jwts_ohne_token_version_bleiben_gueltig(client, admin):
     gelten, sonst wuerde das Update alle angemeldeten Geraete (inkl.
     Android-App) abmelden.
 
-    Geprueft wird das an einem frisch angelegten Konto: dort ist
-    token_version noch 0 - genau der Zustand jedes Bestandskontos direkt nach
-    dem Update auf 1.96.0.
+    Ein migriertes Bestandskonto hat token_version 0. Neue Konten starten
+    zufällig, damit wiederverwendete Benutzernamen keine alten JWTs übernehmen.
     """
     import datetime as dt
 
@@ -88,6 +87,15 @@ def test_alte_jwts_ohne_token_version_bleiben_gueltig(client, admin):
         "username": "altbestand@self", "password": "altbestand-supersecret-123",
         "display_name": "Altbestand", "role": "user",
     })  # 201 oder 409 (schon vorhanden) - beides ok
+
+    from sqlmodel import Session, select
+    from app.core.db import engine
+    from app.models import User
+    with Session(engine) as session:
+        old_user = session.exec(select(User).where(User.username == "altbestand@self")).one()
+        old_user.token_version = 0  # tatsächlicher Zustand nach der Legacy-Migration
+        session.add(old_user)
+        session.commit()
 
     settings = get_settings()
     now = dt.datetime.now(dt.timezone.utc)

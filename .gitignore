@@ -30,3 +30,6 @@ Thumbs.db
 
 # Release-Artefakt (per Gradle gebaut, gehoert ins GitHub-Release)
 android/*.apk
+
+# Generierter lokaler Projekt-/Prüfindex.
+_Projektuebersicht/

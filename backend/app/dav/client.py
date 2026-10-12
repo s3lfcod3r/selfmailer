@@ -31,6 +31,24 @@ class DavUrlError(ValueError):
     """Die Ziel-URL ist aus Sicherheitsgründen nicht erlaubt (SSRF-Schutz)."""
 
 
+def _origin(url: str) -> tuple[str, str, int]:
+    parsed = urlparse(url)
+    if parsed.scheme not in _ALLOWED_SCHEMES or not parsed.hostname or parsed.username is not None or parsed.password is not None:
+        raise DavUrlError("URL ohne gültigen HTTP(S)-Origin oder mit eingebetteten Zugangsdaten")
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError as exc:
+        raise DavUrlError("Ungültiger URL-Port") from exc
+    return parsed.scheme.lower(), parsed.hostname.lower(), port
+
+
+def _require_same_origin(url: str, credential_origin: str) -> None:
+    # Verglichen wird die logische URL VOR dem IP-Pinning. Auch ein anderer
+    # Host auf derselben IP, ein anderer Port oder ein TLS-Downgrade ist fremd.
+    if _origin(url) != _origin(credential_origin):
+        raise DavUrlError("DAV-Zugangsdaten dürfen den konfigurierten Server-Origin nicht verlassen")
+
+
 def _ip_blocked(ip: ipaddress._BaseAddress, block_private: bool) -> bool:
     # IMMER blockieren: loopback (127/8, ::1), link-local inkl. Cloud-Metadata
     # (169.254.169.254, fe80::/10), multicast, unspecified, reserved.
@@ -54,6 +72,7 @@ def _resolve_validated(url: str, *, prefer_ipv4: bool = False) -> tuple[str, str
     zwischen Prüfung und Verbindung kein zweites DNS eine andere (interne) IP
     liefern (DNS-Rebinding/TOCTOU).
     """
+    _origin(url)
     block_private = get_settings().dav_block_private
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_SCHEMES:
@@ -86,19 +105,23 @@ def _validate_dav_url(url: str) -> None:
 
 def _pinned_request(
     client: httpx.Client, method: str, url: str, *, content: str | bytes | None = None,
-    json: object | None = None, headers: dict[str, str] | None = None,
+    json: object | None = None, headers: dict[str, str] | None = None, credential_origin: str | None = None,
 ) -> httpx.Response:
     """Request mit an die vorab geprüfte IP GEPINNTER Verbindung.
 
     Der Socket verbindet exakt zur validierten IP (kein zweites DNS → kein
     DNS-Rebinding); TLS-SNI und Zertifikatsprüfung laufen weiter gegen den echten
     Hostnamen (``sni_hostname``-Extension + ``Host``-Header)."""
+    if credential_origin is not None:
+        _require_same_origin(url, credential_origin)
     ip, host, port = _resolve_validated(url)
     parsed = urlparse(url)
     ip_host = f"[{ip}]" if ":" in ip else ip
     pinned_url = parsed._replace(netloc=f"{ip_host}:{port}").geturl()
     hdrs = dict(headers or {})
-    hdrs["Host"] = host if port in (80, 443) else f"{host}:{port}"
+    host_header = f"[{host}]" if ":" in host else host
+    default_port = 443 if parsed.scheme == "https" else 80
+    hdrs["Host"] = host_header if port == default_port else f"{host_header}:{port}"
     return client.request(
         method, pinned_url, content=content, json=json, headers=hdrs,
         extensions={"sni_hostname": host},
@@ -212,17 +235,21 @@ _LIST_BODY = (
 )
 
 
-def _propfind(http: httpx.Client, url: str, body: str, depth: str) -> tuple[httpx.Response, str]:
+def _propfind(
+    http: httpx.Client, url: str, body: str, depth: str, *, credential_origin: str | None = None,
+) -> tuple[httpx.Response, str]:
     """PROPFIND mit MANUELLEM Redirect-Folgen (jede Ziel-URL SSRF-geprüft + IP-gepinnt).
 
     Gibt ``(response, final_url)`` zurück — ``final_url`` ist die LOGISCHE (Hostname-)
     URL nach etwaigen Redirects und die korrekte Basis für relative Hrefs (die
     IP-gepinnte ``response.url`` wäre dafür falsch)."""
     cur = url
+    credential_origin = credential_origin or url
     for _ in range(5):
         r = _pinned_request(
             http, "PROPFIND", cur, content=body,
             headers={"Depth": depth, "Content-Type": "application/xml; charset=utf-8"},
+            credential_origin=credential_origin,
         )
         if r.status_code in (301, 302, 307, 308) and "location" in r.headers:
             cur = urljoin(cur, r.headers["location"])
@@ -266,6 +293,7 @@ def _parse_collections(xml_text: str, base: str, want_contacts: bool) -> list[di
                         is_target = True
         if href and is_target:
             url = urljoin(base, href)
+            _require_same_origin(url, base)
             try:
                 _validate_dav_url(url)
             except DavUrlError:
@@ -289,7 +317,7 @@ def discover_collections(base_url: str, username: str, password: str, *, want_co
         principal: str | None = None
         for start in (well_known, base_url):
             try:
-                r, base = _propfind(http, start, _PRINCIPAL_BODY, "0")
+                r, base = _propfind(http, start, _PRINCIPAL_BODY, "0", credential_origin=base_url)
             except httpx.HTTPError:
                 continue
             p = _first_href(r.text, "current-user-principal")
@@ -298,15 +326,17 @@ def discover_collections(base_url: str, username: str, password: str, *, want_co
                 break
         if not principal:
             principal = base_url
+        _require_same_origin(principal, base_url)
         _validate_dav_url(principal)
         # 2) home-set
-        r, base = _propfind(http, principal, _HOME_BODY_CARD if want_contacts else _HOME_BODY_CAL, "0")
+        r, base = _propfind(http, principal, _HOME_BODY_CARD if want_contacts else _HOME_BODY_CAL, "0", credential_origin=base_url)
         home_prop = "addressbook-home-set" if want_contacts else "calendar-home-set"
         home_href = _first_href(r.text, home_prop)
         home = urljoin(base, home_href) if home_href else principal
+        _require_same_origin(home, base_url)
         _validate_dav_url(home)
         # 3) Collections unter dem Home-Set auflisten
-        r, base = _propfind(http, home, _LIST_BODY, "1")
+        r, base = _propfind(http, home, _LIST_BODY, "1", credential_origin=base_url)
         return _parse_collections(r.text, base, want_contacts)
 
 
@@ -321,7 +351,7 @@ def fetch_ics(url: str, username: str = "", password: str = "") -> str:
     cur = url
     with httpx.Client(auth=auth, timeout=_TIMEOUT, follow_redirects=False) as http:
         for _ in range(5):
-            r = _pinned_request(http, "GET", cur)
+            r = _pinned_request(http, "GET", cur, credential_origin=url if username else None)
             if r.status_code in (301, 302, 307, 308) and "location" in r.headers:
                 cur = urljoin(cur, r.headers["location"])
                 continue
@@ -348,6 +378,7 @@ def fetch_collection(url: str, username: str, password: str, *, token: str | Non
         pf = _pinned_request(
             client, "PROPFIND", url, content=_PROPFIND_BODY,
             headers={"Depth": "1", "Content-Type": "application/xml; charset=utf-8"},
+            credential_origin=url,
         )
         pf.raise_for_status()
         hrefs = _parse_propfind(pf.text, collection_path)
@@ -358,7 +389,7 @@ def fetch_collection(url: str, username: str, password: str, *, token: str | Non
             resource_url = urljoin(url, href)
             # _pinned_request validiert die Ziel-URL erneut (böse absolute hrefs auf
             # interne Ziele) und pinnt die Verbindung auf die geprüfte IP.
-            r = _pinned_request(client, "GET", resource_url)
+            r = _pinned_request(client, "GET", resource_url, credential_origin=url)
             r.raise_for_status()
             results.append((href, r.text))
     return results

@@ -6,6 +6,7 @@ Zugangsdaten des fremden Postfachs. Niemals im Klartext speichern oder ausgeben.
 from __future__ import annotations
 
 import datetime as dt
+import secrets
 from enum import Enum
 
 from sqlmodel import Field, SQLModel
@@ -50,8 +51,10 @@ class User(SQLModel, table=True):
     # geprueft. Erhoehen = alle bisher ausgegebenen JWTs sind ungueltig
     # (Passwortwechsel, 2FA abschalten, "ueberall abmelden").
     # WICHTIG: Bestands-JWTs haben den Claim nicht und gelten als Version 0 -
-    # deshalb ist der Default 0 und niemand wird durch das Update abgemeldet.
-    token_version: int = 0
+    # Altbestände erhalten durch die additive Migration weiterhin Version 0.
+    # Neue Konten starten zufällig: ein wiederverwendeter Benutzername darf
+    # niemals die alten Tokens eines inzwischen gelöschten Users übernehmen.
+    token_version: int = Field(default_factory=lambda: secrets.randbelow(2**62) + 1)
     # 2FA (TOTP). secret ist Fernet-VERSCHLÜSSELT, solange totp_enabled.
     # totp_last_step verhindert Replay (jeder Zeitschritt nur einmal nutzbar).
     totp_secret: str = ""
@@ -70,6 +73,21 @@ class User(SQLModel, table=True):
     # (Textgröße, Auto-Abruf, Design) bleiben lokal beim Client.
     ui_settings: str = ""
     created_at: dt.datetime = Field(default_factory=_now)
+
+
+class EntitySequence(SQLModel, table=True):
+    """High-water marks überleben Löschungen: keine ID-Wiederverwendung."""
+
+    name: str = Field(primary_key=True)
+    last_id: int = 0
+
+
+class RevokedToken(SQLModel, table=True):
+    """Persistenter Widerruf genau einer Sitzung, nur bis zum JWT-Ablauf."""
+
+    token_hash: str = Field(primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    expires_at: int = Field(index=True)
 
 
 class BackupCode(SQLModel, table=True):
@@ -198,7 +216,7 @@ class ScheduledMail(SQLModel, table=True):
     to_addrs: str = ""                  # Komma-Liste, nur Anzeige
     payload_json: str = ""              # komplette SendRequest als JSON
     send_at: dt.datetime = Field(index=True)  # geplanter Zeitpunkt (naive UTC)
-    status: str = "pending"            # pending | sent | failed | canceled
+    status: str = "pending"            # pending | sending | sent | failed | uncertain | canceled
     error: str = ""
     created_at: dt.datetime = Field(default_factory=_now)
     sent_at: dt.datetime | None = None

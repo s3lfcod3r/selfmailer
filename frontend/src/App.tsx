@@ -111,6 +111,8 @@ export function App() {
   const [mailUnseen, setMailUnseen] = useState(0);
   const [search, setSearch] = useState("");
   const [menu, setMenu] = useState<"apps" | "user" | "filter" | null>(null);
+  const [logoutBusy, setLogoutBusy] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
   const [filter, setFilter] = useState({ from: "", subject: "", dateFrom: "", dateTo: "", unread: false, starred: false, attachments: false });
   const [pwOpen, setPwOpen] = useState(false);
   const [totpOpen, setTotpOpen] = useState(false);
@@ -264,11 +266,16 @@ export function App() {
     setView(v); setMenu(null);
   }
   async function logout() {
+    if (logoutBusy) return;
     if (!(await mayLeave())) return;
-    // Cookie serverseitig löschen; UI sofort ausloggen (Fehler ignorieren).
-    api.post("/auth/logout").catch(() => {});
-    localStorage.removeItem("selfmailer.token"); // Alt-Token aus früherer Version aufräumen
-    setUser(null);
+    setLogoutBusy(true); setLogoutError("");
+    try {
+      await api.post("/auth/logout");
+      localStorage.removeItem("selfmailer.token");
+      setUser(null);
+    } catch (err) {
+      setLogoutError((err as Error).message);
+    } finally { setLogoutBusy(false); }
   }
   function openPw() { setMenu(null); setPwErr(""); setPwMsg(""); setPwCur(""); setPwNew(""); setPwOpen(true); }
   async function changePw(e: React.FormEvent) {
@@ -387,7 +394,8 @@ export function App() {
           ))}
 
           <hr />
-          <button className="user-menu-logout" onClick={logout}>
+          {logoutError && <div className="err" role="alert">{logoutError}</div>}
+          <button className="user-menu-logout" onClick={logout} disabled={logoutBusy}>
             <span className="user-menu-ico">⎋</span>
             <span className="user-menu-label">{t("shell.logout")}</span>
           </button>

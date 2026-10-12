@@ -43,7 +43,7 @@ from ..schemas import (
     SendRequest,
     TransferRequest,
 )
-from .deps import get_current_user
+from .deps import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
 
@@ -193,7 +193,7 @@ def _generation_args(session: Session, account_id: int, folder: str, expected: i
 
 
 @router.get("/pool-status")
-def pool_status(user: User = Depends(get_current_user)) -> dict:
+def pool_status(user: User = Depends(require_admin)) -> dict:
     """Diagnose: Zustand der IMAP-Verbindungen (wer haelt was, seit wann).
 
     Gedacht fuer die Frage "warum ist dieses Konto dauernd beschaeftigt?" -

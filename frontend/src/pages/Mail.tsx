@@ -2760,11 +2760,12 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.subject || t("mail.noSubject")}</div>
                       <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t("compose.to")}: {s.to.join(", ")}</div>
-                      <div className={s.status === "failed" ? "err" : "muted"} style={{ fontSize: "0.75rem" }}>
-                        {s.status === "failed" ? `⚠ ${s.error || t("sched.failed")}` : `→ ${prettyDate(s.send_at)}`}
+                      <div className={s.status === "failed" || s.status === "uncertain" ? "err" : "muted"} style={{ fontSize: "0.75rem" }}>
+                        {s.status === "failed" || s.status === "uncertain" ? `⚠ ${s.error || t("sched.failed")}`
+                          : s.status === "sending" ? t("common.loading") : `→ ${prettyDate(s.send_at)}`}
                       </div>
                     </div>
-                    <button className="ghost" onClick={() => cancelScheduled(s.id)} title={t("sched.cancel")} aria-label={t("sched.cancel")}>🗑</button>
+                    <button className="ghost" disabled={s.status === "sending"} onClick={() => cancelScheduled(s.id)} title={t("sched.cancel")} aria-label={t("sched.cancel")}>🗑</button>
                   </div>
                 ))}
               </div>

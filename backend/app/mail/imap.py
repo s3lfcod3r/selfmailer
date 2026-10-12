@@ -203,10 +203,11 @@ _REAPER_NEXT = 0.0
 class _Conn:
     """EINE IMAP-Verbindung im Pool eines Kontos."""
 
-    __slots__ = ("box", "lock", "last_used", "folder", "holder")
+    __slots__ = ("box", "lock", "last_used", "folder", "holder", "binding")
 
     def __init__(self) -> None:
         self.box: MailBox | None = None
+        self.binding: tuple | None = None
         # Lock, NICHT RLock: ein RLock ist wiedereintrittsfaehig, derselbe Thread
         # bekaeme dieselbe Verbindung also ein zweites Mal - zwei Operationen
         # wuerden sich eine Verbindung teilen und sich gegenseitig den
@@ -556,14 +557,17 @@ def _ensure_box(conn: _Conn, account: MailAccount, login: str, password: str, fo
     der Aufrufer merkt nichts.
     """
     box = conn.box
+    binding = (getattr(account, "secret_enc", None), getattr(account, "imap_ssl", True))
     if box is not None:
         setattr(box, "_sm_selected_generation", None)
-    if box is not None and time.monotonic() - conn.last_used > _IDLE_TTL:
+    if box is not None and (time.monotonic() - conn.last_used > _IDLE_TTL or
+                            (conn.binding is not None and conn.binding != binding)):
         _close(box)
         box = conn.box = None
     if box is None:
         box = _connect(account, login, password, folder)
         conn.box = box
+        conn.binding = binding
         conn.folder = folder
         return box
     if folder and conn.folder != folder:
@@ -574,6 +578,7 @@ def _ensure_box(conn: _Conn, account: MailAccount, login: str, password: str, fo
             conn.box = None
             box = _connect(account, login, password, folder)
             conn.box = box
+            conn.binding = binding
         conn.folder = folder
     return box
 
