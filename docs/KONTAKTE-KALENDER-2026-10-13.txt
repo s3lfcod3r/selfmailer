@@ -1,0 +1,78 @@
+KONTAKTE UND KALENDER - 13.10.2026
+Release: 1.96.5 / Android Build 115.
+Veröffentlichung von APK, Backend und SelfStore gemeinsam; Nachweise in der Projektübersicht.
+
+APK-KONTAKTBEREICH
+Eigener Reiter, Suche, Erstellen, Bearbeiten, Loeschen, E-Mail und Telefonwahl.
+Weitere E-Mail-Adressen und Telefonnummern bleiben erhalten und sind bearbeitbar.
+CardDAV-Kontakte sind in diesem Bereich schreibgeschuetzt.
+Die Kontaktliste laedt schlanke Zusammenfassungen seitenweise, Details erst beim Oeffnen.
+Ein offenes bearbeitetes Kontaktformular bleibt beim Appwechsel/Tabwechsel erhalten,
+solange der Android-Prozess lebt; noch keine Wiederherstellung nach Prozessbeendigung.
+
+HANDYIMPORT UND MANUELLE AKTUALISIERUNG
+READ_CONTACTS wird erst bei bewusst gestartetem Handyimport angefragt.
+Auswahl -> Servervorschau -> bestaetigter Import. Nur ausgewaehlte Kontakte werden uebertragen.
+Unterstuetzt: Namen, E-Mail-Adressen, Telefonnummern und Organisation.
+Keine Handyfotos, Geburtstage oder Postanschriften werden importiert.
+Duplikatvergleich: E-Mail ohne Gross-/Kleinschreibung; Telefonnummern ohne Trennzeichen,
+00 und + gleichgesetzt. Nationale Nummern werden nicht durch geratenen Laendercode vereinigt.
+Mehrdeutige Treffer und reine Namensgleichheit verlangen manuelle Pruefung.
+Bestehende abweichende Werte werden angezeigt und behalten. Veraltete Vorschauen werden abgelehnt.
+Importverknuepfungen machen erneute Handyimporte idempotent; allgemeine manuelle Neuanlage
+hat keine zusaetzliche Idempotenzkennung bei unklarem Netzwerkfehler.
+Manuelles Aktualisieren arbeitet nur mit zuvor verknuepften Handy-Kontakten.
+Serveraenderungen werden nicht still ueberschrieben. Konflikte bleiben unveraendert.
+Entfernte Handy-Kontakte loeschen keine Serverkontakte. Auf dem Server geloeschte Kontakte
+werden durch die bestehende Verknuepfung nicht automatisch wieder angelegt.
+
+AGENDA UND ERINNERUNGEN
+Agenda als Startansicht, Heute und naechste sieben Tage, Gruppierung nach Tag,
+laufende Termine, Zeitzonen und exklusives Enddatum ganztagiger Termine beruecksichtigt.
+Monats-/Tagesansichten bleiben erreichbar. Erinnerungen werden derzeit in der Agenda eingestellt.
+Vorlauf: zum Beginn, 5/15/30/60 Minuten oder ein Tag; ganztagig ab 09:00 Ortszeit.
+Benachrichtigung mit 10-Minuten-Verschieben; Antippen oeffnet den Kalender.
+Geaenderter Beginn plant neu. Titel-/Endaenderung erzeugt keine doppelte Erinnerung.
+Geloeschte Termine und wiederverwendete IDs werden anhand der Erstellungsidentitaet erkannt.
+Nach Neustart/Zeitwechsel wird die lokale Planung wiederhergestellt.
+Benachrichtigungen und zeitgenaue Alarme benoetigen Android-Freigaben.
+Ohne genaue Alarmfreigabe koennen Erinnerungen verspaetet eintreffen.
+
+AUTOMATISCHER ABGLEICH
+Optional, standardmaessig aus. Erst nach bewusstem Import aktivierbar.
+Richtung: ausgewaehlte Handy-Kontakte -> eigener SelfMailer-Server; kein Schreiben ins Handyadressbuch.
+Unveraenderte Inhalte werden nicht erneut hochgeladen. Auswahl ist ausdruecklich einschraenkbar.
+WorkManager plant stuendlich bei vorhandener Internetverbindung; Android darf die Ausfuehrung verschieben.
+Erinnerungsdaten werden ebenfalls fuer ausgewaehlte Termine aktualisiert.
+Konflikte und fehlende Berechtigungen erscheinen im Status. Keine automatische Loeschung.
+Server-/Benutzer-/Erstellungsidentitaet und verifiziertes Login begrenzen die verschluesselte Ablage.
+Logout, Tokenablauf und abweichende Benutzeridentitaet stoppen persoenliche Hintergrundaktionen.
+
+BACKEND UND MIGRATION
+Additive JSON-Spalten fuer weitere Adressen/Nummern und Tabelle PhoneContactLink.
+Bestehende Kontakte bleiben erhalten. Migration ist wiederholbar getestet.
+Besitzerfilter, Batchlimits, atomare Importtransaktionen, Vorschau-Pruefsummen und
+optimistische Bearbeitungskontrolle schuetzen vor falscher Zuordnung und verlorenen Aenderungen.
+Neue Routen: contacts/summaries, contacts/{id}, contacts/phone/preview,
+contacts/phone/import, calendar/reminder-summaries (unter /api/v1).
+Keine Beschreibung/Notizen/Fotos in Hintergrund-Zusammenfassungen.
+
+PRUEFUNG
+427 Backend-Tests, Ruff; 56 Web-Tests und Produktionsbuild;
+56 Android-JVM-Tests, Debug-Kotlin-Kompilierung und signierter Release-APK-Build.
+HTTP-Smoke mit isolierter synthetischer Datenbank; APK-ZIP, Manifest, Bytecode und Zertifikat;
+Android-Quellpatch gegen gesicherten vorherigen Stand angewendet und verglichen.
+Kein Android-Geraet/Emulator angeschlossen: reale Handyadressbuecher, Berechtigungsdialoge,
+Hintergrundrestriktionen, Neustart und Alarmzustellung muessen noch am Handy geprueft werden.
+Kein neuer Containerlauf; bestehende Containerpruefung gehoert zum oeffentlichen Release 1.96.4.
+Bestehende Vite-Warnung zum Hauptchunk ueber 500 kB bleibt.
+
+ANDROID-QUELLEN UND APK
+Native Quellen extern: F:\09_Cloude\Github SelfCoder\Android\selfmailer-app
+Reproduzierbarer inkrementeller Patch: android/SelfMailer-personal-local.patch
+APK: android/SelfMailer-1.96.5.apk; SHA256-Datei liegt daneben.
+
+ANDROID-DOKUMENTATION
+https://developer.android.com/identity/providers/contacts-provider
+https://developer.android.com/develop/background-work/background-tasks/persistent/getting-started/define-work
+https://developer.android.com/develop/background-work/services/alarms

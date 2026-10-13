@@ -6,14 +6,16 @@ from __future__ import annotations
 
 import datetime as dt
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlmodel import Session, or_, select
+from sqlalchemy import update
+from sqlalchemy.orm import load_only
 
 from ..birthdays import delete_one, sync_one, sync_user_birthdays
 from ..core import jobs
 from ..core.db import engine, get_session
 from ..dav.vcard import build_vcards
-from ..models import Contact, User
+from ..models import Contact, PhoneContactLink, User
 from ..schemas import BirthdayCalIn, BirthdayCalOut, ContactAvatarOut, ContactCreate, ContactOut, ContactUpdate
 from .deps import get_current_user
 from .feeds import feed_or_bearer_user
@@ -168,6 +170,24 @@ def create_contact(
     return ct
 
 
+@router.get("/summaries")
+def contact_summaries(
+    after: int = Query(default=0, ge=0), limit: int = Query(default=200, ge=1, le=500),
+    user: User = Depends(get_current_user), session: Session = Depends(get_session),
+) -> dict:
+    fields = ("id", "first_name", "last_name", "email", "phone", "mobile", "work_phone", "organization",
+              "extra_emails", "extra_phones", "dav_account_id", "updated_at")
+    rows = session.exec(select(Contact).options(load_only(*(getattr(Contact, f) for f in fields))).where(
+        Contact.user_id == user.id, Contact.id > after).order_by(Contact.id).limit(limit)).all()
+    return {"items": [{f: getattr(row, f) for f in fields} for row in rows],
+            "next_after": rows[-1].id if len(rows) == limit else None}
+
+
+@router.get("/{contact_id}", response_model=ContactOut)
+def contact_detail(contact_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> Contact:
+    return _owned(contact_id, user, session)
+
+
 @router.patch("/{contact_id}", response_model=ContactOut)
 def update_contact(
     contact_id: int,
@@ -176,7 +196,11 @@ def update_contact(
     session: Session = Depends(get_session),
 ) -> Contact:
     ct = _owned(contact_id, user, session)
-    for field, value in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    expected = payload.pop("expected_updated_at", None)
+    if expected is not None and expected.replace(tzinfo=None) != ct.updated_at.replace(tzinfo=None):
+        raise HTTPException(409, "Kontakt wurde geändert. Neu laden und Änderungen prüfen.")
+    for field, value in payload.items():
         setattr(ct, field, value)
     ct.updated_at = dt.datetime.now(dt.timezone.utc)
     session.add(ct)
@@ -194,5 +218,6 @@ def delete_contact(
 ) -> None:
     ct = _owned(contact_id, user, session)
     delete_one(session, user, ct)     # Geburtstags-Termin im Kalender mit entfernen
+    session.execute(update(PhoneContactLink).where(PhoneContactLink.contact_id == ct.id).values(contact_id=None))
     session.delete(ct)
     session.commit()

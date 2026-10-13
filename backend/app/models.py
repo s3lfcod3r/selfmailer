@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime as dt
 import secrets
 from enum import Enum
+from sqlalchemy import Column, JSON, UniqueConstraint
 
 from sqlmodel import Field, SQLModel
 
@@ -263,6 +264,8 @@ class Contact(SQLModel, table=True):
     first_name: str = ""
     last_name: str = ""
     email: str = ""
+    extra_emails: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"))
+    extra_phones: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"))
     phone: str = ""                       # Festnetz / privat
     mobile: str = ""                      # Mobil
     work_phone: str = ""                  # Geschäftlich
@@ -282,6 +285,18 @@ class Contact(SQLModel, table=True):
     external_uid: str = Field(default="", index=True)
     created_at: dt.datetime = Field(default_factory=_now)
     updated_at: dt.datetime = Field(default_factory=_now)
+
+
+class PhoneContactLink(SQLModel, table=True):
+    """Device lookup identity and per-field baselines; None contact is a deletion tombstone."""
+    __table_args__ = (UniqueConstraint("user_id", "device_id", "source_key"),)
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    device_id: str
+    source_key: str
+    contact_id: int | None = Field(default=None, index=True, foreign_key="contact.id")
+    source_hashes: str = "{}"
+    server_hashes: str = "{}"
 
 
 class Task(SQLModel, table=True):
