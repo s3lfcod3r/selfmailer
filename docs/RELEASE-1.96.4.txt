@@ -1,0 +1,24 @@
+SelfMailer 1.96.4 / Android Build 113
+
+Postfächer übersichtlich aufräumen: ähnliche Mails nach Absender, Domain, Betreff,
+Stichwort oder Label im gesamten gewählten Ordner suchen. Vorschau mit 100 Treffern
+pro Seite, Gesamtzahl, Altersfilter, nur gelesenen Mails und Schutz markierter Mails.
+Nur die geprüften Treffer gemeinsam ins Archiv, den Papierkorb oder einen Ordner
+verschieben. Unvollständige Ergebnisse sperren die Sammelaktion; UIDVALIDITY schützt
+vor Aktionen auf einer veränderten Postfachgeneration.
+
+Benannte Suchansichten speichern; Absender-/Domain-/Betreffregeln für künftige
+Posteingangsmails erstellen. Regeln übernehmen keine Alters-/Gelesen-/Sternfilter;
+die Oberfläche erklärt dies. Keine automatische endgültige Löschung im neuen Dialog.
+
+Web und APK: kompakte Listen und Hinweis auf neue Mails während des Scrollens.
+Weniger doppelte Einstellungsabrufe, unnötige Body-Abfragen und Datenbankübertragungen;
+Aufräumdialog als separater Web-Chunk. Eindeutig ungenutztes Android-UI-Element entfernt.
+
+405 Backend-, 56 Frontend- und 42 Android-JVM-Tests bestanden; Ruff, TypeScript,
+Produktionsbuild und signierter APK-Build geprüft. Gleiches Release-Zertifikat wie
+1.96.3. Build 113 aktualisiert auch den lokalen Test-Build 112.
+
+Server und APK gemeinsam aktualisieren. Kein praktischer Android-Gerätetest oder
+Test mit realen Mail-/DAV-/Push-Providern in dieser Umgebung. Neue Aufräumtexte:
+Web deutsch/englisch, APK deutsch.

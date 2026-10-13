@@ -37,6 +37,7 @@ function harness(result = { busy: true }) {
     fetchPage: async () => { counts.lists++; return [{ uid: 'synthetic' }]; },
     beginListLoad: () => { const context = env.listContextRef.current; return () => context === env.listContextRef.current; },
     setMessages: () => { counts.renders++; }, warmBodies: () => { counts.prefetch++; },
+    acceptBackgroundHeaders: () => { counts.renders++; },
     refreshCounts: () => { counts.counts++; }, setSyncing() {}, setLoading() {}, setLoadingMore() {}, setSearchTruncated() {},
   };
   env.bgSyncDue = original('bgSyncDue', env);
@@ -68,7 +69,7 @@ test('only completed sync resets cooldown and starts follow-up work', async () =
   h.policy.record('9:INBOX', 'busy');
   h.sync(9, 'INBOX', 1, true); await flush();
   assert.equal(h.policy.due('9:INBOX'), true);
-  assert.deepEqual(h.counts, { posts: 1, lists: 1, prefetch: 1, counts: 1, renders: 1 });
+  assert.deepEqual(h.counts, { posts: 1, lists: 1, prefetch: 0, counts: 1, renders: 1 });
 });
 
 test('transport failure does not start further work and backs off', async () => {

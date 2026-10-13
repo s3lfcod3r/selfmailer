@@ -135,6 +135,7 @@ export type SearchResult = {
   items: MsgHeader[];
   folders_searched: number; folders_total: number;
   timed_out: boolean; truncated: boolean;
+  total_count?: number; complete?: boolean; errors?: number; offset?: number;
 };
 export type Attachment = { index: number; filename: string; content_type: string; size: number };
 export type AuthInfo = {

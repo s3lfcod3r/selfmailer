@@ -98,6 +98,7 @@ function listHarness() {
     fetchPage: (acc, fol, p) => { const d = deferred(); state.pending.push({ acc, fol, p, ...d }); return d.promise; },
   };
   common.beginListLoad = original(page, 'beginListLoad', common);
+  common.acceptBackgroundHeaders = common.setMessages;
   return { common, state };
 }
 
@@ -106,6 +107,21 @@ test('message identity includes account, folder, generation and UID', () => {
   const keys = [messageKey(m, 1, ''), messageKey(m, 2, ''), messageKey({ ...m, folder: 'Sent' }, 1, ''), messageKey({ ...m, uidvalidity: 101 }, 1, '')];
   assert.equal(new Set(keys).size, 4);
   assert.equal(messageGeneration(m), '&uidvalidity=100');
+});
+
+test('background mail waits for review while scrolled and updates immediately at the top', () => {
+  const old = { uid: '7', folder: 'INBOX', uidvalidity: 100 };
+  const fresh = [ { ...old, uid: '8' }, old ];
+  for (const top of [0, 100]) {
+    const state = { accepted: null, pending: null };
+    const apply = original(page, 'acceptBackgroundHeaders', {
+      Set, messages: [old], messageKey, activeId: 1, folder: 'INBOX', listElement: { current: { scrollTop: top } },
+      setMessages: rows => state.accepted = rows, setPendingHeaders: rows => state.pending = rows,
+    });
+    apply(fresh);
+    assert.equal(top ? state.pending : state.accepted, fresh);
+    assert.equal(top ? state.accepted : state.pending, null);
+  }
 });
 
 test('late reload cannot replace another account or clear its loading state', async () => {

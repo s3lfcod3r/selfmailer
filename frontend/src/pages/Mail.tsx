@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount, type SearchResult, type MailLabel, type ScheduledMail, type ContactAvatar } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
@@ -11,6 +11,7 @@ import { groupThreads, normalizeSubject, type Conversation } from "../lib/thread
 import { useMenuDismiss } from "../lib/useMenuDismiss";
 import { RequestCache } from "../lib/requestCache";
 import { SyncBackoff } from "../lib/syncBackoff";
+const MailCleanup = lazy(() => import("../components/MailCleanup").then(m => ({ default: m.MailCleanup })));
 
 type Sel = { acc: number; folder: string };
 
@@ -321,13 +322,17 @@ const UnifiedRow = memo(function UnifiedRow({ m, onOpen, noSubject }: { m: UMsg;
           {m.has_attachments && <span style={{ flex: "0 0 auto", fontSize: "0.8rem" }}>📎</span>}
           <span className="mail-folder-tag" title={m.account_label} style={{ flex: "0 0 auto" }}>{m.account_label}</span>
         </div>
-        {m.snippet && <div className="muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.snippet}</div>}
+        {m.snippet && <div className="mail-row-snippet muted" style={{ fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.snippet}</div>}
       </div>
     </div>
   );
 });
 
 export function Mail({ active = true, search = "", filter, pollMin = 5, blockImages = true, darkMail = true, pinFlagged = false, conversationView = false, showQuota = true, showMbox = true, onUnseenChange }: { active?: boolean; search?: string; filter?: MailFilter; pollMin?: number; blockImages?: boolean; darkMail?: boolean; pinFlagged?: boolean; conversationView?: boolean; showQuota?: boolean; showMbox?: boolean; onUnseenChange?: (total: number) => void }) {
+  const [cleanup, setCleanup] = useState<{ acc: number; folder: string; source?: MsgHeader } | null>(null);
+  const [compact, setCompact] = useState(() => localStorage.getItem("selfmailer.compactMail") === "1");
+  const [pendingHeaders, setPendingHeaders] = useState<MsgHeader[] | null>(null);
+  const listElement = useRef<HTMLDivElement>(null);
   const { t, lang } = useLang();
   const de = lang === "de";
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -535,6 +540,13 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
 
   const activeId = sel?.acc ?? null;
   const folder = sel?.folder ?? "INBOX";
+  useEffect(() => { setPendingHeaders(null); }, [sel?.acc, sel?.folder, search, filter, labelFilter, page, unified]);
+  function acceptBackgroundHeaders(next: MsgHeader[]) {
+    const known = new Set(messages.map(m => messageKey(m, activeId ?? -1, folder)));
+    if (listElement.current && listElement.current.scrollTop > 40 && next.some(m => !known.has(messageKey(m, activeId ?? -1, folder)))) {
+      setPendingHeaders(next);
+    } else { setPendingHeaders(null); setMessages(next); }
+  }
   // Suche aktiv? Dann den ganzen Ordner laden und Treffer in EINER Liste zeigen
   // (kein Seiten-Pager, der sich auf alle Ordner-Mails bezieht).
   const searchActive = (search ?? "").trim().length > 0;
@@ -846,7 +858,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
     setLoading(true); setErr(""); setOpen(null); setOpenThread(null); setSelected(new Set()); setSelectAllFolder(false); setPage(1); setSearchTruncated(false);
     setMessages([]);
     fetchPage(acc, fol, 1)
-      .then((ms) => { if (!current()) return; setMessages(ms); warmBodies(acc, fol, ms); })
+      .then((ms) => { if (!current()) return; setMessages(ms); })
       .catch((e) => { if (current()) setErr((e as Error).message); })
       .finally(() => { if (current()) { setLoading(false); bgSync(acc, fol, 1, true); } });
   }
@@ -881,12 +893,11 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
       .then((ms) => {
         if (!ms || !isLatest() || !current()) return;
         if (selRef.current?.acc === acc && selRef.current?.folder === fol) {
-          setMessages(ms);
+          acceptBackgroundHeaders(ms);
           // Hinweis "nur die ersten N" mitziehen, sonst bleibt er nach einem
           // Sync auf dem alten Stand stehen.
           if (searchActiveRef.current) setSearchTruncated(ms.length >= SEARCH_LIMIT);
         }
-        warmBodies(acc, fol, ms);
         refreshCounts(acc);
       })
       .catch(() => {
@@ -902,7 +913,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
     (listAllRef.current ? fetchAllForSearch(acc, fol) : fetchPage(acc, fol, p))
       .then((ms) => {
         if (!current()) return;
-        setMessages(ms);
+        acceptBackgroundHeaders(ms);
         if (searchActiveRef.current) setSearchTruncated(ms.length >= SEARCH_LIMIT);
       }).catch(() => {}).finally(() => {
         if (current()) { setLoading(false); setLoadingMore(false); }
@@ -917,7 +928,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
     const current = beginListLoad(sel.acc, sel.folder, clamped);
     setPage(clamped); setOpen(null); setOpenThread(null); setLoadingMore(true);
     fetchPage(sel.acc, sel.folder, clamped)
-      .then((ms) => { if (!current()) return; setMessages(ms); warmBodies(sel.acc, sel.folder, ms); })
+      .then((ms) => { if (!current()) return; setMessages(ms); })
       .catch((e) => { if (current()) setErr((e as Error).message); })
       .finally(() => { if (current()) { setLoadingMore(false); setLoading(false); } });
   }
@@ -933,7 +944,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
     const current = beginListLoad(acc, fol, 1);
     setLoading(true); setErr(""); setOpen(null); setOpenThread(null); setSelected(new Set()); setSelectAllFolder(false); setSearchTruncated(false);
     fetchAllForSearch(acc, fol)
-      .then((ms) => { if (ver !== searchLoadRef.current || !current()) return; setMessages(ms); setSearchTruncated(ms.length >= SEARCH_LIMIT); warmBodies(acc, fol, ms); })
+      .then((ms) => { if (ver !== searchLoadRef.current || !current()) return; setMessages(ms); setSearchTruncated(ms.length >= SEARCH_LIMIT); })
       .catch((e) => { if (ver !== searchLoadRef.current || !current()) return; setErr((e as Error).message); })
       .finally(() => { if (ver === searchLoadRef.current && current()) setLoading(false); });
   }
@@ -1467,16 +1478,15 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
   // Body beim Drüberfahren vorladen: der erste Live-Abruf landet im DB-Cache,
   // sodass der anschließende Klick die Mail SOFORT aus dem Cache zeigt. Pro
   // (Konto/Ordner/uid) nur einmal — kein Mehrfach-Login beim Hin- und Herfahren.
-  // Ganze Listenseite in EINEM Request vorwaermen: das Backend holt die noch
-  // nicht gecachten Bodies in einer IMAP-Session und legt sie in der DB ab.
-  // Danach kommt JEDER Klick sofort aus dem Cache — kein Gedenkzeit-Login mehr.
+  // Listenabrufe laden nur Kopfzeilen. Inhalte werden erst bei Hover oder Öffnen geholt.
   function warmBodies(acc: number, fol: string, msgs: MsgHeader[]) {
     const selected = msgs.slice(0, 3).filter(m => !prefetchedRef.current.has(messageKey(m, acc, fol)));
     const uids = selected.map((m) => m.uid).filter(Boolean);
     if (uids.length === 0) return;
     selected.forEach(m => prefetchedRef.current.add(messageKey(m, acc, fol)));
+    while (prefetchedRef.current.size > 512) prefetchedRef.current.delete(prefetchedRef.current.values().next().value!);
     api.post(`/mail/${acc}/messages/prefetch`, { folder: fol, uids, uidvalidity: selected[0]?.uidvalidity })
-      .catch(() => { /* Vorwärmen ist best-effort */ });
+      .catch(() => { selected.forEach(m => prefetchedRef.current.delete(messageKey(m, acc, fol))); });
   }
   const prefetchedRef = useRef<Set<string>>(new Set());
   function prefetchMsg(uid: string) {
@@ -2127,7 +2137,11 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
   }
 
   return (
-    <div className="mail-page">
+    <div className={`mail-page ${compact ? "mail-compact" : ""}`}>
+      {cleanup && <Suspense fallback={<p role="status">{de ? "Aufräumen wird geladen …" : "Loading cleanup …"}</p>}><MailCleanup key={`${cleanup.acc}:${cleanup.folder}`} account={cleanup.acc} folder={cleanup.folder}
+        folders={foldersByAcc[cleanup.acc] || []} labels={labels} source={cleanup.source} de={de}
+        onClose={() => setCleanup(null)} onChanged={reload}
+        onRead={m => { setCleanup(null); void openMsg(m.uid, false, cleanup.folder); }} /></Suspense>}
       {err && <div className="err" style={{ marginBottom: "0.8rem" }}>{err}</div>}
       {deleting > 0 && <div role="status">{de ? "Löschen läuft …" : "Deleting …"} ({deleting})</div>}
       {liveDown && (
@@ -2329,6 +2343,10 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
                   <>
                     <div className="menu-backdrop" onClick={() => setListMenu(false)} />
                     <div className="read-menu" style={{ right: 0 }}>
+                      <button onClick={() => { setCompact(v => { localStorage.setItem("selfmailer.compactMail", v ? "0" : "1"); return !v; }); }}>
+                        {compact ? "☑ " : "☐ "}{de ? "Kompakte Liste ohne Vorschautext" : "Compact list without previews"}</button>
+                      {sel && <button onClick={() => { setListMenu(false); setCleanup({ acc: sel.acc, folder: sel.folder }); }}>
+                        🧹 {de ? "Postfach aufräumen" : "Clean up mailbox"}</button>}
                       {visible.length > 0 && (
                         <button onClick={() => { setListMenu(false); if (!allSelected) toggleSelectAll(); }}>
                           ☑ {t("mail.selectAll")}
@@ -2401,7 +2419,9 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
               </button>
             </div>
           )}
-          <div className="mail-list">
+          {pendingHeaders && <button className="mail-new-banner" onClick={() => { setMessages(pendingHeaders); setPendingHeaders(null); listElement.current?.scrollTo({ top: 0 }); }}>
+            {de ? "Neue Mails — Liste aktualisieren" : "New messages — update list"}</button>}
+          <div className="mail-list" ref={listElement}>
             {/* Ordner MIT in den Schlüssel: UIDs sind nur INNERHALB eines Ordners
                 eindeutig — bei ordnerübergreifenden Volltext-Treffern kollidieren
                 sie sonst und React zeigt Zeilen doppelt oder gar nicht. */}
@@ -2483,6 +2503,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
               onMove: (m, dest) => moveThreadMsg(m, dest),
               folders: folderNames,
               onViewSource: (m) => showRawThread(m),
+              onSimilar: (m) => activeId != null && setCleanup({ acc: activeId, folder: m.folder || folder, source: m }),
             }}
             onClose={() => { setOpenThread(null); setMobilePane("list"); }}
             onReply={(d) => setDraft(replyDraft(d, t))}
@@ -2558,6 +2579,8 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
                           TUT, dann wo sie HIN soll, dann der Absender, zuletzt das
                           Destruktive abgesetzt. */}
                       <div className="read-menu">
+                        {activeId != null && <button onClick={() => { setReadMenu(false); setCleanup({ acc: activeId, folder: open.folder || folder, source: open }); }}>
+                          🔎 {de ? "Ähnliche Mails anzeigen" : "Show similar messages"}</button>}
                         {/* mail.forward/mail.reply bringen ihr Symbol schon mit — hier
                             KEIN zweites davorsetzen. */}
                         <button onClick={() => { setReadMenu(false); setDraft(forwardDraft(open, t)); }}>{t("mail.forward")}</button>
