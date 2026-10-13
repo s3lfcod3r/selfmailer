@@ -1,0 +1,72 @@
+SELFMAILER-KONTAKTE AUFS HANDY - 13.10.2026
+Release-APK: 1.96.7 / Build 119; kompatibel mit Server 1.96.6.
+Release 1.96.7 / Build 119 wird veröffentlicht; Ergebnisse und Downloads werden in der Projektübersicht belegt.
+
+BEDIENUNG
+APK-Kontaktbereich -> Aufs Handy exportieren -> Kontakte wählen -> Auswahl prüfen
+-> Neue exportieren ... -> Export bestätigen.
+Die Aktionen stehen in der festen unteren Buttonleiste; der Inhalt ist scrollbar.
+Suchfilter, einzelne Auswahl und Treffer wählen; maximal 200 Kontakte pro Vorgang.
+
+ZIEL UND BERECHTIGUNGEN
+Android-Standardadressbuch; je nach Android-Version/Handyeinstellung lokal oder ein
+synchronisiertes Konto (zum Beispiel Google). Der Dialog weist vorab darauf hin.
+Wer einen bestimmten Speicherort benötigt, stellt ihn zuerst in der Kontakte-App ein.
+READ_CONTACTS wird für die bewusst gestartete Duplikatprüfung benötigt.
+WRITE_CONTACTS wird erst beim ausdrücklich bestätigten Export angefragt/verwendet.
+Ohne vollständige Leseprüfung oder Schreibfreigabe werden keine Kontakte geschrieben.
+Das Handyadressbuch wird für diesen Export nur lokal geprüft, nicht an SelfMailer hochgeladen.
+Der bestehende automatische Handy->Server-Abgleich bleibt eine getrennte, optionale Funktion.
+
+UMFANG
+Namen, alle gespeicherten E-Mails und Telefonnummern mit Mobil/Geschäftlich/Home/Weitere,
+Firma, Tätigkeit, Website, Postanschrift, Notizen und Geburtstag. Fotos sind ausgenommen.
+Auch eigene Kontakte aus eingebundenen Adressbüchern können gelesen/exportiert werden;
+das externe Serveradressbuch wird dabei nicht verändert.
+Es werden ausschließlich neue Kontakte angelegt. Kein Überschreiben, Löschen oder
+Zusammenführen bestehender Handy-Kontakte; kein automatischer Rückabgleich.
+
+DUPLIKATE UND FEHLER
+E-Mail-Adressen ohne führende/nachfolgende Leerzeichen und ohne Groß-/Kleinschreibung.
+Telefonnummern ohne Trennzeichen; 00 und + gleichgesetzt, keine geratenen Ländercodes.
+Kurze Nebenstellen dienen nicht als eindeutige Zuordnung. Alle zusätzlichen Identitäten werden geprüft.
+Mehrere Treffer, gleiche Namen und doppelte Einträge der Auswahl werden angezeigt/übersprungen.
+Bei Namensgleichheit ist eine manuelle Prüfung erforderlich; kein erzwungener Doppelkontakt-Export.
+Vorschau lädt vollständige Serverkontakte. Vor jedem Schreiben werden Serverdaten verglichen
+und das aktuelle Handyadressbuch erneut geprüft. Zwischenzeitlich geänderte Serverdaten
+werden übersprungen und müssen neu geprüft werden.
+Eine gehashte, kontogebundene Exportkennung in einem eigenen Android-Datenfeld schützt
+Wiederholungen auch nach unklarer Schreibantwort oder geänderten Handy-Namen. Kein Login-Token
+und keine DAV-Zugangsdaten werden dort abgelegt. Löschen der App entfernt exportierte Kontakte nicht.
+Jeder neue Kontakt wird einschließlich aller Datenfelder in einer Provider-Transaktion geschrieben.
+Eine atomare Prüfung der Exportkennung verhindert doppelte eigene Schreibversuche.
+Andere Apps können das Handyadressbuch weiterhin gleichzeitig verändern; es gibt keinen
+globalen Schreibschutz des gesamten Android-Adressbuchs.
+Bei einem Fehler stoppt der Vorgang. Vorher abgeschlossene Kontakte bleiben erhalten;
+noch nicht bearbeitete Kontakte werden nicht als erfolgreich gemeldet. Vor erneutem Versuch neu prüfen.
+Provider-/Kontorestriktionen und entzogenes Login oder Berechtigungen stoppen weitere Schreibvorgänge.
+Auswahl/Vorschau wird nicht nach Android-Prozessbeendigung wiederhergestellt; neu starten und prüfen.
+
+PRÜFUNG
+427 Backend-Tests und Ruff; 56 Web-Tests und Produktionsbuild.
+78 Android-JVM-Tests (22 neue Exporttests), Kotlin-Kompilierung und signierter Release-APK-Build.
+Neue Tests: Vorschau ohne Schreibvorgang, sekundäre E-Mail-Adressen, Telefonnummern,
+Spracheinstellungen, mehrdeutige und Namens-Treffer, doppelte Auswahl, Wiederholungen,
+Exportkennungen, veraltete Vorschau, fehlende Berechtigungen, Sitzungwechsel,
+Teilfehler und Wiederholung nach unklarer Schreibantwort, Größenlimit und Fortschritt.
+APK-ZIP, Manifest, eigener Bytecode und bestehendes Release-Zertifikat geprüft.
+Quellpatch gegen die verifizierten öffentlichen Android-Quellen von 1.96.6 angewandt und verglichen.
+Kein Android-Gerät/Emulator angeschlossen: echte Provider-Transaktionen, Android-Berechtigungsdialoge,
+Standardkonten und sichtbare Darstellung müssen noch praktisch am Handy geprüft werden.
+Keine neuen Backend-Routen oder Migrationen. Die Containerprüfung bei Veröffentlichung wird in der Projektübersicht separat belegt.
+Bestehende Vite-Warnung über den großen Hauptchunk bleibt.
+
+QUELLEN
+F:\09_Cloude\Github SelfCoder\Android\selfmailer-app
+android/SelfMailer-contact-export-local.patch
+android/SelfMailer-1.96.7.apk und .sha256
+
+ANDROID-DOKUMENTATION
+https://developer.android.com/identity/providers/contacts-provider
+https://developer.android.com/identity/providers/contacts-provider/contacts-storage-locations
+https://developer.android.com/reference/android/provider/ContactsContract.RawContacts
