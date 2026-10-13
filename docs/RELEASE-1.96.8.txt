@@ -1,0 +1,9 @@
+SelfMailer 1.96.8 / Build 121
+
+Optionaler automatischer Kontakt-Sync in beide Richtungen für ausdrücklich ausgewählte, verknüpfte Kontakte. Gemeinsame Änderungsbasis, Duplikatprüfung und Konflikterkennung verhindern ungefragtes Überschreiben. Unterschiedliche Felder können zusammengeführt werden; widersprüchliche Änderungen erfordern eine bewusste Entscheidung im Kontaktbereich.
+
+Verknüpfungen, Berechtigungen und Änderungen werden vor Schreibzugriffen geprüft. Fehlende Kontakte werden nicht automatisch neu angelegt oder gelöscht. Abgleich ungefähr stündlich bei Internetverbindung; Android darf Hintergrundläufe verzögern. Manuelles Abgleichen und Prüfen der Werte sind möglich.
+
+Wichtig: Backend und APK gemeinsam auf 1.96.8 aktualisieren. Bestehender einseitiger Import wird beim Aktivieren dieses Modus pausiert. Build 121 aktualisiert auch den lokalen Test-Build 120; Signatur mit bisherigem Zertifikat.
+
+Validierung: 441 Backend-, 56 Frontend- und 111 Android-JVM-Tests; Web-/APK-Build, isolierter HTTP-Test, APK-Signatur und Versionsprüfung. Echte Android-Konten, Kontaktanbieter, Berechtigungsdialoge und Hintergrundbetrieb benötigen weiterhin einen Gerätetest.

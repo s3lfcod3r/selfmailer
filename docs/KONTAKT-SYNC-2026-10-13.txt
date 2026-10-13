@@ -1,0 +1,103 @@
+KONTAKT-SYNC IN BEIDE RICHTUNGEN - 13.10.2026
+Release: 1.96.8 / Android Build 121.
+Neue Server-API erforderlich: Backend und APK gemeinsam aktualisieren.
+Veröffentlichung und Downloads werden in der Projektübersicht separat belegt.
+
+EINRICHTUNG
+Kontaktbereich -> Sync in beide Richtungen -> Kontakte auswählen -> Auswahl prüfen
+-> Auswahl verknüpfen -> gegebenenfalls Werte prüfen -> automatisch abgleichen einschalten.
+Der Modus ist standardmäßig aus und wird nicht für bestehende Installationen still aktiviert.
+Maximal 200 verknüpfte Kontakte; verschlüsselte Auswahl/Baselines, insgesamt höchstens 2 MB.
+Vor der Einrichtung Lese- und Schreibfreigabe; bei entzogenen Freigaben pausiert der Abgleich.
+Kontaktfreigabe prüfen erlaubt erneute Freigabe; Status neu laden zeigt aktuelle Ergebnisse.
+Jetzt abgleichen fordert einen Lauf bei Internetverbindung an. Periodisch ungefähr stündlich;
+Android darf Hintergrundläufe verzögern.
+
+AUSWAHL UND IDENTITÄTEN
+Nur ausdrücklich verknüpfte bestehende Server-/Handy-Kontakte werden bearbeitet.
+Fehlende Kontakte zunächst bewusst importieren/exportieren; kein ungefragtes Anlegen im Hintergrund.
+Serverkontakt wird mit ID und Erstellungszeit gebunden. Auf dem Handy werden ein konkreter
+RawContact und eine zufällige, kontogebundene Verknüpfungskennung verwendet.
+Android-Kontakte können aus mehreren Adressbüchern bestehen. Bei mehreren beschreibbaren
+Treffern, unterschiedlichen aggregierten Handy-Kontakten oder schreibgeschützten Einträgen
+wird nicht blind eine Quelle gewählt. Nur eine eindeutige beschreibbare Zuordnung ist zulässig.
+Namensgleichheit allein bleibt bis zur ausdrücklichen Bestätigung unter Werte prüfen gesperrt.
+Ausgewählte, vorher selbst exportierte Kontakte können auch über ihre Exportkennung erkannt werden.
+Entfernen aus der Auswahl stoppt spätere Mutationen; der letzte entfernte Eintrag deaktiviert den Modus.
+Ein schon laufender HTTP-Schreibvorgang kann noch fertig werden; danach greift die Auswahlprüfung erneut.
+Server-/Benutzerwechsel, geänderte Benutzeridentität oder Tokenablauf stoppen den persönlichen Abgleich.
+Der bisherige Handy->Server-Modus pausiert bei aktiviertem Zwei-Richtungs-Modus; Abschalten
+aktiviert ihn nicht ungefragt wieder. Import-/Exportauswahl und neue Sync-Auswahl sind getrennt.
+
+FELDER
+Namen, alle E-Mail-Adressen und Telefonnummern, Firma/Tätigkeit, Website,
+Straße/PLZ/Ort/Land, Notizen und Geburtstag.
+Adressen/Nummern werden als Wertmengen verglichen; primäre Reihenfolge, E-Mail-/Telefonarten,
+eigene Bezeichnungen, Fotos, weitere Ereignisse, Gruppen und andere Handy-Daten werden nicht übertragen.
+Bestehende passende E-Mail-/Telefonzeilen bleiben erhalten; neue Angaben werden als Weitere angelegt.
+Entfernte einzelne Nummern/Adressen oder geleerte Felder werden bei einseitiger Änderung übertragen.
+Das Löschen ganzer Kontakte wird nicht übertragen und löst keine automatische Neuanlage aus.
+Mehrere Websites, Organisationen, Anschriften oder Notizen in einem RawContact sowie Geburtstage
+ohne vollständiges ISO-Datum sind nicht eindeutig im aktuellen Servermodell abbildbar.
+Diese Kontakte werden zur manuellen Prüfung angehalten; keine stille Zusammenfassung oder Datumsannahme.
+Externe DAV-Serverkontakte bleiben schreibgeschützt. DAV-Zugangsdaten werden nicht verändert.
+Handykontodaten und Server-Fotos werden nicht über die Sync-API übertragen.
+Änderungen am ausgewählten Handyadressbuch können dessen vorhandenen Cloud-Abgleich auslösen.
+
+DUPLIKATE UND KONFLIKTE
+E-Mail-Vergleich ohne Groß-/Kleinschreibung/umgebende Leerzeichen; Telefonnummern ohne
+Trennzeichen, 00 und + gleichgesetzt; keine geratenen Ländercodes und keine kurzen Nebenstellen als Identität.
+Weitere Kontakte mit gleichen Identitäten oder gleichem Namen halten den Abgleich zur Prüfung an.
+Verglichen wird mit dem letzten gemeinsam bestätigten Stand:
+- Nur Handy geändert -> Server aktualisieren.
+- Nur Server geändert -> Handy aktualisieren.
+- Unterschiedliche Felder geändert -> beide Änderungen zusammenführen.
+- Dasselbe Feld unterschiedlich geändert -> Kontakt bleibt ohne automatischen Schreibvorgang zur Prüfung.
+- Beide Seiten zum gleichen Wert geändert -> als gemeinsamer Stand bestätigen.
+Unterschiedliche Startwerte erhalten keinen automatischen Gewinner.
+Werte prüfen zeigt beide vollständigen Stände. SelfMailer übernehmen bzw. Handy übernehmen
+ist eine ausdrückliche Entscheidung für sämtliche synchronisierten Angaben der gewählten Seite.
+Ändern sich die Werte seit dieser Vorschau, wird die Entscheidung zurückgewiesen.
+Schreibgeschützte/mehrdeutige Zuordnungen können durch diese Entscheidung nicht umgangen werden.
+
+SCHREIBSCHUTZ UND WIEDERAUFNAHME
+Backend: Besitzerfilter, Erstellungsidentität, erwartete Bearbeitungszeit, Duplikatprüfung
+und atomare SQLite-Schreibtransaktion. Keine neuen Tabellen oder Migrationen.
+Handy: RawContact-Versionsprüfung, Verknüpfungskennung und Provider-Transaktion für den jeweiligen Kontakt.
+Nicht synchronisierte Datenzeilen werden nicht pauschal gelöscht.
+Der gemeinsame Basisstand wird erst fortgeschrieben, nachdem beide Seiten bestätigt sind.
+Nach Teilfehlern bleibt die alte Basis erhalten; erneute Läufe erkennen bereits erledigte Änderungen.
+Zusätzliche Änderungen während der Abschlussprüfung erzeugen eine manuell aufzulösende Sperre.
+Es gibt keine atomare Transaktion über Android und Server gemeinsam und keinen globalen
+Schreibschutz gegen andere Handy-Apps. Zustands- und Versionsprüfungen erkennen konkurrierende Änderungen.
+Eine neue, authentifizierte Protokollprüfung unterscheidet fehlende Serverunterstützung von
+wirklich entfernten Kontakten. Kalender-Erinnerungsabgleich bleibt beim Protokollhinweis verfügbar.
+
+PRÜFUNG
+441 Backend-Tests (14 neue), Ruff; 56 Web-Tests und Produktionsbuild.
+111 Android-JVM-Tests (33 neue), Kotlin-Kompilierung und signierter APK-Build.
+Neue Tests für beide Richtungen, unabhängige/gemeinsame Änderungen, Startkonflikte,
+Duplikate, Namensfreigabe, gelöschte/wiederverwendete Identitäten, Read-only, Teilfehler,
+Baseline-Fortschreibung, veraltete Konfliktvorschau, Entzug der Auswahl/Sitzung, Abbruch,
+Telefon-/E-Mail-Normalisierung, mehrdeutige Datenzeilen und unvollständige Geburtstage.
+HTTP-Smoke mit isolierter synthetischer Datenbank: Protokoll, Snapshot, Update und veralteten Schreibversuch geprüft.
+Signatur/Manifest/ZIP/Bytecode und Quellpatch gegen den verifizierten öffentlichen Stand 1.96.7 geprüft.
+Kein echtes Android-Gerät/Emulator angeschlossen: Provider-Transaktionen, Konten, Berechtigungsdialoge
+und tatsächliche WorkManager-Hintergrundausführung müssen noch praktisch geprüft werden.
+Containerprüfung bei Veröffentlichung separat belegt.
+Die bisherige Vite-Warnung zum großen Hauptchunk bleibt.
+
+NEUE SERVERROUTEN
+GET /api/v1/contacts/phone/sync/capabilities
+GET /api/v1/contacts/phone/sync/{contact_id}
+POST /api/v1/contacts/phone/sync/{contact_id}
+
+ARTEFAKTE
+android/SelfMailer-1.96.8.apk und .sha256
+android/SelfMailer-contact-bidi.patch (gegen die nativen Quellen von Release 1.96.7)
+Native Quellen: F:\09_Cloude\Github SelfCoder\Android\selfmailer-app
+
+ANDROID-REFERENZEN
+https://developer.android.com/reference/android/provider/ContactsContract.RawContacts
+https://developer.android.com/identity/providers/contacts-provider
+https://developer.android.com/develop/background-work/background-tasks/persistent/getting-started/define-work

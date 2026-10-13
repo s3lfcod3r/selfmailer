@@ -25,6 +25,7 @@ from .api import (
     calendar,
     contacts,
     phone_contacts,
+    phone_sync,
     dashboard,
     dav,
     events,
@@ -118,7 +119,7 @@ async def lifespan(app: FastAPI):
 # Server-Version: mit README-Badge, Git-Tag und frontend/package*.json abstimmen.
 # Die WebUI zeigt sie über /api/health an. Reine Backend-Releases brauchen keine
 # neue APK; dann die kompatible Android-Version ausdrücklich im Release nennen.
-APP_VERSION = "1.96.7"
+APP_VERSION = "1.96.8"
 
 # Öffentliche API-Docs (Swagger/ReDoc/OpenAPI-Schema) in Produktion abschalten —
 # reduziert die Angriffsfläche/Info-Preisgabe; die WebUI/APK brauchen sie nicht.
@@ -251,6 +252,7 @@ app.include_router(tasks.router)
 app.include_router(calendar.router)
 app.include_router(contacts.router)
 app.include_router(phone_contacts.router)
+app.include_router(phone_sync.router)
 app.include_router(feeds.router)
 app.include_router(dav.router)
 app.include_router(dashboard.router)
@@ -262,7 +264,7 @@ app.include_router(settings_api.router)
 
 # Build-Marker: erlaubt von außen zu prüfen, welche Version wirklich LÄUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhöhen.
-APP_BUILD = "2026-10-13-v1.96.7"
+APP_BUILD = "2026-10-13-v1.96.8"
 
 
 @app.get("/api/health")
