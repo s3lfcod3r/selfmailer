@@ -18,6 +18,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlmodel import Session, select
+from sqlalchemy.orm import load_only
 
 from ..core.db import get_session
 from ..dav import google
@@ -141,14 +142,20 @@ def put_hidden(
 def list_events(
     start_from: dt.datetime | None = Query(default=None),
     start_to: dt.datetime | None = Query(default=None),
+    end_from: dt.datetime | None = Query(default=None),
+    event_ids: list[int] = Query(default=[], max_length=200),
     user: User = Depends(feed_or_bearer_user),
     session: Session = Depends(get_session),
 ) -> list[CalendarEvent]:
     stmt = select(CalendarEvent).where(CalendarEvent.user_id == user.id)
     if start_from is not None:
-        stmt = stmt.where(CalendarEvent.start >= start_from)
+        stmt = stmt.where(CalendarEvent.start >= _to_utc_naive(start_from))
     if start_to is not None:
-        stmt = stmt.where(CalendarEvent.start <= start_to)
+        stmt = stmt.where(CalendarEvent.start <= _to_utc_naive(start_to))
+    if end_from is not None:
+        stmt = stmt.where(CalendarEvent.end >= _to_utc_naive(end_from))
+    if event_ids:
+        stmt = stmt.where(CalendarEvent.id.in_(event_ids))
     stmt = stmt.order_by(CalendarEvent.start).limit(_MAX_LIST)
     return list(session.exec(stmt).all())
 
@@ -190,6 +197,20 @@ def _persist_event(data: EventCreate, user: User, session: Session) -> CalendarE
     session.commit()
     session.refresh(ev)
     return ev
+
+
+@router.get("/reminder-summaries")
+def reminder_summaries(
+    event_ids: list[int] = Query(min_length=1, max_length=200),
+    user: User = Depends(feed_or_bearer_user), session: Session = Depends(get_session),
+) -> list[dict]:
+    rows = session.exec(select(CalendarEvent).options(load_only(
+        CalendarEvent.id, CalendarEvent.title, CalendarEvent.start, CalendarEvent.end,
+        CalendarEvent.all_day, CalendarEvent.created_at,
+    )).where(CalendarEvent.user_id == user.id, CalendarEvent.id.in_(event_ids)).order_by(CalendarEvent.id)).all()
+    return [{"id": ev.id, "title": ev.title[:200], "start": ev.start.isoformat(timespec="seconds") + "Z",
+             "end": ev.end.isoformat(timespec="seconds") + "Z", "all_day": ev.all_day,
+             "created_at": ev.created_at.isoformat()} for ev in rows]
 
 
 @router.post("/events", response_model=EventOut, status_code=status.HTTP_201_CREATED)

@@ -1,0 +1,27 @@
+SelfMailer 1.96.5 / Android Build 115
+
+Eigener Kontaktbereich in der APK mit Suche, Erstellen, Bearbeiten, E-Mail und Telefonwahl.
+Handykontakte gezielt importieren: Auswahl, Vorschau und Duplikaterkennung nach E-Mail
+und Telefonnummer. Mehrere Adressen und Nummern bleiben erhalten. Importiert werden
+Namen, E-Mail-Adressen, Telefonnummern und Organisation; keine Fotos oder Postanschriften.
+
+Manuelle Aktualisierung und optionaler automatischer Abgleich ausgewählter Handykontakte
+zum SelfMailer-Server. Standardmäßig aus. Unveränderte Inhalte werden nicht erneut gesendet;
+Konflikte bleiben zur Prüfung erhalten. Keine automatische Löschung oder Rückschreiben
+ins Handyadressbuch. Bestehende Serveränderungen werden nicht still überschrieben.
+
+Kalender-Agenda für heute und die nächsten sieben Tage, laufende und ganztägige Termine.
+Erinnerungen mit verschiedenen Vorlaufzeiten und „10 Minuten später“. Änderungen am
+Terminbeginn passen die Planung an. Android-Benachrichtigungen und genaue Alarme benötigen
+Freigaben; Hintergrundabgleich und ungenaue Alarme können durch Android verzögert werden.
+
+Schlanke Kontakt- und Terminzusammenfassungen, additive Datenbankmigration, Besitzerfilter,
+atomare Importtransaktionen und Schutz vor veralteten Bearbeitungsständen.
+
+427 Backend-, 56 Web- und 56 Android-JVM-Tests bestanden; Ruff, TypeScript, Webbuild,
+HTTP-Smoke und signierter APK-Build geprüft. Bisheriges Release-Zertifikat.
+Build 115 aktualisiert auch den lokalen Test-Build 114. Server und APK gemeinsam aktualisieren.
+
+Kein echtes Android-Gerät in dieser Umgebung: Berechtigungen, Handyadressbuch,
+Hintergrundausführung und Alarmzustellung müssen noch praktisch geprüft werden.
+Neue APK-Oberflächen sind derzeit deutsch.

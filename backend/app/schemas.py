@@ -83,6 +83,7 @@ class TotpDisableRequest(BaseModel):
 
 
 class UserOut(BaseModel):
+    created_at: dt.datetime | None = None
     id: int
     username: str
     display_name: str
@@ -491,6 +492,7 @@ class EventUpdate(BaseModel):
 
 
 class EventOut(BaseModel):
+    created_at: dt.datetime | None = None
     id: int
     title: str
     description: str
@@ -527,6 +529,8 @@ class GcalCalendarOut(BaseModel):
 
 # ---- Kontakte -----------------------------------------------------------
 class ContactCreate(BaseModel):
+    extra_emails: list[str] = Field(default_factory=list, max_length=200)
+    extra_phones: list[str] = Field(default_factory=list, max_length=200)
     first_name: str = ""
     last_name: str = ""
     email: str = ""
@@ -546,6 +550,9 @@ class ContactCreate(BaseModel):
 
 
 class ContactUpdate(BaseModel):
+    expected_updated_at: dt.datetime | None = None
+    extra_emails: list[str] | None = Field(default=None, max_length=200)
+    extra_phones: list[str] | None = Field(default=None, max_length=200)
     first_name: str | None = None
     last_name: str | None = None
     email: str | None = None
@@ -565,6 +572,10 @@ class ContactUpdate(BaseModel):
 
 
 class ContactOut(BaseModel):
+    extra_emails: list[str] = []
+    extra_phones: list[str] = []
+    updated_at: dt.datetime
+    dav_account_id: int | None = None
     id: int
     first_name: str
     last_name: str

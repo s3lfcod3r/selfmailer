@@ -115,6 +115,8 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("oauth_refresh_enc", "VARCHAR"),
     ],
     "contact": [
+        ("extra_emails", "JSON NOT NULL DEFAULT '[]'"),
+        ("extra_phones", "JSON NOT NULL DEFAULT '[]'"),
         ("dav_account_id", "INTEGER"),
         ("external_uid", "VARCHAR"),
         ("birthday", "DATE"),

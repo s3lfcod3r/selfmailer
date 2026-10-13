@@ -1,0 +1,1116 @@
+--- /dev/null
++++ b/app/src/main/java/com/selfmailer/app/AgendaLogic.kt
+@@ -0,0 +1,29 @@
++package com.selfmailer.app
++
++import java.time.Instant
++import java.time.LocalDate
++import java.time.ZoneId
++
++fun eventStartMillis(event: Event, zone: ZoneId = ZoneId.systemDefault()): Long =
++    if (event.allDay) LocalDate.parse(event.start.take(10)).atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
++    else Instant.parse(event.start).toEpochMilli()
++
++fun agendaDay(event: Event, today: LocalDate, days: Long, zone: ZoneId = ZoneId.systemDefault()): LocalDate? = try {
++    val start = if (event.allDay) LocalDate.parse(event.start.take(10)) else Instant.parse(event.start).atZone(zone).toLocalDate()
++    val end = if (event.allDay) LocalDate.parse(event.end.take(10)).minusDays(1).coerceAtLeast(start)
++        else Instant.parse(event.end).minusMillis(1).atZone(zone).toLocalDate().coerceAtLeast(start)
++    val first = start.coerceAtLeast(today)
++    if (first <= end && first < today.plusDays(days)) first else null
++} catch (_: Exception) { null }
++
++fun reminderMillis(event: Event, minutes: Int, zone: ZoneId = ZoneId.systemDefault()): Long {
++    require(minutes in listOf(0, 5, 15, 30, 60, 1440))
++    return eventStartMillis(event, zone) - minutes * 60000L
++}
++
++enum class ReminderUpdate { REMOVE, RESCHEDULE, METADATA_ONLY }
++fun reminderUpdate(created: String, start: String, allDay: Boolean, event: Event?): ReminderUpdate = when {
++    event == null || event.createdAt != created -> ReminderUpdate.REMOVE
++    event.start != start || event.allDay != allDay -> ReminderUpdate.RESCHEDULE
++    else -> ReminderUpdate.METADATA_ONLY
++}
+--- a/app/src/main/java/com/selfmailer/app/Api.kt
++++ b/app/src/main/java/com/selfmailer/app/Api.kt
+@@ -72,6 +72,37 @@
+             JSONObject().put("mfa_token", mfaToken).put("code", code)))
+ 
+     fun me(): JSONObject = JSONObject(req("GET", "/api/v1/auth/me", null))
++
++    fun agendaEvents(): List<Event> {
++        val start = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()
++        val end = java.time.LocalDate.now().plusDays(7).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()
++        return JSONArray(req("GET", "/api/v1/calendar/events?end_from=${enc(start.toString())}&start_to=${enc(end.toString())}", null)).toEvents()
++    }
++
++    fun contacts(): List<BookContact> {
++        val contacts = linkedMapOf<Int, BookContact>(); var after = 0
++        do {
++            val page = JSONObject(req("GET", "/api/v1/contacts/summaries?after=$after&limit=200", null))
++            val array = page.getJSONArray("items")
++            for (i in 0 until array.length()) { val c = BookContact(array.getJSONObject(i)); contacts[c.id] = c }
++            check(contacts.size <= 10000) { "Mehr als 10000 Kontakte; Liste wurde nicht vollständig geladen" }
++            val next = if (page.isNull("next_after")) null else page.getInt("next_after")
++            if (next == null) break
++            check(next > after) { "Ungültige Kontaktseite" }; after = next
++        } while (true)
++        return contacts.values.sortedBy { it.label.lowercase() }
++    }
++    fun contact(id: Int): BookContact = BookContact(JSONObject(req("GET", "/api/v1/contacts/$id", null)))
++    fun saveContact(id: Int?, values: JSONObject): BookContact = BookContact(JSONObject(req(
++        if (id == null) "POST" else "PATCH", "/api/v1/contacts" + (id?.let { "/$it" } ?: ""), values)))
++    fun deleteContact(id: Int) { req("DELETE", "/api/v1/contacts/$id", null) }
++    fun phoneContacts(device: String, entries: List<JSONObject>, preview: Boolean, linkedOnly: Boolean = false): JSONObject =
++        JSONObject(req("POST", "/api/v1/contacts/phone/" + (if (preview) "preview" else "import"),
++            JSONObject().put("device_id", device).put("contacts", JSONArray(entries)).put("linked_only", linkedOnly)))
++    fun reminderEvents(ids: List<Int>): List<Event> {
++        require(ids.isNotEmpty() && ids.size <= 200)
++        return JSONArray(req("GET", "/api/v1/calendar/reminder-summaries?" + ids.joinToString("&") { "event_ids=$it" }, null)).toEvents()
++    }
+ 
+     fun cleanupSearch(account: Int, folder: String, field: String, value: String, before: String,
+                       onlyRead: Boolean, protect: Boolean, offset: Int): JSONObject {
+--- /dev/null
++++ b/app/src/main/java/com/selfmailer/app/CalendarAgenda.kt
+@@ -0,0 +1,92 @@
++package com.selfmailer.app
++
++import android.Manifest
++import android.app.AlarmManager
++import android.content.Context
++import android.content.Intent
++import android.content.pm.PackageManager
++import android.net.Uri
++import android.os.Build
++import android.provider.Settings
++import androidx.activity.compose.rememberLauncherForActivityResult
++import androidx.activity.result.contract.ActivityResultContracts
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.items
++import androidx.compose.material3.*
++import androidx.compose.runtime.*
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++import androidx.core.app.NotificationManagerCompat
++import androidx.core.content.ContextCompat
++import java.time.Instant
++import java.time.ZoneId
++import java.time.format.DateTimeFormatter
++import java.util.Locale
++import kotlinx.coroutines.delay
++
++@Composable
++fun CalendarAgenda(ctx: Context, prefs: Prefs, events: List<Event>, onOpen: (Event) -> Unit) {
++    var days by remember { mutableIntStateOf(7) }
++    var now by remember { mutableStateOf(Instant.now()) }
++    var state by remember { mutableStateOf(prefs.personalState()) }
++    var error by remember { mutableStateOf("") }
++    val token = prefs.token
++    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
++        CalendarReminders.restore(ctx); now = Instant.now()
++    }
++    LaunchedEffect(events, token) {
++        while (true) { state = prefs.personalState(); now = Instant.now(); delay(60000) }
++    }
++    val zone = ZoneId.systemDefault(); val today = now.atZone(zone).toLocalDate()
++    val groups = events.mapNotNull { ev -> agendaDay(ev, today, days.toLong(), zone)?.let { it to ev } }
++        .sortedWith(compareBy({ it.first }, { !it.second.allDay }, { it.second.start })).groupBy({ it.first }, { it.second })
++    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
++        Row { FilterChip(days == 1, { days = 1 }, label = { Text("Heute") })
++            Spacer(Modifier.width(8.dp)); FilterChip(days == 7, { days = 7 }, label = { Text("Nächste sieben Tage") }) }
++        if (!NotificationManagerCompat.from(ctx).areNotificationsEnabled() || (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) {
++            TextButton(onClick = {
++                if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
++                else ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
++            }) { Text("Benachrichtigungen für Erinnerungen erlauben") }
++        }
++        if (Build.VERSION.SDK_INT >= 31 && !ctx.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
++            Text("Erinnerungen können durch Android verzögert werden.", style = MaterialTheme.typography.bodySmall)
++            TextButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${ctx.packageName}"))) }) { Text("Zeitgenaue Erinnerungen erlauben") }
++        }
++        if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
++        if (groups.isEmpty()) Text("Keine Termine in diesem Zeitraum", Modifier.padding(12.dp))
++        LazyColumn(Modifier.weight(1f)) {
++            groups.forEach { (day, values) ->
++                item(key = "day:$day") { Text((if (day == today) "Heute · " else "") + day.format(DateTimeFormatter.ofPattern("EEEE, dd.MM.", Locale.GERMAN)), Modifier.padding(vertical = 10.dp), style = MaterialTheme.typography.titleMedium) }
++                items(values, key = { "event:${it.id}" }) { event ->
++                    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
++                        Column(Modifier.padding(12.dp)) {
++                            Column(Modifier.fillMaxWidth().clickable { onOpen(event) }) {
++                                Text(event.title.ifBlank { "(ohne Titel)" }, style = MaterialTheme.typography.titleMedium)
++                                Text(if (event.allDay) "Ganztägig" else runCatching { Instant.parse(event.start).atZone(zone).format(DateTimeFormatter.ofPattern("HH:mm")) }.getOrDefault(event.start))
++                                if (event.location.isNotBlank()) Text(event.location)
++                                Text(event.sourceName.ifBlank { "Lokal" }, style = MaterialTheme.typography.bodySmall)
++                            }
++                            var menu by remember(event.id) { mutableStateOf(false) }
++                            val minutes = state.optJSONObject("reminders")?.optJSONObject(event.id.toString())?.optInt("minutes")
++                            Box {
++                                TextButton(onClick = { menu = true }) { Text(if (minutes == null) "Erinnerung: Aus" else if (minutes == 0) "Erinnerung: Bei Beginn" else "Erinnerung: $minutes Min. vorher") }
++                                DropdownMenu(menu, onDismissRequest = { menu = false }) {
++                                    listOf<Int?>(null, 0, 5, 15, 30, 60, 1440).forEach { value ->
++                                        DropdownMenuItem(text = { Text(when (value) { null -> "Aus"; 0 -> "Bei Beginn"; 1440 -> "Einen Tag vorher"; else -> "$value Minuten vorher" }) }, onClick = {
++                                            menu = false
++                                            try { CalendarReminders.set(ctx, event, value, token); state = prefs.personalState() }
++                                            catch (e: Exception) { error = e.message ?: "Erinnerung konnte nicht gespeichert werden" }
++                                        })
++                                    }
++                                }
++                            }
++                        }
++                    }
++                }
++            }
++        }
++    }
++}
+--- /dev/null
++++ b/app/src/main/java/com/selfmailer/app/CalendarReminders.kt
+@@ -0,0 +1,126 @@
++package com.selfmailer.app
++
++import android.Manifest
++import android.app.AlarmManager
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.app.PendingIntent
++import android.content.BroadcastReceiver
++import android.content.Context
++import android.content.Intent
++import android.content.pm.PackageManager
++import android.os.Build
++import androidx.core.app.NotificationCompat
++import androidx.core.app.NotificationManagerCompat
++import androidx.core.content.ContextCompat
++import org.json.JSONObject
++
++object CalendarReminders {
++    private fun pending(ctx: Context, scope: String, id: String, snooze: Boolean = false): PendingIntent {
++        val intent = Intent(ctx, CalendarReminderReceiver::class.java).setAction("selfmailer.reminder.$scope.$id" + if (snooze) ".snooze" else "")
++            .putExtra("scope", scope).putExtra("event", id).putExtra("snooze", snooze)
++        return PendingIntent.getBroadcast(ctx, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
++    }
++    private fun arm(ctx: Context, scope: String, id: String, row: JSONObject) {
++        val manager = ctx.getSystemService(AlarmManager::class.java)
++        val time = row.optLong("fire_at")
++        val now = System.currentTimeMillis()
++        val end = runCatching { java.time.Instant.parse(row.getString("end")).toEpochMilli() }.getOrDefault(0)
++        if (!row.optBoolean("delivered") && (end > now || row.optBoolean("snoozed"))) {
++            val fire = maxOf(time, now + 2000)
++            try {
++                if (Build.VERSION.SDK_INT < 31 || manager.canScheduleExactAlarms()) manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fire, pending(ctx, scope, id))
++                else manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fire, pending(ctx, scope, id))
++            } catch (_: SecurityException) { manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fire, pending(ctx, scope, id)) }
++        }
++    }
++    fun set(ctx: Context, event: Event, minutes: Int?, expectedToken: String? = null) {
++        val prefs = Prefs(ctx); val token = prefs.token ?: return
++        check(prefs.personalVerified) { "Für Erinnerungen bitte den SelfMailer-Server aktualisieren und neu anmelden" }
++        if (expectedToken != null && token != expectedToken) return
++        require(minutes == null || event.createdAt.isNotBlank()) { "Für Erinnerungen bitte auch den SelfMailer-Server aktualisieren" }
++        require(minutes == null || prefs.personalState().optJSONObject("reminders")?.has(event.id.toString()) == true || (prefs.personalState().optJSONObject("reminders")?.length() ?: 0) < 200) { "Höchstens 200 aktive Terminerinnerungen" }
++        ctx.getSystemService(AlarmManager::class.java).cancel(pending(ctx, prefs.personalScope, event.id.toString()))
++        NotificationManagerCompat.from(ctx).cancel("calendar:${prefs.personalScope}:${event.id}", 0)
++        check(prefs.updatePersonalState(token) { state ->
++            val rows = state.optJSONObject("reminders") ?: JSONObject()
++            if (minutes == null) rows.remove(event.id.toString()) else rows.put(event.id.toString(), JSONObject()
++                .put("start", event.start).put("end", event.end).put("all_day", event.allDay).put("minutes", minutes)
++                .put("created", event.createdAt)
++                .put("fire_at", reminderMillis(event, minutes)).put("title", event.title.take(200)).put("delivered", false))
++            state.put("reminders", rows)
++        }) { "Erinnerung konnte nicht gespeichert werden" }
++        restore(ctx); PersonalSync.configure(ctx)
++    }
++    fun restore(ctx: Context) {
++        val prefs = Prefs(ctx); if (!prefs.personalVerified) return
++        val token = prefs.token ?: return
++        val rows = prefs.personalState().optJSONObject("reminders") ?: return
++        rows.keys().forEach { id ->
++            val row = rows.getJSONObject(id)
++            if (row.optBoolean("all_day") && !row.optBoolean("delivered") && !row.optBoolean("snoozed")) {
++                val time = java.time.LocalDate.parse(row.getString("start").take(10)).atTime(9, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() - row.optInt("minutes") * 60000L
++                prefs.updatePersonalState(token) { it.optJSONObject("reminders")?.optJSONObject(id)?.put("fire_at", time) }
++                row.put("fire_at", time)
++            }
++            prefs.withPersonalToken(token, prefs.personalScope) { arm(ctx, prefs.personalScope, id, row) }
++        }
++    }
++    fun cancelAll(ctx: Context) {
++        val prefs = Prefs(ctx); val rows = prefs.personalState().optJSONObject("reminders") ?: return
++        rows.keys().forEach { id ->
++            ctx.getSystemService(AlarmManager::class.java).cancel(pending(ctx, prefs.personalScope, id))
++            NotificationManagerCompat.from(ctx).cancel("calendar:${prefs.personalScope}:$id", 0)
++        }
++    }
++    fun reconcile(ctx: Context, events: List<Event>, token: String) {
++        val prefs = Prefs(ctx); if (prefs.token != token) return
++        val byId = events.associateBy { it.id.toString() }
++        val rows = prefs.personalState().optJSONObject("reminders") ?: return
++        for (id in rows.keys().asSequence().toList()) {
++            val current = rows.getJSONObject(id); val ev = byId[id]
++            val action = reminderUpdate(current.optString("created"), current.optString("start"), current.optBoolean("all_day"), ev)
++            if (action == ReminderUpdate.REMOVE) {
++                ctx.getSystemService(AlarmManager::class.java).cancel(pending(ctx, prefs.personalScope, id))
++                prefs.updatePersonalState(token) { it.optJSONObject("reminders")?.remove(id) }
++                NotificationManagerCompat.from(ctx).cancel("calendar:${prefs.personalScope}:$id", 0)
++            } else if (action == ReminderUpdate.RESCHEDULE) {
++                set(ctx, ev!!, current.getInt("minutes"), token)
++            } else {
++                prefs.updatePersonalState(token) { it.optJSONObject("reminders")?.optJSONObject(id)?.put("title", ev!!.title.take(200))?.put("end", ev.end) }
++            }
++        }
++        restore(ctx)
++    }
++    fun fire(ctx: Context, intent: Intent) {
++        val prefs = Prefs(ctx); val token = prefs.token ?: return
++        val scope = intent.getStringExtra("scope") ?: return
++        val id = intent.getStringExtra("event") ?: return
++        if (scope != prefs.personalScope || !prefs.personalVerified) return
++        val row = prefs.personalState().optJSONObject("reminders")?.optJSONObject(id) ?: return
++        val tag = "calendar:$scope:$id"
++        if (intent.getBooleanExtra("snooze", false)) {
++            if (!row.optBoolean("delivered")) return
++            if (!prefs.updatePersonalState(token) { it.optJSONObject("reminders")?.optJSONObject(id)
++                ?.put("fire_at", System.currentTimeMillis() + 600000)?.put("delivered", false)?.put("snoozed", true) }) return
++            NotificationManagerCompat.from(ctx).cancel(tag, 0); restore(ctx); return
++        }
++        if (row.optBoolean("delivered") || row.optLong("fire_at") > System.currentTimeMillis()) return
++        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
++        if (!NotificationManagerCompat.from(ctx).areNotificationsEnabled()) return
++        if (!prefs.updatePersonalState(token) { it.optJSONObject("reminders")?.optJSONObject(id)?.put("delivered", true) }) return
++        val channel = "selfmailer-calendar"
++        ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(channel, "Kalender-Erinnerungen", NotificationManager.IMPORTANCE_DEFAULT))
++        val open = PendingIntent.getActivity(ctx, 0, Intent(ctx, MainActivity::class.java).setAction("selfmailer.calendar.$scope.$id")
++            .putExtra("personal_calendar", true), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
++        prefs.withPersonalToken(token, scope) { try { NotificationManagerCompat.from(ctx).notify(tag, 0, NotificationCompat.Builder(ctx, channel).setSmallIcon(android.R.drawable.ic_dialog_info)
++            .setContentTitle(row.optString("title").ifBlank { "Kalendertermin" }).setContentText(row.optString("start"))
++            .setContentIntent(open).setAutoCancel(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
++            .addAction(0, "10 Min. später", pending(ctx, scope, id, true)).build())
++        } catch (_: SecurityException) { prefs.updatePersonalState(token) { it.optJSONObject("reminders")?.optJSONObject(id)?.put("delivered", false) } } }
++    }
++}
++
++class CalendarReminderReceiver : BroadcastReceiver() {
++    override fun onReceive(ctx: Context, intent: Intent) { CalendarReminders.fire(ctx, intent) }
++}
+--- /dev/null
++++ b/app/src/main/java/com/selfmailer/app/ContactLogic.kt
+@@ -0,0 +1,26 @@
++package com.selfmailer.app
++
++data class PhoneEntry(val key: String, val first: String, val last: String, val emails: List<String>,
++                      val phones: List<Pair<String, Int>>, val organization: String)
++
++fun contactLabel(first: String, last: String, email: String): String =
++    listOf(first.trim(), last.trim()).filter { it.isNotEmpty() }.joinToString(" ").ifBlank { email.ifBlank { "(ohne Namen)" } }
++
++fun phoneIdentity(raw: String): String {
++    val clean = raw.filter { it.isDigit() || it == '+' }
++    return if (clean.startsWith("00")) "+" + clean.drop(2) else clean
++}
++
++val safePhoneStatuses = setOf("new", "match", "update", "unchanged")
++
++fun phoneStatusLabel(status: String): String = when (status) {
++    "new" -> "Neu"; "match" -> "Vorhanden — verknüpfen / fehlende Felder ergänzen"
++    "update" -> "Handyänderungen übernehmen"; "unchanged" -> "Unverändert"
++    "conflict" -> "Konflikt — Änderungen in SelfMailer behalten"
++    "ambiguous", "possible_duplicate" -> "Mögliche Dublette — zuerst manuell prüfen"
++    "duplicate_input" -> "Doppelt in der Handyauswahl — übersprungen"
++    "server_deleted" -> "In SelfMailer gelöscht — bleibt gelöscht"
++    "external" -> "Externes Adressbuch — dort bearbeiten"
++    "missing" -> "Auf dem Handy entfernt — SelfMailer-Kontakt bleibt erhalten"
++    else -> "Nicht übernommen"
++}
+--- /dev/null
++++ b/app/src/main/java/com/selfmailer/app/ContactsScreen.kt
+@@ -0,0 +1,242 @@
++package com.selfmailer.app
++
++import android.Manifest
++import android.content.Context
++import android.content.Intent
++import android.content.pm.PackageManager
++import android.net.Uri
++import androidx.activity.compose.rememberLauncherForActivityResult
++import androidx.activity.result.contract.ActivityResultContracts
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.items
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.material3.*
++import androidx.compose.runtime.*
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++import androidx.core.content.ContextCompat
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++import org.json.JSONArray
++import org.json.JSONObject
++
++class ContactsUiState {
++    val editing = mutableStateOf<BookContact?>(null)
++    val editor = mutableStateOf(false)
++    val form = mutableStateOf<Map<String, String>>(emptyMap())
++    fun clear() { editing.value = null; editor.value = false; form.value = emptyMap() }
++}
++
++private val contactEditorFields = linkedMapOf("first_name" to "Vorname", "last_name" to "Nachname", "email" to "E-Mail", "phone" to "Telefon",
++    "mobile" to "Mobil", "work_phone" to "Geschäftlich", "organization" to "Firma", "notes" to "Notizen",
++    "extra_emails" to "Weitere E-Mails (eine pro Zeile)", "extra_phones" to "Weitere Nummern (eine pro Zeile)")
++private fun contactForm(contact: BookContact?) = contactEditorFields.keys.associateWith { key -> when (key) {
++    "extra_emails" -> contact?.extraEmails.orEmpty().joinToString("\n")
++    "extra_phones" -> contact?.extraPhones.orEmpty().joinToString("\n")
++    else -> contact?.raw?.optString(key).orEmpty()
++} }
++
++@Composable
++fun ContactsScreen(ctx: Context, api: Api, prefs: Prefs, ui: ContactsUiState, createRequested: Int, onCreateConsumed: () -> Unit, onMail: (String) -> Unit) {
++    val scope = rememberCoroutineScope()
++    var contacts by remember { mutableStateOf<List<BookContact>>(emptyList()) }
++    var query by remember { mutableStateOf("") }
++    var busy by remember { mutableStateOf(false) }
++    var error by remember { mutableStateOf("") }
++    var notice by remember { mutableStateOf(prefs.personalState().optString("sync_summary")) }
++    var editing by ui.editing
++    var editor by ui.editor
++    var delete by remember { mutableStateOf<BookContact?>(null) }
++    var phoneRows by remember { mutableStateOf<List<PhoneEntry>?>(null) }
++    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
++    var previews by remember { mutableStateOf<Map<String, JSONObject>>(emptyMap()) }
++    var linkedOnly by remember { mutableStateOf(false) }
++    var confirm by remember { mutableStateOf(false) }
++    var phoneSearch by remember { mutableStateOf("") }
++    var automatic by remember { mutableStateOf(prefs.personalState().optBoolean("contact_auto", false)) }
++    fun refresh() {
++        busy = true; error = ""
++        scope.launch { try { contacts = withContext(Dispatchers.IO) { api.contacts() } }
++            catch (e: kotlinx.coroutines.CancellationException) { throw e }
++            catch (e: Exception) { error = e.message ?: "Kontakte konnten nicht geladen werden" }
++            finally { busy = false } }
++    }
++    fun openPhone() {
++        busy = true; error = ""; previews = emptyMap(); confirm = false
++        phoneSearch = ""
++        scope.launch { try {
++            val rows = withContext(Dispatchers.IO) { readPhoneContacts(ctx) }
++            phoneRows = rows
++            selected = if (linkedOnly) MessageHeader.strList(prefs.personalState(), "contact_keys").toSet() else emptySet()
++            selected = selected.intersect(rows.map { it.key }.toSet())
++            if (linkedOnly) {
++                val missing = MessageHeader.strList(prefs.personalState(), "contact_keys").toSet() - rows.map { it.key }.toSet()
++                notice = "${missing.size} verknüpfte Kontakte auf dem Handy nicht gefunden. In SelfMailer bleibt alles erhalten."
++            }
++        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
++        catch (e: Exception) { error = e.message ?: "Handykontakte konnten nicht gelesen werden" }
++        finally { busy = false } }
++    }
++    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
++        if (granted) openPhone() else error = "Kontaktzugriff abgelehnt. Serverkontakte bleiben weiterhin verfügbar."
++    }
++    fun startPhone(update: Boolean) {
++        linkedOnly = update
++        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) openPhone()
++        else permission.launch(Manifest.permission.READ_CONTACTS)
++    }
++    fun preview() {
++        val entries = phoneRows.orEmpty().filter { it.key in selected }; busy = true; error = ""; confirm = false
++        scope.launch { try {
++            val token = prefs.token ?: error("Bitte anmelden")
++            val device = contactDeviceId(prefs, token)
++            val result = linkedMapOf<String, JSONObject>()
++            for (chunk in entries.chunked(200)) {
++                val r = withContext(Dispatchers.IO) { api.phoneContacts(device, chunk.map { it.payload() }, true, linkedOnly) }
++                val array = r.getJSONArray("items")
++                for (i in 0 until array.length()) { val item = array.getJSONObject(i); result[item.getString("source_key")] = item }
++            }
++            previews = result
++        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
++        catch (e: Exception) { previews = emptyMap(); error = e.message ?: "Vorschau fehlgeschlagen" }
++        finally { busy = false } }
++    }
++    fun apply() {
++        val chosen = phoneRows.orEmpty().filter { it.key in selected && previews[it.key]?.optString("status") in safePhoneStatuses }
++        busy = true; error = ""
++        scope.launch { try {
++            val token = prefs.token ?: error("Bitte anmelden"); val device = contactDeviceId(prefs, token)
++            var changed = 0
++            for (chunk in chosen.chunked(200)) {
++                val payload = chunk.map { it.payload().put("expected_digest", previews.getValue(it.key).getString("expected_digest")) }
++                val r = withContext(Dispatchers.IO) { api.phoneContacts(device, payload, false, linkedOnly) }
++                changed += r.optInt("changed")
++                val keys = MessageHeader.strList(r, "linked_source_keys")
++                check(prefs.updatePersonalState(token) { data ->
++                    data.put("contact_keys", JSONArray((MessageHeader.strList(data, "contact_keys") + keys).distinct()))
++                    val hashes = data.optJSONObject("contact_fingerprints") ?: JSONObject()
++                    chunk.filter { it.key in keys }.forEach { hashes.put(it.key, it.fingerprint()) }
++                    data.put("contact_fingerprints", hashes)
++                }) { "Sitzung geändert; Import wurde serverseitig durchgeführt. Neu anmelden und prüfen." }
++            }
++            notice = "$changed Kontakte geändert; ${chosen.size} Kontakte geprüft."
++            prefs.updatePersonalState(token) { it.put("sync_summary", notice).put("contact_sync_at", System.currentTimeMillis()) }
++            phoneRows = null; previews = emptyMap(); confirm = false
++            contacts = withContext(Dispatchers.IO) { api.contacts() }
++        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
++        catch (e: Exception) { previews = emptyMap(); confirm = false; error = "${e.message} — Bereits abgeschlossene Gruppen bleiben gespeichert. Vor erneutem Versuch neu prüfen." }
++        finally { busy = false } }
++    }
++    LaunchedEffect(api) { refresh() }
++    LaunchedEffect(createRequested) { if (createRequested > 0) {
++        if (ui.form.value.isEmpty()) { editing = null; ui.form.value = contactForm(null) }
++        editor = true; onCreateConsumed()
++    } }
++    Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
++        OutlinedTextField(query, { query = it }, label = { Text("Kontakte suchen") }, modifier = Modifier.fillMaxWidth())
++        Row {
++            TextButton(enabled = !busy, onClick = { startPhone(false) }) { Text("Vom Handy importieren") }
++            TextButton(enabled = !busy, onClick = { startPhone(true) }) { Text("Handyänderungen prüfen") }
++        }
++        Row {
++            TextButton(enabled = !busy, onClick = { refresh() }) { Text("Server neu laden") }
++            Checkbox(automatic, { on ->
++                val token = prefs.token ?: return@Checkbox
++                if (on && MessageHeader.strList(prefs.personalState(), "contact_keys").isEmpty()) error = "Zuerst ausgewählte Handykontakte importieren."
++                else if (prefs.updatePersonalState(token) { it.put("contact_auto", on) }) { automatic = on; PersonalSync.configure(ctx) }
++            }, enabled = !busy)
++            Text("Automatisch abgleichen", Modifier.padding(top = 12.dp))
++        }
++        Text("Stündlich bei Internetverbindung: ausgewählte Handykontakte → SelfMailer. Konflikte und Löschungen werden nicht automatisch übernommen.", style = MaterialTheme.typography.bodySmall)
++        if (notice.isNotBlank()) Text(notice)
++        if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
++        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
++        if (!editor && ui.form.value.isNotEmpty()) Row {
++            TextButton(onClick = { editor = true }) { Text("Kontaktentwurf fortsetzen") }
++            TextButton(onClick = { ui.clear() }) { Text("Entwurf verwerfen") }
++        }
++        val shown = contacts.filter { "${it.label} ${it.allEmails.joinToString()} ${it.allPhones.joinToString()} ${it.organization}".contains(query, true) }
++        if (!busy && shown.isEmpty()) Text("Keine Kontakte gefunden")
++        LazyColumn(Modifier.weight(1f)) {
++            items(shown, key = { it.id }) { c ->
++                Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(enabled = !busy) {
++                    if (ui.form.value.isNotEmpty()) { error = "Zuerst den vorhandenen Kontaktentwurf fortsetzen oder verwerfen."; return@clickable }
++                    busy = true; scope.launch { try { editing = withContext(Dispatchers.IO) { api.contact(c.id) }; ui.form.value = contactForm(editing); editor = true }
++                        catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.message.orEmpty() } finally { busy = false } }
++                }) {
++                    Column(Modifier.padding(12.dp)) {
++                        Text(c.label, style = MaterialTheme.typography.titleMedium)
++                        Text((c.allEmails + c.allPhones).joinToString(" · "))
++                        Text(if (c.external) "Externes Adressbuch" else "SelfMailer", style = MaterialTheme.typography.bodySmall)
++                        Row {
++                            if (c.email.isNotBlank()) TextButton(onClick = { onMail(c.email) }) { Text("Mail schreiben") }
++                            if (c.allPhones.isNotEmpty()) TextButton(onClick = { try { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", c.allPhones.first(), null))) } catch (_: android.content.ActivityNotFoundException) { error = "Keine Telefon-App verfügbar" } }) { Text("Anrufen") }
++                            if (!c.external) TextButton(enabled = !busy, onClick = { delete = c }) { Text("Löschen") }
++                        }
++                    }
++                }
++            }
++        }
++    }
++    if (editor) ContactEditor(editing, api, ui, onClose = { if (ui.form.value == contactForm(editing)) ui.clear() else editor = false }, onSaved = { ui.clear(); refresh() })
++    delete?.let { c -> AlertDialog(onDismissRequest = { if (!busy) delete = null }, title = { Text("Kontakt löschen?") },
++        text = { Text("${c.label} wird in SelfMailer gelöscht. Handykontakte bleiben erhalten; der Sync erstellt diesen Kontakt nicht automatisch neu.") },
++        confirmButton = { TextButton(enabled = !busy, onClick = { busy = true; scope.launch { try {
++            withContext(Dispatchers.IO) { api.deleteContact(c.id) }; if (ui.editing.value?.id == c.id) ui.clear(); delete = null; contacts = withContext(Dispatchers.IO) { api.contacts() }
++        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.message.orEmpty() } finally { busy = false } } }) { Text("Löschen") } },
++        dismissButton = { TextButton(enabled = !busy, onClick = { delete = null }) { Text("Abbrechen") } }) }
++    phoneRows?.let { rows -> AlertDialog(onDismissRequest = { if (!busy) phoneRows = null }, title = { Text(if (linkedOnly) "Handyänderungen prüfen" else "Handykontakte auswählen") },
++        text = { Column {
++            Text("Übernimmt Namen, E-Mails, Telefonnummern und Firma. Nur ausgewählte Kontakte werden zur Vorschau an deinen Server übertragen. Gleiche E-Mail/Telefonnummer wird erkannt; reine Namensgleichheit wird zur Prüfung zurückgestellt.")
++            OutlinedTextField(phoneSearch, { phoneSearch = it }, label = { Text("Handykontakte suchen") }, enabled = !busy)
++            val visible = rows.filter { "${it.first} ${it.last} ${it.emails.joinToString()} ${it.phones.joinToString { p -> p.first }}".contains(phoneSearch, true) }
++            Row { TextButton(enabled = !busy, onClick = { selected = selected + visible.map { it.key }.toSet(); previews = emptyMap(); confirm = false }) { Text("Treffer wählen") }
++                TextButton(enabled = !busy, onClick = { selected = emptySet(); previews = emptyMap(); confirm = false }) { Text("Auswahl leeren") } }
++            LazyColumn(Modifier.heightIn(max = 320.dp)) { items(visible, key = { it.key }) { row ->
++                Row { Checkbox(row.key in selected, { on -> selected = if (on) selected + row.key else selected - row.key; previews = emptyMap(); confirm = false }, enabled = !busy)
++                    Column(Modifier.weight(1f).padding(top = 8.dp)) { Text(contactLabel(row.first, row.last, row.emails.firstOrNull().orEmpty()))
++                        Text(row.emails.joinToString(), style = MaterialTheme.typography.bodySmall)
++                        previews[row.key]?.let { p ->
++                            Text(phoneStatusLabel(p.optString("status")), color = MaterialTheme.colorScheme.primary)
++                            val changedFields = (MessageHeader.strList(p, "conflicts") + MessageHeader.strList(p, "retained")).distinct()
++                            changedFields.forEach { field -> Text("${contactEditorFields[field] ?: field}: Handy ${p.optJSONObject("source_values")?.optString(field)} / SelfMailer ${p.optJSONObject("current_values")?.optString(field)}", style = MaterialTheme.typography.bodySmall) }
++                        } } }
++            } }
++            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
++            Text("${selected.size} ausgewählt; ${previews.values.count { it.optString("status") in safePhoneStatuses }} sicher übernehmbar")
++            if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
++            if (previews.isEmpty()) TextButton(enabled = !busy && selected.isNotEmpty(), onClick = { preview() }) { Text("Duplikate und Änderungen prüfen") }
++            else TextButton(enabled = !busy && previews.values.any { it.optString("status") in safePhoneStatuses }, onClick = { if (confirm) apply() else confirm = true }) {
++                Text(if (confirm) "Geprüfte Kontakte jetzt übernehmen" else "Vorschau übernehmen …") }
++            if (linkedOnly) TextButton(enabled = !busy, onClick = {
++                val token = prefs.token ?: return@TextButton
++                if (prefs.updatePersonalState(token) { it.put("contact_keys", JSONArray(selected.toList())) }) notice = "Auswahl für künftigen Abgleich gespeichert."
++            }) { Text("Nur diese Auswahl künftig abgleichen") }
++        } }, confirmButton = { TextButton(enabled = !busy, onClick = { phoneRows = null }) { Text("Schließen") } }) }
++}
++
++@Composable
++private fun ContactEditor(contact: BookContact?, api: Api, ui: ContactsUiState, onClose: () -> Unit, onSaved: () -> Unit) {
++    val fields = contactEditorFields
++    var values by ui.form
++    var busy by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }
++    val scope = rememberCoroutineScope()
++    AlertDialog(onDismissRequest = { if (!busy) onClose() }, title = { Text(contact?.label ?: "Neuer Kontakt") }, text = {
++        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
++            if (contact?.external == true) Text("Dieser Kontakt stammt aus einem externen Adressbuch. Änderungen dort vornehmen.")
++            fields.forEach { (key, label) -> OutlinedTextField(values.getValue(key), { values = values + (key to it) }, label = { Text(label) }, enabled = !busy && contact?.external != true) }
++            contact?.let { if (it.extraEmails.isNotEmpty() || it.extraPhones.isNotEmpty()) Text("Weitere Adressen/Nummern bleiben erhalten: " + (it.extraEmails + it.extraPhones).joinToString()) }
++            if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
++        }
++    }, confirmButton = { TextButton(enabled = !busy && contact?.external != true && values.any { (key, value) -> key != "notes" && value.isNotBlank() }, onClick = {
++        busy = true; scope.launch { try {
++            val body = JSONObject(); values.forEach { (k, v) -> body.put(k, if (k in listOf("extra_emails", "extra_phones")) JSONArray(v.lines().map { it.trim() }.filter { it.isNotEmpty() }) else v.trim()) }
++            contact?.let { body.put("expected_updated_at", it.raw.getString("updated_at")) }
++            withContext(Dispatchers.IO) { api.saveContact(contact?.id, body) }; onSaved()
++        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.message.orEmpty() } finally { busy = false } }
++    }) { Text("Speichern") } }, dismissButton = { TextButton(enabled = !busy, onClick = onClose) { Text("Schließen") } })
++}
+--- a/app/src/main/java/com/selfmailer/app/MainActivity.kt
++++ b/app/src/main/java/com/selfmailer/app/MainActivity.kt
+@@ -146,6 +146,9 @@
+     // ---- UI-Zustand ------------------------------------------------------
+     private var phase by mutableStateOf("loading")  // loading|locked|login|totp|shell|read|compose
+     private var tab by mutableStateOf("mail")        // mail|calendar|notes
++    private var contactCreateRequested by mutableIntStateOf(0)
++    private val contactsUiState = ContactsUiState()
++    private var personalCalendarRequested = false
+     private var error by mutableStateOf<String?>(null)
+     // Fortschritts-Zähler statt Boolean: überlappende bg{}-Aufrufe zählen hoch/runter,
+     // damit ein früh fertiger Aufruf den Spinner nicht abschaltet, während ein anderer
+@@ -233,7 +236,7 @@
+     private var gcalAccts by mutableStateOf<List<DavAcct>>(emptyList())
+     private var calsByAcc by mutableStateOf<Map<Int, List<GCalCal>>>(emptyMap())
+     private var hiddenCals by mutableStateOf<Set<String>>(emptySet())
+-    private var calView by mutableStateOf("month")  // month | day | agenda — vom Drawer steuerbar
++    private var calView by mutableStateOf("agenda")  // month | day | agenda — vom Drawer steuerbar
+     private var accountUnseen by mutableStateOf<Map<Int, Int>>(emptyMap())
+     private var accountColors by mutableStateOf<Map<Int, Int>>(emptyMap())
+     private var colorPickerAccount by mutableStateOf<Account?>(null)
+@@ -359,6 +362,7 @@
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+         prefs = Prefs(this)
++        personalCalendarRequested = intent.getBooleanExtra("personal_calendar", false)
+         compactMail = prefs.compactMail
+         if (prefs.token != null) {
+             savedDraft = ComposeDraft.decode(prefs.composeDraft)
+@@ -459,6 +463,13 @@
+         super.onNewIntent(intent)
+         setIntent(intent)
+         if (phase == "compose") persistComposeDraft()
++        if (intent.getBooleanExtra("personal_calendar", false)) {
++            personalCalendarRequested = true
++            if (phase == "shell" && prefs.token != null && !prompting) {
++                personalCalendarRequested = false; tab = "calendar"; loadEvents()
++            }
++            return
++        }
+         // Extras sind untrusted (siehe onCreate) → gleich defensiv validieren.
+         val pid = intent.getStringExtra("account_id")?.toIntOrNull()?.takeIf { it > 0 } ?: return
+         val uid = cleanExtra(intent.getStringExtra("uid"), 128)
+@@ -506,6 +517,7 @@
+         if (prefs.token != null) startForegroundPoll()
+         // Beim Zurückkommen in den Vordergrund den Kalender frisch ziehen (Container-Stand).
+         if (prefs.token != null && phase == "shell" && tab == "calendar") loadEvents()
++        if (prefs.token != null && phase == "shell") CalendarReminders.restore(this)
+     }
+ 
+     // ---- Schnelles Live-Gefühl im offenen Postfach -----------------------
+@@ -644,7 +656,13 @@
+                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                     prompting = false
+                     if (accounts.isEmpty() || pendingAccountId != null) afterAuth()
+-                    else phase = unlockedDestination(phaseBeforeLock)
++                    else {
++                        phase = unlockedDestination(phaseBeforeLock)
++                        if (personalCalendarRequested && prefs.personalVerified) {
++                            personalCalendarRequested = false; phase = "shell"; tab = "calendar"; loadEvents()
++                        }
++                        CalendarReminders.restore(this@MainActivity)
++                    }
+                 }
+                 override fun onAuthenticationError(code: Int, msg: CharSequence) { prompting = false; phase = "locked" }
+                 override fun onAuthenticationFailed() { /* einzelner Fehlversuch: Prompt bleibt offen */ }
+@@ -858,6 +876,8 @@
+     }
+ 
+     private fun logout(preserveDraft: Boolean = false) {
++        PersonalSync.stop(this)
++        contactsUiState.clear(); contactCreateRequested = 0
+         if (preserveDraft && (phase == "compose" || (phase == "locked" && phaseBeforeLock == "compose"))) persistComposeDraft()
+         val oldApi = Api(prefs.serverUrl).also { it.token = prefs.token }
+         val oldToken = prefs.fcmToken
+@@ -929,7 +949,9 @@
+         }
+         val verifiedUserId = me.getInt("id")
+         require(verifiedUserId > 0)
+-        val sameUser = prefs.bindDraftUser(verifiedUserId)
++        val previousPersonalScope = prefs.personalScope
++        val sameUser = prefs.bindDraftUser(verifiedUserId, me.optString("created_at").takeUnless { it == "null" }.orEmpty())
++        if (!sameUser || previousPersonalScope != prefs.personalScope) contactsUiState.clear()
+         if (!sameUser) {
+             savedDraft = null; cTo = ""; cCc = ""; cSubject = ""; cBody = ""
+             cQuotedText = ""; cQuotedHtml = ""; cIdentity = null; cAccount = null
+@@ -941,6 +963,8 @@
+         accounts = ordered
+         if (prefs.notifyEnabled && prefs.pushMode == "fcm") registerFcm()
+         phase = "shell"; tab = "mail"
++        PersonalSync.configure(this); CalendarReminders.restore(this)
++        if (personalCalendarRequested) { personalCalendarRequested = false; tab = "calendar"; loadEvents() }
+         // Nach Prozess-Tod das gemerkte Konto wählen (statt des ersten), sofern KEIN
+         // Notification-Deep-Link vorliegt (der hat weiter unten Vorrang).
+         val restoreAcc = restoreAccountId?.takeIf { pendingAccountId == null }
+@@ -2141,7 +2165,12 @@
+     private fun loadEvents() = bg {
+         calLoading = true
+         try {
+-            events = withContext(Dispatchers.IO) { api.listEvents() }
++            events = withContext(Dispatchers.IO) { if (calView == "agenda") api.agendaEvents() else api.listEvents() }
++            withContext(Dispatchers.IO) {
++                val ids = prefs.personalState().optJSONObject("reminders")?.keys()?.asSequence()?.mapNotNull { it.toIntOrNull() }?.toList().orEmpty()
++                val token = prefs.token
++                if (ids.isNotEmpty() && token != null) CalendarReminders.reconcile(this@MainActivity, api.reminderEvents(ids), token)
++            }
+             // Ausgeblendete Kalender vom Server holen (geteilt mit der WebUI).
+             try { hiddenCals = withContext(Dispatchers.IO) { api.hiddenCals() } }
+             catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
+@@ -2169,7 +2198,7 @@
+                 try { withContext(Dispatchers.IO) { api.syncDavAccount(a.id) } }
+                 catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
+             }
+-            events = withContext(Dispatchers.IO) { api.listEvents() }
++            events = withContext(Dispatchers.IO) { if (calView == "agenda") api.agendaEvents() else api.listEvents() }
+             try { hiddenCals = withContext(Dispatchers.IO) { api.hiddenCals() } }
+             catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
+         } finally { calLoading = false }
+@@ -2804,6 +2833,10 @@
+                         "mail" -> MailTab()
+                         "calendar" -> CalendarTab()
+                         "notes" -> NotesTab()
++                        "contacts" -> ContactsScreen(this@MainActivity, api, prefs, contactsUiState, contactCreateRequested, { contactCreateRequested = 0 }) { email ->
++                            val action = { beginCompose(); cTo = email }
++                            if (savedDraft != null) { pendingComposeAction = action; replaceDraftOpen = true } else action()
++                        }
+                     }
+                     if (showMovePicker) MovePickerDialog { showMovePicker = false }
+                     accountMenuAccount?.let { acc -> AccountOptionsDialog(acc) { accountMenuAccount = null } }
+@@ -2818,6 +2851,7 @@
+             "mail" -> startCompose()
+             "calendar" -> { editEvent = null; showEventDialog = true }
+             "notes" -> { editNote = null; showNoteEditor = true }
++            "contacts" -> { contactCreateRequested++ }
+         }
+     }
+ 
+@@ -2942,6 +2976,8 @@
+                 icon = { Icon(Icons.Filled.CalendarMonth, null) }, label = { Text("Kalender") }, colors = colors)
+             NavigationBarItem(selected = tab == "notes", onClick = { tab = "notes"; loadNotes() },
+                 icon = { Icon(Icons.Filled.Description, null) }, label = { Text("Notizen") }, colors = colors)
++            NavigationBarItem(selected = tab == "contacts", onClick = { tab = "contacts" },
++                icon = { Text("👤") }, label = { Text("Kontakte") }, colors = colors)
+         }
+     }
+ 
+@@ -3377,10 +3413,7 @@
+                     }
+                 }
+                 else -> {
+-                    if (shown.isEmpty() && !busy) { CenterMsg(t("Keine Termine — tippe + zum Anlegen")); return@Column }
+-                    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+-                        items(shown.sortedBy { it.start }, key = { it.id }) { ev -> EventCard(ev) }
+-                    }
++                    CalendarAgenda(this@MainActivity, prefs, shown) { ev -> editEvent = ev; showEventDialog = true }
+                 }
+             }
+         }
+@@ -3409,9 +3442,9 @@
+                 IconButton(onClick = { onClose(); phase = "settings" }) { Icon(Icons.Filled.Settings, t("Einstellungen"), tint = SelfMuted) }
+             }
+             HorizontalDivider(color = SelfSurface2)
+-            DrawerCalItem(Icons.AutoMirrored.Filled.List, t("Agenda"), calView == "agenda") { calView = "agenda"; onClose() }
+-            DrawerCalItem(Icons.Filled.ViewDay, t("Tag"), calView == "day") { calView = "day"; onClose() }
+-            DrawerCalItem(Icons.Filled.CalendarViewMonth, t("Monat"), calView == "month") { calView = "month"; onClose() }
++            DrawerCalItem(Icons.AutoMirrored.Filled.List, t("Agenda"), calView == "agenda") { calView = "agenda"; loadEvents(); onClose() }
++            DrawerCalItem(Icons.Filled.ViewDay, t("Tag"), calView == "day") { calView = "day"; loadEvents(); onClose() }
++            DrawerCalItem(Icons.Filled.CalendarViewMonth, t("Monat"), calView == "month") { calView = "month"; loadEvents(); onClose() }
+             HorizontalDivider(color = SelfSurface2)
+             Text("Meine Kalender", color = SelfMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 6.dp))
+             if (sources.isEmpty()) {
+--- a/app/src/main/java/com/selfmailer/app/Models.kt
++++ b/app/src/main/java/com/selfmailer/app/Models.kt
+@@ -279,6 +279,7 @@
+     val sourceKey: String,
+     val sourceName: String,
+     val sourceColor: String,
++    val createdAt: String = "",
+ ) {
+     companion object {
+         fun from(o: JSONObject) = Event(
+@@ -293,6 +294,7 @@
+             sourceKey = o.optString("source_key"),
+             sourceName = o.optString("source_name"),
+             sourceColor = o.optString("source_color"),
++            createdAt = o.optString("created_at"),
+         )
+     }
+ }
+--- /dev/null
++++ b/app/src/main/java/com/selfmailer/app/PersonalSync.kt
+@@ -0,0 +1,101 @@
++package com.selfmailer.app
++
++import android.Manifest
++import android.content.Context
++import android.content.pm.PackageManager
++import androidx.core.content.ContextCompat
++import androidx.work.*
++import java.util.concurrent.TimeUnit
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++
++object PersonalSync {
++    const val WORK = "selfmailer-personal-data"
++    fun configure(ctx: Context) {
++        val prefs = Prefs(ctx); val data = prefs.personalState()
++        val wm = WorkManager.getInstance(ctx)
++        if (!prefs.personalVerified || (!data.optBoolean("contact_auto") && data.optJSONObject("reminders")?.length().orZero() == 0)) {
++            wm.cancelUniqueWork(WORK); return
++        }
++        val request = PeriodicWorkRequestBuilder<PersonalSyncWorker>(1, TimeUnit.HOURS)
++            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
++        wm.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.UPDATE, request)
++    }
++    fun stop(ctx: Context) { WorkManager.getInstance(ctx).cancelUniqueWork(WORK); CalendarReminders.cancelAll(ctx) }
++}
++private fun Int?.orZero() = this ?: 0
++
++class PersonalSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
++    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
++        val prefs = Prefs(applicationContext)
++        val token = prefs.token ?: return@withContext Result.success()
++        val user = prefs.personalUserId
++        val identity = prefs.personalIdentity
++        val server = prefs.serverUrl
++        val api = Api(server).also { it.token = token }
++        fun current() = prefs.token == token && prefs.serverUrl == server && prefs.personalUserId == user && prefs.personalVerified
++        try {
++            if (!current()) return@withContext Result.success()
++            val me = api.me()
++            if (me.getInt("id") != user || me.optString("created_at") != identity) {
++                prefs.pausePersonalToken(token); return@withContext Result.success()
++            }
++            val state = prefs.personalState()
++            if (state.optBoolean("contact_auto")) {
++                if (ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
++                    prefs.updatePersonalState(token) { it.put("sync_summary", "Automatischer Kontaktabgleich pausiert: Kontaktzugriff fehlt.") }
++                } else {
++                    val selected = MessageHeader.strList(state, "contact_keys").toSet()
++                    val phone = readPhoneContacts(applicationContext).filter { it.key in selected }
++                    val device = contactDeviceId(prefs, token)
++                    var changed = 0; var conflicts = 0
++                    for (chunk in phone.chunked(200)) {
++                        if (!current() || !prefs.personalState().optBoolean("contact_auto")) return@withContext Result.success()
++                        val allowed = MessageHeader.strList(prefs.personalState(), "contact_keys").toSet()
++                        val fingerprints = prefs.personalState().optJSONObject("contact_fingerprints")
++                        val changedEntries = chunk.filter { it.key in allowed && fingerprints?.optString(it.key) != it.fingerprint() }
++                        val entries = changedEntries.map { it.payload() }
++                        if (entries.isEmpty()) continue
++                        val result = api.phoneContacts(device, entries, false, linkedOnly = true)
++                        changed += result.optInt("changed")
++                        val rows = result.getJSONArray("items")
++                        conflicts += (0 until rows.length()).count { rows.getJSONObject(it).optString("status") !in safePhoneStatuses }
++                        val accepted = MessageHeader.strList(result, "linked_source_keys").toSet()
++                        prefs.updatePersonalState(token) { data ->
++                            val hashes = data.optJSONObject("contact_fingerprints") ?: org.json.JSONObject()
++                            changedEntries.filter { it.key in accepted }.forEach { hashes.put(it.key, it.fingerprint()) }
++                            data.put("contact_fingerprints", hashes)
++                        }
++                    }
++                    val missing = selected.size - phone.size
++                    prefs.updatePersonalState(token) { it.put("contact_sync_at", System.currentTimeMillis())
++                        .put("sync_summary", "Automatisch: $changed geändert, $conflicts zur Prüfung, $missing auf dem Handy entfernt/nicht gefunden. Keine Löschungen übernommen.") }
++                }
++            }
++            if (current() && prefs.personalState().optJSONObject("reminders")?.length().orZero() > 0) {
++                val ids = prefs.personalState().getJSONObject("reminders").keys().asSequence().mapNotNull { it.toIntOrNull() }.toList()
++                if (ids.isEmpty()) return@withContext Result.success()
++                val events = api.reminderEvents(ids)
++                if (current()) CalendarReminders.reconcile(applicationContext, events, token)
++            }
++            Result.success()
++        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
++        catch (e: ApiException) {
++            if (e.status == 401) prefs.withPersonalToken(token, prefs.personalScope) { CalendarReminders.cancelAll(applicationContext) }
++            prefs.updatePersonalState(token) { it.put("sync_summary", if (e.status == 401) "Bitte neu anmelden; automatischer Abgleich pausiert." else "Abgleich fehlgeschlagen; vorhandene Daten bleiben erhalten.") }
++            if (e.status == 401) prefs.pausePersonalToken(token)
++            if (e.status == 401) Result.success() else Result.retry()
++        } catch (_: Exception) {
++            prefs.updatePersonalState(token) { it.put("sync_summary", "Abgleich fehlgeschlagen; vorhandene Daten bleiben erhalten.") }
++            Result.retry()
++        }
++    }
++}
++
++class PersonalBootReceiver : android.content.BroadcastReceiver() {
++    override fun onReceive(ctx: Context, intent: android.content.Intent) {
++        if (intent.action in listOf(android.content.Intent.ACTION_BOOT_COMPLETED, android.content.Intent.ACTION_TIMEZONE_CHANGED, android.content.Intent.ACTION_TIME_CHANGED)) {
++            CalendarReminders.restore(ctx); PersonalSync.configure(ctx)
++        }
++    }
++}
+--- /dev/null
++++ b/app/src/main/java/com/selfmailer/app/PhoneContacts.kt
+@@ -0,0 +1,73 @@
++package com.selfmailer.app
++
++import android.Manifest
++import android.content.Context
++import android.content.pm.PackageManager
++import android.provider.ContactsContract
++import android.provider.ContactsContract.Data as Data
++import androidx.core.content.ContextCompat
++import org.json.JSONArray
++import org.json.JSONObject
++
++data class BookContact(val raw: JSONObject) {
++    val id get() = raw.getInt("id")
++    val first get() = raw.optString("first_name")
++    val last get() = raw.optString("last_name")
++    val email get() = raw.optString("email")
++    val phone get() = raw.optString("phone")
++    val mobile get() = raw.optString("mobile")
++    val work get() = raw.optString("work_phone")
++    val organization get() = raw.optString("organization")
++    val label get() = contactLabel(first, last, email)
++    val external get() = !raw.isNull("dav_account_id")
++    val extraEmails get() = MessageHeader.strList(raw, "extra_emails")
++    val extraPhones get() = MessageHeader.strList(raw, "extra_phones")
++    val allEmails get() = (listOf(email) + extraEmails).filter { it.isNotBlank() }.distinct()
++    val allPhones get() = (listOf(phone, mobile, work) + extraPhones).filter { it.isNotBlank() }.distinct()
++}
++
++fun readPhoneContacts(ctx: Context): List<PhoneEntry> {
++    check(ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) { "Kontaktzugriff nicht erlaubt" }
++    val kinds = listOf(ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE, ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE,
++        ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE, ContactsContract.CommonDataKinds.Organization.CONTENT_ITEM_TYPE)
++    val rows = linkedMapOf<String, MutableList<List<String>>>()
++    ctx.contentResolver.query(Data.CONTENT_URI, arrayOf(Data.LOOKUP_KEY, Data.MIMETYPE, Data.DATA1, Data.DATA2, Data.DATA3, Data.DISPLAY_NAME),
++        "${Data.MIMETYPE} IN (${kinds.joinToString(",") { "?" }})", kinds.toTypedArray(), "${Data.CONTACT_ID} ASC, ${Data._ID} ASC")?.use { cursor ->
++        while (cursor.moveToNext()) {
++            val key = cursor.getString(0) ?: continue
++            val data = (1..5).map { cursor.getString(it) ?: "" }
++            val values = rows.getOrPut(key) { mutableListOf() }
++            check(rows.size <= 10000 && values.size < 100) { "Handy-Adressbuch zu groß; keine Kontakte wurden hochgeladen" }
++            values.add(data)
++        }
++    } ?: error("Handykontakte konnten nicht vollständig gelesen werden")
++    check(rows.size <= 10000) { "Mehr als 10000 Handykontakte — Import bitte über ein kleineres Adressbuch durchführen" }
++    return rows.map { (key, values) ->
++        val name = values.firstOrNull { it[0] == kinds[0] }
++        val emails = values.filter { it[0] == kinds[1] }.map { it[1].trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.sorted()
++        val phones = values.filter { it[0] == kinds[2] }.map { it[1].trim() to (it[2].toIntOrNull() ?: 0) }.filter { it.first.isNotEmpty() }.distinctBy { phoneIdentity(it.first) }.sortedBy { phoneIdentity(it.first) }
++        check(emails.size <= 21 && phones.size <= 23) { "Kontakt hat zu viele Adressen/Nummern; keine Daten wurden hochgeladen" }
++        PhoneEntry(key, name?.get(2).orEmpty().ifBlank { if (name?.get(3).isNullOrBlank()) values.first()[4] else "" },
++            name?.get(3).orEmpty(), emails, phones, values.firstOrNull { it[0] == kinds[3] }?.get(1).orEmpty())
++    }.sortedBy { contactLabel(it.first, it.last, it.emails.firstOrNull().orEmpty()).lowercase() }
++}
++
++fun PhoneEntry.payload(): JSONObject {
++    val mobile = phones.firstOrNull { it.second == ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE }?.first.orEmpty()
++    val work = phones.firstOrNull { it.second == ContactsContract.CommonDataKinds.Phone.TYPE_WORK }?.first.orEmpty()
++    val phone = phones.firstOrNull { it.first != mobile && it.first != work }?.first.orEmpty()
++    return JSONObject().put("source_key", key).put("first_name", first).put("last_name", last)
++        .put("email", emails.firstOrNull().orEmpty()).put("extra_emails", JSONArray(emails.drop(1)))
++        .put("phone", phone).put("mobile", mobile).put("work_phone", work)
++        .put("extra_phones", JSONArray(phones.map { it.first }.filter { it != mobile && it != work && it != phone }))
++        .put("organization", organization)
++}
++
++fun contactDeviceId(prefs: Prefs, token: String): String {
++    check(prefs.personalVerified) { "Für den Handyabgleich bitte den SelfMailer-Server aktualisieren und neu anmelden" }
++    prefs.updatePersonalState(token) { if (!it.has("device_id")) it.put("device_id", java.util.UUID.randomUUID().toString()) }
++    return prefs.personalState().getString("device_id")
++}
++
++fun PhoneEntry.fingerprint(): String = java.security.MessageDigest.getInstance("SHA-256")
++    .digest(payload().toString().toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+--- a/app/src/main/java/com/selfmailer/app/Prefs.kt
++++ b/app/src/main/java/com/selfmailer/app/Prefs.kt
+@@ -38,13 +38,39 @@
+         get() = secure().getString("token", null)
+         set(v) {
+             synchronized(draftLock) {
++                if (v != token) CalendarReminders.cancelAll(ctx)
+                 secure().edit().apply {
++                    remove("personal_verified_token")
+                     if (v == null) { remove("token"); remove("compose_draft"); remove("draft_owner"); remove("current_user_id") } else putString("token", v)
+                 }.commit()
+             }
+         }
+ 
+     private fun ownerKey(userId: Int) = "$serverUrl#$userId"
++
++    val personalUserId: Int get() = synchronized(draftLock) { secure().getInt("current_user_id", 0) }
++    private fun personalTokenHash(value: String) = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
++    val personalVerified: Boolean get() = synchronized(draftLock) {
++        token?.let { personalUserId > 0 && secure().getString("personal_verified_token", "") == personalTokenHash(it) } ?: false
++    }
++    val personalIdentity: String get() = synchronized(draftLock) { secure().getString("personal_identity", "") ?: "" }
++    val personalScope: String get() = ownerKey(personalUserId) + "#" + personalIdentity
++    fun withPersonalToken(expectedToken: String, scope: String, block: () -> Unit) = synchronized(draftLock) {
++        if (token == expectedToken && personalScope == scope && personalVerified) block()
++    }
++    fun pausePersonalToken(expectedToken: String) = synchronized(draftLock) {
++        if (token == expectedToken) { CalendarReminders.cancelAll(ctx); secure().edit().remove("personal_verified_token").commit() }
++    }
++    fun personalState(): org.json.JSONObject = synchronized(draftLock) {
++        if (!personalVerified) return@synchronized org.json.JSONObject()
++        try { org.json.JSONObject(secure().getString("personal:${personalScope}", "{}") ?: "{}") }
++        catch (_: Exception) { org.json.JSONObject() }
++    }
++    fun updatePersonalState(expectedToken: String, transform: (org.json.JSONObject) -> Unit): Boolean = synchronized(draftLock) {
++        if (!personalVerified || token != expectedToken) return@synchronized false
++        val data = personalState(); transform(data)
++        secure().edit().putString("personal:${personalScope}", data.toString()).commit()
++    }
+ 
+     fun cleanupViews(account: Int, folder: String): org.json.JSONArray = synchronized(draftLock) {
+         val user = secure().getInt("current_user_id", 0)
+@@ -66,15 +92,18 @@
+     }
+ 
+     /** Bind to the server-verified numeric user ID, not a reusable username or a rotating JWT. */
+-    fun bindDraftUser(userId: Int): Boolean = synchronized(draftLock) {
++    fun bindDraftUser(userId: Int, created: String = ""): Boolean = synchronized(draftLock) {
+         if (userId <= 0) return@synchronized false
+         val old = secure().getInt("current_user_id", 0)
+-        secure().edit().putInt("current_user_id", userId).commit()
++        secure().edit().putInt("current_user_id", userId).putString("personal_identity", created).apply {
++            val current = token
++            if (current != null && created.isNotBlank()) putString("personal_verified_token", personalTokenHash(current)) else remove("personal_verified_token")
++        }.commit()
+         old == 0 || old == userId
+     }
+ 
+     /** Session expiry requires re-login; it is not the user's request to discard their draft. */
+-    fun expireToken() = synchronized(draftLock) { secure().edit().remove("token").commit() }
++    fun expireToken() = synchronized(draftLock) { CalendarReminders.cancelAll(ctx); secure().edit().remove("token").remove("personal_verified_token").commit() }
+ 
+     /** Same lock as logout: an old session must never write a draft after logout. */
+     fun saveComposeDraft(expectedToken: String, encoded: String?): Boolean = synchronized(draftLock) {
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -1,6 +1,8 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+     <uses-permission android:name="android.permission.INTERNET" />
++    <uses-permission android:name="android.permission.READ_CONTACTS" />
++    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+@@ -16,6 +18,14 @@
+         android:supportsRtl="true"
+         android:theme="@style/Theme.SelfMailer"
+         android:networkSecurityConfig="@xml/network_security_config"><!-- bewusst: LAN-Self-Hosting per http://192.168.x; Setup schlägt https:// vor -->
++        <receiver android:name=".CalendarReminderReceiver" android:exported="false" />
++        <receiver android:name=".PersonalBootReceiver" android:exported="false">
++            <intent-filter>
++                <action android:name="android.intent.action.BOOT_COMPLETED" />
++                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
++                <action android:name="android.intent.action.TIME_SET" />
++            </intent-filter>
++        </receiver>
+         <activity
+             android:name=".MainActivity"
+             android:exported="true"
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -27,8 +27,8 @@
+         targetSdk = 34
+         // versionCode MUSS bei jedem Release steigen, sonst lehnt Android die APK
+         // als Update ab (und der SelfStore bietet sie nicht an).
+-        versionCode = 113
+-        versionName = "1.96.4"
++        versionCode = 115
++        versionName = "1.96.5"
+     }
+     signingConfigs {
+         // Debug-Keystore (Passwort "android" ist Android-Standard, kein Secret).
+--- /dev/null
++++ b/app/src/test/java/com/selfmailer/app/PersonalDataTest.kt
+@@ -0,0 +1,71 @@
++package com.selfmailer.app
++
++import org.junit.Assert.*
++import org.junit.Test
++import java.time.LocalDate
++import java.time.ZoneId
++
++class PersonalDataTest {
++    private fun ev(start: String, end: String, allDay: Boolean = false) = Event(1, "Test", "", "", start, end, allDay, null, "local", "", "")
++    @Test fun labelsFallBackWithoutInventingNames() {
++        assertEquals("Anna Example", contactLabel(" Anna ", "Example ", "a@b"))
++        assertEquals("a@b", contactLabel("", "", "a@b"))
++        assertEquals("(ohne Namen)", contactLabel("", "", ""))
++    }
++    @Test fun phoneFormattingIsNormalizedConservatively() {
++        assertEquals("+49123456789", phoneIdentity("0049 (123) 456789"))
++        assertEquals("0123456789", phoneIdentity("0123 456789"))
++        assertNotEquals(phoneIdentity("0123456789"), phoneIdentity("+49123456789"))
++    }
++    @Test fun conflictsAndDeletedContactsCannotBeAutomaticallyApplied() {
++        listOf("conflict", "ambiguous", "server_deleted", "not_linked", "external", "duplicate_input", "possible_duplicate").forEach {
++            assertFalse(it, it in safePhoneStatuses)
++        }
++    }
++    @Test fun ongoingEventsAppearToday() {
++        val event = ev("2026-10-12T21:00:00Z", "2026-10-14T10:00:00Z")
++        assertEquals(LocalDate.parse("2026-10-13"), agendaDay(event, LocalDate.parse("2026-10-13"), 7, ZoneId.of("UTC")))
++    }
++    @Test fun pastEventsAndEighthDayAreExcluded() {
++        val today = LocalDate.parse("2026-10-13")
++        assertNull(agendaDay(ev("2026-10-12T10:00:00Z", "2026-10-12T11:00:00Z"), today, 7, ZoneId.of("UTC")))
++        assertNull(agendaDay(ev("2026-10-20T10:00:00Z", "2026-10-20T11:00:00Z"), today, 7, ZoneId.of("UTC")))
++    }
++    @Test fun todayUsesDeviceTimezone() {
++        val event = ev("2026-10-12T23:30:00Z", "2026-10-13T00:30:00Z")
++        assertEquals(LocalDate.parse("2026-10-13"), agendaDay(event, LocalDate.parse("2026-10-13"), 1, ZoneId.of("Europe/Berlin")))
++    }
++    @Test fun allDayEndIsExclusiveEvenWestOfUtc() {
++        val event = ev("2026-10-13T00:00:00Z", "2026-10-14T00:00:00Z", true)
++        assertEquals(LocalDate.parse("2026-10-13"), agendaDay(event, LocalDate.parse("2026-10-13"), 1, ZoneId.of("America/Los_Angeles")))
++        assertNull(agendaDay(event, LocalDate.parse("2026-10-14"), 1, ZoneId.of("America/Los_Angeles")))
++    }
++    @Test fun timedReminderHasCorrectOffset() {
++        val event = ev("2026-10-13T10:00:00Z", "2026-10-13T11:00:00Z")
++        assertEquals(java.time.Instant.parse("2026-10-13T09:45:00Z").toEpochMilli(), reminderMillis(event, 15, ZoneId.of("UTC")))
++    }
++    @Test fun allDayReminderIsNineLocalTimeAcrossDst() {
++        val event = ev("2026-10-25T00:00:00Z", "2026-10-26T00:00:00Z", true)
++        assertEquals(java.time.Instant.parse("2026-10-25T08:00:00Z").toEpochMilli(), reminderMillis(event, 0, ZoneId.of("Europe/Berlin")))
++    }
++    @Test fun invalidDatesDoNotCrashAgenda() {
++        assertNull(agendaDay(ev("bad", "bad"), LocalDate.now(), 7))
++    }
++    @Test(expected = IllegalArgumentException::class) fun invalidReminderOffsetIsRejected() {
++        reminderMillis(ev("2026-10-13T10:00:00Z", "2026-10-13T11:00:00Z"), -15)
++    }
++    @Test fun deletedOrReplacedEventRemovesReminderInsteadOfUsingReusedId() {
++        val event = ev("2026-10-13T10:00:00Z", "2026-10-13T11:00:00Z").copy(createdAt = "new")
++        assertEquals(ReminderUpdate.REMOVE, reminderUpdate("old", event.start, false, event))
++        assertEquals(ReminderUpdate.REMOVE, reminderUpdate("old", event.start, false, null))
++    }
++    @Test fun changedStartOrAllDayReschedules() {
++        val event = ev("2026-10-13T10:00:00Z", "2026-10-13T11:00:00Z").copy(createdAt = "same")
++        assertEquals(ReminderUpdate.RESCHEDULE, reminderUpdate("same", "2026-10-13T09:00:00Z", false, event))
++        assertEquals(ReminderUpdate.RESCHEDULE, reminderUpdate("same", event.start, true, event))
++    }
++    @Test fun changingOnlyTitleOrEndDoesNotDeliverTwice() {
++        val event = ev("2026-10-13T10:00:00Z", "2026-10-13T12:00:00Z").copy(createdAt = "same", title = "Renamed")
++        assertEquals(ReminderUpdate.METADATA_ONLY, reminderUpdate("same", event.start, false, event))
++    }
++}
