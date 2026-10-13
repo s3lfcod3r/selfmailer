@@ -1,0 +1,15 @@
+SelfMailer 1.96.6 / Android Build 117
+
+Handykontaktimport in der APK korrigiert: Die Aktion zum Prüfen und Importieren
+liegt jetzt in der festen unteren Buttonleiste. Auf kleinen Bildschirmen konnte
+der bisherige Button unter der Kontaktliste abgeschnitten werden; sichtbar blieb
+nur Schließen. Der Dialoginhalt ist nun scrollbar.
+
+Ablauf: Kontakte auswählen -> Auswahl prüfen -> Importieren … -> Import bestätigen.
+Duplikatvorschau und Schutz vor Konflikten bleiben erhalten. Die Korrektur gilt
+auch für das manuelle Aktualisieren verknüpfter Handykontakte.
+
+56 Android-JVM-Tests, Kotlin-Kompilierung und signierter Release-Build geprüft.
+Bisheriges Release-Zertifikat; Build 117 aktualisiert auch den lokalen Test-Build 116.
+Backend/Web-Version auf 1.96.6 angehoben; Funktionen bleiben mit Server 1.96.5 kompatibel.
+Kein echter Android-Gerätetest in dieser Umgebung.
