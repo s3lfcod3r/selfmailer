@@ -1162,6 +1162,7 @@ def search_messages(
     account: MailAccount, password: str, query: str, folders: list[str],
     per_folder: int = 50, total_limit: int = 200, deadline_s: float = 25.0,
     *, from_addr: str = "", to_addr: str = "", subject: str = "", since: str = "", before: str = "",
+    seen: bool | None = None, flagged: bool | None = None, keyword: str = "", offset: int = 0,
 ) -> dict:
     """VOLLTEXT-Suche direkt auf dem Mailserver (IMAP SEARCH TEXT).
 
@@ -1190,6 +1191,12 @@ def search_messages(
         crit["to"] = to_addr
     if subject:
         crit["subject"] = subject
+    if seen is not None:
+        crit["seen"] = seen
+    if flagged is not None:
+        crit["flagged"] = flagged
+    if keyword:
+        crit["keyword"] = keyword
     d_since, d_before = _ymd(since), _ymd(before)
     if d_since:
         crit["date_gte"] = d_since   # IMAP SINCE
@@ -1203,6 +1210,9 @@ def search_messages(
     started = time.monotonic()
     searched = 0
     timed_out = False
+    total_count = 0
+    truncated = False
+    errors = 0
     for folder in folders:
         if time.monotonic() - started > deadline_s:
             timed_out = True
@@ -1211,12 +1221,17 @@ def search_messages(
             with _mailbox(account, password, folder=folder, read_fallback=True, op="search_messages") as box:
                 generation = mailbox_generation(box, folder)
                 uids = box.uids(search_q)
+                total_count += len(uids)
                 searched += 1
                 if not uids:
                     continue
                 # Höchste UIDs = neueste Mails. Nur die letzten per_folder holen.
-                selected = uids[-per_folder:]
-                for msg in fetch_headers(box, selected, reverse=True):
+                # Numeric ordering also works with providers returning unsorted UIDs.
+                ordered = sorted(uids, key=int, reverse=True)
+                selected = ordered[offset:offset + per_folder]
+                truncated = truncated or offset + len(selected) < len(ordered)
+                before_fetch = len(out)
+                for msg in fetch_headers(box, selected, deadline_s=max(0.0, deadline_s - (time.monotonic() - started))):
                     out.append(
                         {
                             "uid": msg.uid or "",
@@ -1229,13 +1244,17 @@ def search_messages(
                             "flagged": FLAGGED in msg.flags,
                             "snippet": _snippet(msg.text or "", msg.html or ""),
                             "has_attachments": has_attachments(msg),
+                            "labels": keywords_of(msg),
                             "_sort": msg.date,
                         }
                     )
+                if len(out) - before_fetch < len(selected):
+                    timed_out = True
         except Exception as exc:  # noqa: BLE001
             # Ein kaputter/gesperrter Ordner darf die ganze Suche nicht kippen —
             # die übrigen Ordner liefern weiter Treffer.
             _log_imap_problem("Suche im Ordner %r fehlgeschlagen (account_id=%s)", folder, account.id, exc=exc)
+            errors += 1
             continue
     # Über alle Ordner hinweg nach Datum sortieren. Über den Zeitstempel statt über
     # das datetime-Objekt: so kollidieren naive und zeitzonenbehaftete Datumsangaben
@@ -1255,7 +1274,11 @@ def search_messages(
         "folders_searched": searched,
         "folders_total": len(folders),
         "timed_out": timed_out,
-        "truncated": len(out) > total_limit,
+        "truncated": truncated or len(out) > total_limit,
+        "total_count": total_count,
+        "complete": not timed_out and not errors and searched == len(folders),
+        "errors": errors,
+        "offset": offset,
     }
 
 

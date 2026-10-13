@@ -586,6 +586,10 @@ def search(
     subject: str = Query(default="", max_length=200),
     since: str = Query(default="", max_length=10),
     before: str = Query(default="", max_length=10),
+    seen: bool | None = None,
+    flagged: bool | None = None,
+    keyword: str = Query(default="", max_length=100),
+    offset: int = Query(default=0, ge=0, le=1000000),
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
@@ -597,10 +601,23 @@ def search(
     Backend eine Zeitgrenze und meldet dem Client, wenn sie abbrechen musste.
     """
     acc = _account(account_id, user, session)
-    _reject_ctrl(q, folder, from_, to, subject)
+    _reject_ctrl(q, folder, from_, to, subject, keyword)
+    if keyword:
+        _valid_keyword(keyword)
+    if all_folders and offset:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Seitenweise Suche benötigt einen einzelnen Ordner")
+    for date_value in (since, before):
+        if date_value:
+            try:
+                _dt.date.fromisoformat(date_value)
+            except ValueError:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Ungültiges Suchdatum")
     query = q.strip()
     # Mindestens EIN Kriterium (Freitext ODER strukturiert) muss gesetzt sein.
-    if not (query or from_.strip() or to.strip() or subject.strip() or since.strip() or before.strip()):
+    if not (
+        query or from_.strip() or to.strip() or subject.strip() or since.strip() or before.strip()
+        or keyword or seen is not None or flagged is not None
+    ):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Suchbegriff fehlt")
     if query and len(query) < 2:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Suchbegriff zu kurz")
@@ -618,6 +635,7 @@ def search(
             acc, pw, query, folders, total_limit=limit,
             from_addr=from_.strip(), to_addr=to.strip(), subject=subject.strip(),
             since=since.strip(), before=before.strip(),
+            seen=seen, flagged=flagged, keyword=keyword, offset=offset, per_folder=50 if all_folders else limit,
         )
     except imap_mod.ImapBusyError:
         raise

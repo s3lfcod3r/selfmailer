@@ -206,7 +206,7 @@ def backfill_sort_dates(session: Session) -> int:
     NEU parsen + auf naive UTC normalisieren. Behebt falsch sortierte Altbestände
     (gemischte Zeitzonen). Idempotent; liefert die Anzahl korrigierter Zeilen."""
     fixed = 0
-    rows = session.exec(select(CachedMessage).where(CachedMessage.date_str != "")).all()
+    rows = session.exec(select(CachedMessage).options(defer(CachedMessage.detail_json)).where(CachedMessage.date_str != "")).all()
     for r in rows:
         try:
             d = _to_utc_naive(parsedate_to_datetime(r.date_str))
@@ -372,7 +372,7 @@ def recent_unseen(session: Session, account_id: int, folder: str = "INBOX", limi
     der Aufrufer Mails mehrerer Konten zeitlich mischen kann.
     """
     rows = session.exec(
-        select(CachedMessage)
+        select(CachedMessage).options(defer(CachedMessage.detail_json))
         .where(
             CachedMessage.account_id == account_id,
             CachedMessage.folder == folder,
@@ -508,7 +508,7 @@ def read_header(session: Session, account_id: int, folder: str, uid: str) -> dic
     besser die Vorschau aus dem Zwischenspeicher zeigen als „nicht gefunden".
     """
     row = session.exec(
-        select(CachedMessage).where(
+        select(CachedMessage).options(defer(CachedMessage.detail_json)).where(
             CachedMessage.account_id == account_id, CachedMessage.folder == folder, CachedMessage.uid == uid
         )
     ).first()
@@ -524,13 +524,14 @@ def uncached_detail_uids(session: Session, account_id: int, folder: str, uids: l
     if not uids:
         return []
     rows = session.exec(
-        select(CachedMessage.uid, CachedMessage.detail_json).where(
+        select(CachedMessage.uid).where(
             CachedMessage.account_id == account_id,
             CachedMessage.folder == folder,
             CachedMessage.uid.in_(uids),
+            CachedMessage.detail_json != "",
         )
     ).all()
-    have = {uid for uid, dj in rows if dj}
+    have = set(rows)
     return [u for u in uids if u not in have]
 
 

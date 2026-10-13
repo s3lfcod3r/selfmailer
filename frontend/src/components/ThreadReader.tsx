@@ -19,6 +19,7 @@ export type ThreadActions = {
   onMove: (m: MsgHeader, dest: string) => void;
   folders: string[];
   onViewSource: (m: MsgHeader) => void;
+  onSimilar?: (m: MsgHeader) => void;
 };
 
 // Kleiner Absender-Avatar: Kontakt-Foto, sonst Initialen + Farbe.
@@ -250,6 +251,7 @@ export function ThreadReader({
                     <>
                       <div className="menu-backdrop" onClick={() => setMoreMenuKey(null)} />
                       <div className="read-menu">
+                        {actions.onSimilar && <button onClick={() => { setMoreMenuKey(null); actions.onSimilar?.(m); }}>🔎 {lang === "de" ? "Ähnliche Mails anzeigen" : "Show similar messages"}</button>}
                         {/* mail.forward bringt sein Symbol schon mit - kein zweites davor. */}
                         <button onClick={() => { setMoreMenuKey(null); onForward(d); }}>{t("mail.forward")}</button>
                         <hr />

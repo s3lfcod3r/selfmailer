@@ -1,0 +1,97 @@
+SelfMailer – Aufräumen und Optimierung / Release 1.96.4
+13.10.2026
+
+BEDIENUNG
+Web: Ordnerliste → ⋯ → Postfach aufräumen. Einzelne Mail oder Thread-Mail →
+⋯ → Ähnliche Mails anzeigen. APK: 🧹 in der Postfachleiste oder
+„Ähnliche Mails anzeigen / Aufräumen“ in der Mail-/Unterhaltungsansicht.
+
+Absender, Absender-Domain und Betreff verwenden eine ausdrücklich angezeigte
+Enthält-Suche. Bei einer Quellmail werden Adresse/Domain bzw. der von Re/AW/Fwd
+bereinigte Betreff vorgeschlagen. Keine automatische thematische KI-Klassifizierung.
+Stichwörter durchsuchen Kopfzeilen und den vollständigen Mailtext direkt per IMAP.
+Label-Suche verwendet das IMAP-Keyword. Alle Suchen gelten für den gewählten
+gesamten Ordner und erreichen auch Mails außerhalb des lokalen Header-Caches.
+
+Vorschau zeigt jeweils höchstens 100 Mails und die Gesamtzahl der Server-Treffer.
+„Weitere Treffer“ erreicht die folgenden Seiten. Datum „älter als“ ist exklusiv.
+Optional nur gelesene Mails; markierte Mails sind standardmäßig geschützt.
+Bei Timeout, Ordnerfehlern oder fehlenden Headern wird die Vorschau als unvollständig
+gemeldet und die Sammelaktion gesperrt. Ungültige Daten/Keywords werden abgelehnt.
+
+Zielordner wählen (Archiv, Papierkorb oder eigener Ordner), Vorschau prüfen,
+danach den zweiten, konkret beschrifteten Verschieben-Knopf betätigen.
+Nur die angezeigten UIDs werden in einer IMAP-Session verschoben; UIDVALIDITY
+bindet die Aktion an die richtige Postfachgeneration. Keine direkte endgültige
+Löschung im neuen Dialog, keine automatische Aktion beim Laden einer Ansicht.
+Nach einer Aktion neue Vorschau ab Seite 1 laden, um weitere Mails aufzuräumen.
+Dies vermeidet übersprungene Treffer durch die veränderte Seiteneinteilung.
+Schlägt eine Aktion fehl, wird vor einem erneuten Versuch eine frische Vorschau
+verlangt. Bei Teilfehlern können bereits einzelne Mails verschoben worden sein.
+
+REGELN UND ANSICHTEN
+Für Absender/Domain/Betreff lässt sich nach erfolgreichem Verschieben eine
+bestehende Server-Regel für künftige Mails im Posteingang erstellen. Die Regel
+enthält den Suchwert und verschiebt in den gewählten Ordner. Sie übernimmt
+keine Alters-, Gelesen- oder Sternfilter; der Dialog benennt diesen Unterschied.
+Suchwerte mit Komma erhalten diese Option nicht, weil bestehende Regeln Kommas
+als mehrere ODER-Begriffe behandeln. Text-/Label-Suchen können als Ansicht
+gespeichert werden, aber die vorhandene Regel-Engine unterstützt diese Felder nicht.
+Fehler beim anschließenden Regel-Speichern werden getrennt von erfolgreichem
+Verschieben gemeldet; die Verschiebeaktion wird nicht automatisch wiederholt.
+
+Bis zu 10 benannte Ansichten pro Konto und Ordner; gespeicherte Kriterien lösen
+niemals automatisch eine Suche oder Verschiebeaktion aus. Web speichert lokal
+pro Origin/Konto/Ordner, APK verschlüsselt und an Server/Benutzer-ID/Konto/Ordner
+gebunden. Kein geräteübergreifender Abgleich der Ansichten.
+
+ÜBERSICHT UND OPTIMIERUNG
+- Kompakte Mail-/Unterhaltungslisten mit ausblendbarem Vorschautext in Web und APK.
+- Neue Mails werden bei gescrollter Ordnerliste zunächst als Hinweis angeboten.
+  Die Liste übernimmt neue Treffer erst auf Knopfdruck; am Listenanfang wie bisher
+  sofort. Die gemeinsame Inbox behält ihren bisherigen Aktualisierungspfad.
+- Web-Listenabrufe laden keine Bodies automatisch mehr vor; Hover und Öffnen
+  nutzen weiterhin den vorhandenen Body-Cache. Prefetch-Merklisten auf 512 begrenzt;
+  fehlgeschlagenes Vorladen kann erneut versucht werden.
+- Aufräumdialog wird als eigener Web-Chunk erst bei Bedarf geladen.
+- APK liest UI-Einstellungen beim Login einmal statt dreimal vom gleichen Endpunkt.
+- Cache-Header, Ungelesen-Vorschauen und Datumsreparatur laden detail_json nicht mit.
+  Die Prefetch-Präsenzabfrage liefert nur UIDs statt der gesamten gecachten Bodies.
+- RadioDot aus MainActivity als eindeutig ungenutztes privates UI-Element entfernt.
+
+CODEPRÜFUNG
+Alle Backend-Pythondateien syntaktisch/mit Ruff, gesamte Frontend-Quellen mit
+striktem TypeScript (noUnusedLocals/noUnusedParameters), Android über Kotlin-
+Compiler und JVM-Tests geprüft. Referenzsuche umfasst Anwendung und Tests.
+Weitere eindeutig unbenutzte freie Backend-Funktionen, exportierte Frontend-
+Funktionen oder private Kotlin-Funktionen wurden nicht gefunden. Dieses Verfahren
+ist kein Beweis, dass jede dynamisch erreichbare Codezeile tatsächlich genutzt wird.
+Registrierte Endpunkte, Tests, Migrationen und konfigurierbare Fallbacks bleiben
+erhalten. SELFMAILER_FLAG_SEARCH ist ein bestehender opt-in-Pfad, kein toter Code.
+Auch Container-/CI-/Abhängigkeitskonfigurationen sind Teil des gespeicherten Index.
+
+Toter Code beeinflusst häufig hauptsächlich Wartung/Größe. Die oben genannten
+Optimierungen reduzieren nachweisbar Requests bzw. ausgewählte SQL-Spalten;
+keine erfundenen Laufzeit-Prozentwerte. Das Web-Hauptbundle ist weiterhin >500 kB;
+weiteres Aufteilen der großen Mailansicht/Sprachpakete wäre ein eigener Umbau.
+
+PRÜFUNG / AUSLIEFERUNG
+405 Backendtests, 56 Frontendtests, 42 Android-JVM-Tests; Ruff, TypeScript,
+Vite-Produktionsbuild, compileDebugKotlin, testDebugUnitTest und assembleRelease.
+Neue Regressionen prüfen Seiten jenseits der ersten 50, Gesamtzahl/Kürzung,
+Schutzfilter, Header-/Ordnerfehler, Parameterweitergabe, Loginpflicht, Preview-
+Bestätigung, UIDVALIDITY, Sammelaktionen, Regel-Teilfehler, gespeicherte Ansichten,
+Doppelklickschutz und SQL-Spalten ohne Mailtext.
+Lokaler HTTP-Smoke: Health, Web-Shell/CSP/Assets, Logout/Logout-all.
+APK 1.96.4 / Build 113: gleiches Release-Zertifikat wie öffentliche 1.96.3;
+Signatur/Manifest/ZIP-CRC/eigener Bytecode geprüft. Android-Patch inkrementell
+gegen die verifizierten 1.96.3-Quellen; git apply --ignore-space-change.
+
+Release 1.96.4 / Build 113 wird zusammen mit dem aktualisierten SelfStore veröffentlicht.
+Die Veröffentlichung und CI-Ergebnisse werden separat in der Projektübersicht belegt. Neuer Serverstand ist für die neuen
+Suchparameter und die verlässliche Vorschau nötig; laufenden Container nicht
+geändert. Docker CLI fehlt; kein neuer lokaler Container-Lauf. Kein Android-Gerät
+oder Emulator angeschlossen: Installation/App-Wechsel/Biometrie und echte
+IMAP-/SMTP-/DAV-/Push-Provider bleiben praktische Prüfungen am Gerät/Server.
+Neue Aufräumtexte Web deutsch/englisch, APK deutsch; bestehende Übersetzungen
+anderer Bereiche werden nicht als vollständig übersetzter neuer Dialog ausgegeben.
