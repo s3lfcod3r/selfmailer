@@ -1,0 +1,1269 @@
+--- a/app/src/main/java/com/selfmailer/app/MainActivity.kt
++++ b/app/src/main/java/com/selfmailer/app/MainActivity.kt
+@@ -12,11 +12,17 @@
+ import android.webkit.WebViewClient
+ import android.widget.Toast
+ import androidx.activity.compose.setContent
++import androidx.activity.compose.BackHandler
++import androidx.compose.foundation.ScrollState
++import androidx.compose.foundation.lazy.LazyListState
++import androidx.compose.ui.text.TextRange
++import androidx.compose.ui.text.input.TextFieldValue
+ import androidx.activity.result.contract.ActivityResultContracts
+ import androidx.appcompat.app.AppCompatActivity
+ import androidx.biometric.BiometricManager
+ import androidx.biometric.BiometricPrompt
+ import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.horizontalScroll
+ import androidx.compose.foundation.ExperimentalFoundationApi
+ import androidx.compose.foundation.Image
+ import androidx.compose.foundation.background
+@@ -126,19 +132,6 @@
+ private const val SIS_ACCOUNT_ID = "sis_account_id"
+ private const val SIS_FOLDER_NAME = "sis_folder_name"
+ private const val SIS_OPEN_UID = "sis_open_uid"
+-private const val SIS_C_TO = "sis_c_to"
+-private const val SIS_C_CC = "sis_c_cc"
+-private const val SIS_C_SUBJECT = "sis_c_subject"
+-private const val SIS_C_BODY = "sis_c_body"
+-private const val SIS_C_IN_REPLY_TO = "sis_c_in_reply_to"
+-private const val SIS_C_ACCOUNT_ID = "sis_c_account_id"
+-private const val SIS_C_QUOTED_TEXT = "sis_c_quoted_text"
+-private const val SIS_C_QUOTED_HTML = "sis_c_quoted_html"
+-private const val SIS_C_IDENT_ID = "sis_c_ident_id"
+-private const val SIS_C_IDENT_ACC = "sis_c_ident_acc"
+-private const val SIS_C_IDENT_NAME = "sis_c_ident_name"
+-private const val SIS_C_IDENT_EMAIL = "sis_c_ident_email"
+-private const val SIS_C_IDENT_SIG = "sis_c_ident_sig"
+ 
+ class MainActivity : AppCompatActivity() {
+     private lateinit var prefs: Prefs
+@@ -276,7 +269,21 @@
+     private var cTo by mutableStateOf("")
+     private var cCc by mutableStateOf("")
+     private var cSubject by mutableStateOf("")
+-    private var cBody by mutableStateOf("")
++    private var composeBodyValue by mutableStateOf(TextFieldValue(""))
++    private var cBody: String
++        get() = composeBodyValue.text
++        set(value) { composeBodyValue = TextFieldValue(value, TextRange(value.length)) }
++    private val composeScroll = ScrollState(0)
++    private var savedDraft by mutableStateOf<ComposeDraft?>(null)
++    private var phaseBeforeLock = "shell"
++    private var discardDraftOpen by mutableStateOf(false)
++    private var replaceDraftOpen by mutableStateOf(false)
++    private var pendingComposeAction: (() -> Unit)? = null
++    private val mailListStates = linkedMapOf<String, LazyListState>()
++    private val mailLoadedCounts = mutableMapOf<String, Int>()
++    private var returnToUnified = false
++    private var unifiedOffset = 0
++    private var unifiedHasMore by mutableStateOf(false)
+     private var cInReplyTo = ""
+     private var cAccount by mutableStateOf<Account?>(null)
+     // Absender-Identität/Alias (null = Konto-Adresse) + der aktuell im Text stehende
+@@ -296,6 +303,8 @@
+     private var cShowQuote by mutableStateOf(true)
+     // Vorlagen + „Senden rückgängig".
+     private var templates by mutableStateOf<List<MailTemplate>>(emptyList())
++    private var composeSendEpoch = 0L
++    private var composeSending by mutableStateOf(false)
+     private var sendCountdown by mutableStateOf<Int?>(null)   // null = kein Versand geplant
+     private var sendJob: Job? = null
+     private var tplSaveOpen by mutableStateOf(false)
+@@ -346,6 +355,10 @@
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+         prefs = Prefs(this)
++        if (prefs.token != null) {
++            savedDraft = ComposeDraft.decode(prefs.composeDraft)
++            savedDraft?.let { restoreDraftFields(it) }
++        }
+         lang = I18n.normalize(prefs.lang.ifBlank { java.util.Locale.getDefault().language })
+         if (prefs.serverUrl.isBlank()) {
+             startActivity(Intent(this, SetupActivity::class.java)); finish(); return
+@@ -381,67 +394,55 @@
+      *  eigentlichen Objekte werden beim Neustart ohnehin frisch vom Server geladen. */
+     override fun onSaveInstanceState(outState: Bundle) {
+         super.onSaveInstanceState(outState)
+-        outState.putString(SIS_PHASE, phase)
++        if (phase == "compose" || (phase == "locked" && phaseBeforeLock == "compose")) persistComposeDraft()
++        outState.putString(SIS_PHASE, if (phase == "locked") phaseBeforeLock else phase)
+         outState.putString(SIS_TAB, tab)
++        outState.putBoolean("filter_unread", fUnread)
++        outState.putBoolean("filter_star", fStar)
++        outState.putBoolean("filter_attachment", fAttach)
++        outState.putBoolean("search_open", searchOpen)
++        outState.putString("search_query", searchQuery.take(200))
++        outState.putString("label_filter", labelFilter)
++        outState.putBoolean("unified_mode", unifiedMode || returnToUnified)
++        val positions = Bundle()
++        mailListStates.entries.toList().takeLast(64).forEach { (key, state) ->
++            positions.putIntArray(key, intArrayOf(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset))
++        }
++        outState.putBundle("mail_positions", positions)
++        val counts = Bundle()
++        mailLoadedCounts.forEach { (key, count) -> counts.putInt(key, count.coerceAtMost(1000)) }
++        outState.putBundle("mail_loaded_counts", counts)
+         activeAccount?.id?.let { outState.putInt(SIS_ACCOUNT_ID, it) }
+         activeFolder?.name?.let { outState.putString(SIS_FOLDER_NAME, it) }
+         openMsg?.uid?.let { outState.putString(SIS_OPEN_UID, it) }
+-        // Compose-Entwurf (unabhängig vom Netzwerk — direkt wiederherstellbar).
+-        outState.putString(SIS_C_TO, cTo)
+-        outState.putString(SIS_C_CC, cCc)
+-        outState.putString(SIS_C_SUBJECT, cSubject)
+-        outState.putString(SIS_C_BODY, cBody)
+-        outState.putString(SIS_C_IN_REPLY_TO, cInReplyTo)
+-        // Zitat nur persistieren, wenn es das Bundle nicht sprengt (Binder-Limit ~1 MB;
+-        // TransactionTooLargeException crasht sonst beim Rotieren/Backgrounden).
+-        // Zu groß → Zitat geht bei Prozess-Tod verloren, aber die App crasht nicht.
+-        if (cQuotedText.length + cQuotedHtml.length <= 150_000) {
+-            outState.putString(SIS_C_QUOTED_TEXT, cQuotedText)
+-            outState.putString(SIS_C_QUOTED_HTML, cQuotedHtml)
+-        }
+-        cAccount?.id?.let { outState.putInt(SIS_C_ACCOUNT_ID, it) }
+-        // Gewählte Identität VOLLSTÄNDIG sichern (nicht nur die ID): beim Restore sind
+-        // die Identitäten noch nicht vom Server geladen — ohne das ginge die Mail nach
+-        // Prozess-Tod still von der Konto-Adresse raus statt vom gewählten Alias.
+-        cIdentity?.let { i ->
+-            outState.putInt(SIS_C_IDENT_ID, i.id)
+-            outState.putInt(SIS_C_IDENT_ACC, i.accountId)
+-            outState.putString(SIS_C_IDENT_NAME, i.name)
+-            outState.putString(SIS_C_IDENT_EMAIL, i.email)
+-            outState.putString(SIS_C_IDENT_SIG, i.signature)
+-        }
++        // Large draft bodies/quotes stay in encrypted storage, outside Binder's Bundle limit.
++
+     }
+ 
+     /** Gesicherten Zustand einlesen: Draft-Text sofort, Kennungen für afterAuth/switchAccount merken. */
+     private fun restoreInstanceState(s: Bundle) {
++        s.getBundle("mail_positions")?.let { positions ->
++            positions.keySet().take(64).forEach { key -> positions.getIntArray(key)?.let { v ->
++                if (v.size == 2) mailListStates[key] = LazyListState(v[0].coerceAtLeast(0), v[1].coerceAtLeast(0))
++            } }
++        }
++        s.getBundle("mail_loaded_counts")?.let { counts -> counts.keySet().take(64).forEach {
++            mailLoadedCounts[it] = counts.getInt(it).coerceIn(50, 1000)
++        } }
++        fUnread = s.getBoolean("filter_unread")
++        fStar = s.getBoolean("filter_star")
++        fAttach = s.getBoolean("filter_attachment")
++        searchOpen = s.getBoolean("search_open")
++        searchQuery = s.getString("search_query", "")
++        labelFilter = s.getString("label_filter")
++        unifiedMode = s.getBoolean("unified_mode")
+         restorePhase = s.getString(SIS_PHASE)
+         restoreTab = s.getString(SIS_TAB)
+         restoreAccountId = if (s.containsKey(SIS_ACCOUNT_ID)) s.getInt(SIS_ACCOUNT_ID) else null
+         restoreFolderName = s.getString(SIS_FOLDER_NAME)
+         restoreOpenUid = s.getString(SIS_OPEN_UID)
+-        // Entwurfstext direkt zurückspielen (reine Strings).
+-        cTo = s.getString(SIS_C_TO, "")
+-        cCc = s.getString(SIS_C_CC, "")
+-        cSubject = s.getString(SIS_C_SUBJECT, "")
+-        cBody = s.getString(SIS_C_BODY, "")
+-        cInReplyTo = s.getString(SIS_C_IN_REPLY_TO, "")
+-        cQuotedText = s.getString(SIS_C_QUOTED_TEXT, "")
+-        cQuotedHtml = s.getString(SIS_C_QUOTED_HTML, "")
+-        restoreComposeAccountId = if (s.containsKey(SIS_C_ACCOUNT_ID)) s.getInt(SIS_C_ACCOUNT_ID) else null
+-        // Identität direkt aus dem Bundle rekonstruieren (netzwerkunabhängig).
+-        if (s.containsKey(SIS_C_IDENT_ID)) {
+-            cIdentity = Identity(
+-                id = s.getInt(SIS_C_IDENT_ID),
+-                accountId = s.getInt(SIS_C_IDENT_ACC),
+-                name = s.getString(SIS_C_IDENT_NAME, ""),
+-                email = s.getString(SIS_C_IDENT_EMAIL, ""),
+-                signature = s.getString(SIS_C_IDENT_SIG, ""),
+-                isDefault = false,
+-            )
+-            // Signatur-Suffix passend zur restaurierten Identität, damit ein späterer
+-            // Wechsel (applyFrom) die Signatur im Text wiederfindet und austauscht.
+-            cSigApplied = sigSuffix(cIdentity?.signature ?: "")
+-        }
++        savedDraft?.let { restoreDraftFields(it) }
++
+     }
+ 
+     /** Deep-Link-Extra säubern: nicht vertrauenswürdige Notification-Daten auf sinnvolle
+@@ -452,6 +453,7 @@
+     override fun onNewIntent(intent: Intent) {
+         super.onNewIntent(intent)
+         setIntent(intent)
++        if (phase == "compose") persistComposeDraft()
+         // Extras sind untrusted (siehe onCreate) → gleich defensiv validieren.
+         val pid = intent.getStringExtra("account_id")?.toIntOrNull()?.takeIf { it > 0 } ?: return
+         val uid = cleanExtra(intent.getStringExtra("uid"), 128)
+@@ -478,13 +480,15 @@
+     }
+ 
+     override fun onStop() {
++        if (phase == "compose") persistComposeDraft()
+         super.onStop()
+         foreground = false
+         stopEventStream()
+         stopForegroundPoll()
+         // App-Sperre: beim Verlassen sperren, falls aktiv und angemeldet.
+         if (!prompting && prefs.biometricLock && canBiometric() && prefs.token != null &&
+-            phase in listOf("shell", "read", "pdf", "compose", "settings")) {
++            phase in listOf("shell", "read", "thread", "pdf", "compose", "settings", "notifyfolders")) {
++            phaseBeforeLock = phase
+             phase = "locked"
+         }
+     }
+@@ -634,7 +638,8 @@
+             object : BiometricPrompt.AuthenticationCallback() {
+                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                     prompting = false
+-                    if (accounts.isEmpty() || pendingAccountId != null) afterAuth() else phase = "shell"
++                    if (accounts.isEmpty() || pendingAccountId != null) afterAuth()
++                    else phase = unlockedDestination(phaseBeforeLock)
+                 }
+                 override fun onAuthenticationError(code: Int, msg: CharSequence) { prompting = false; phase = "locked" }
+                 override fun onAuthenticationFailed() { /* einzelner Fehlversuch: Prompt bleibt offen */ }
+@@ -833,7 +838,7 @@
+         busyCount++; error = null
+         return lifecycleScope.launch {
+             try { block() }
+-            catch (e: ApiException) { error = e.message; if (e.status == 401) logout() }
++            catch (e: ApiException) { error = e.message; if (e.status == 401) logout(preserveDraft = true) }
+             catch (e: Exception) {
+                 if (e is kotlinx.coroutines.CancellationException) throw e
+                 error = e.message ?: t("Fehler")
+@@ -847,12 +852,14 @@
+         prefs.token = t; api.token = t
+     }
+ 
+-    private fun logout() {
++    private fun logout(preserveDraft: Boolean = false) {
++        if (preserveDraft && (phase == "compose" || (phase == "locked" && phaseBeforeLock == "compose"))) persistComposeDraft()
+         val oldApi = Api(prefs.serverUrl).also { it.token = prefs.token }
+         val oldToken = prefs.fcmToken
+         val oldBinding = prefs.pushSessionId
+         prefs.pushSessionId = ""
+-        prefs.token = null; api.token = null
++        if (preserveDraft) prefs.expireToken() else prefs.token = null
++        api.token = null
+         listEpoch++; openEpoch++; threadReqId++
+         lifecycleScope.coroutineContext.cancelChildren()
+         stopEventStream(); stopForegroundPoll()
+@@ -864,12 +871,19 @@
+             }
+             try { oldApi.logout() } catch (_: Exception) {}
+         }
++        composeSending = false; sendCountdown = null
++        savedDraft = null; cTo = ""; cCc = ""; cSubject = ""; cBody = ""
++        cQuotedText = ""; cQuotedHtml = ""; cIdentity = null; cAccount = null
++        discardDraftOpen = false; replaceDraftOpen = false; pendingComposeAction = null
++        mailListStates.clear(); mailLoadedCounts.clear(); phaseBeforeLock = "shell"
++        unifiedRows = emptyList(); unifiedMode = false; unifiedHasMore = false; returnToUnified = false
+         pendingDeletes.clear(); deletingCount = 0
+         syncBackoff.clear(); syncing = false
+         accounts = emptyList(); folders = emptyList(); messages = emptyList()
+         openMsg = null; activeAccount = null; activeFolder = null
+         openThread = null; threadDetails = emptyMap(); selectedUids = emptySet()
+         pendingAccountId = null; pendingOpenUid = null; pendingOpenFolder = null
++        clearRestoreState()
+         events = emptyList(); notes = emptyList()
+         phase = "login"
+     }
+@@ -900,9 +914,18 @@
+             try { conversationView = api.uiConversationView() } catch (_: Exception) { /* alter Server */ }
+             // Postfach-Reihenfolge vom Server übernehmen (geräteübergreifend). Leer/alt -> lokal.
+             try { val ord = api.accountOrder(); if (ord.isNotEmpty()) prefs.accountOrder = ord } catch (_: Exception) { /* alter Server */ }
+-            val m = try { api.me() } catch (_: Exception) { JSONObject() }
++            val m = api.me()
+             m to api.listAccounts()
+         }
++        val verifiedUserId = me.getInt("id")
++        require(verifiedUserId > 0)
++        val sameUser = prefs.bindDraftUser(verifiedUserId)
++        if (!sameUser) {
++            savedDraft = null; cTo = ""; cCc = ""; cSubject = ""; cBody = ""
++            cQuotedText = ""; cQuotedHtml = ""; cIdentity = null; cAccount = null
++            clearRestoreState()
++        }
++        savedDraft = ComposeDraft.decode(prefs.composeDraft)
+         userName = me.optString("display_name").ifBlank { me.optString("username") }
+         val ordered = orderAccounts(accs)
+         accounts = ordered
+@@ -940,7 +963,7 @@
+     /** Gemerkten Zustand (Tab, offene Mail, ungesendeter Entwurf) nach dem Laden anwenden. */
+     private fun applyRestoredState(restoredAcc: Account?) {
+         val rPhase = restorePhase
+-        if (rPhase == null) { clearRestoreState(); return }
++        if (rPhase == null) { if (unifiedMode) loadUnified(); clearRestoreState(); return }
+         restoreTab?.let { tab = it }
+         when (rPhase) {
+             "read" -> {
+@@ -951,13 +974,14 @@
+             }
+             "compose" -> {
+                 // Entwurfstext wurde bereits in onCreate zurückgespielt; Absender + Ansicht setzen.
++                savedDraft?.let { restoreDraftFields(it) }
+                 cAccount = restoreComposeAccountId?.let { rid -> accounts.firstOrNull { it.id == rid } }
+-                    ?: activeAccount ?: accounts.firstOrNull()
+                 phase = "compose"
+             }
+             "shell", "settings", "notifyfolders" -> phase = rPhase
+             // "pdf"/"loading"/"locked"/"login"/"totp" nicht wiederherstellen → sicher in der Shell landen.
+         }
++        if (unifiedMode) loadUnified()
+         clearRestoreState()
+     }
+ 
+@@ -1135,7 +1159,7 @@
+     // (keine Seiten), sonst normal seitenweise. Läuft im IO-Dispatcher.
+     private suspend fun fetchList(acc: Account, folder: Folder, atLeast: Int): List<MessageHeader> {
+         val lf = labelFilter
+-        val lim = if (lf != null) labelLoadLimit else atLeast
++        val lim = if (lf != null) labelLoadLimit else maxOf(atLeast, mailLoadedCounts["${acc.id}:${folder.name}"] ?: pageSize).coerceAtMost(1000)
+         return withContext(Dispatchers.IO) { api.messages(acc.id, folder.name, lim, 0, lf ?: "") }
+     }
+ 
+@@ -1146,6 +1170,9 @@
+     private fun acceptMessages(fresh: List<MessageHeader>) {
+         if (selectedUids.isNotEmpty() && fresh.firstOrNull()?.uidValidity != selectionGeneration) clearSelect()
+         messages = fresh
++        activeAccount?.let { acc -> activeFolder?.let { folder ->
++            mailLoadedCounts["${acc.id}:${folder.name}"] = fresh.size.coerceAtMost(1000)
++        } }
+     }
+ 
+     // Label-Filter setzen UND die Liste passend neu laden (serverseitig über alle Seiten).
+@@ -1192,12 +1219,13 @@
+         val offset = listOffset
+         val generation = messages.firstOrNull()?.uidValidity
+         bg {
+-            val more = withContext(Dispatchers.IO) { api.messages(acc.id, folder.name, pageSize, offset) }
++            val amount = if (MailFilters(searchQuery, fUnread, fStar, fAttach).active) 200 else pageSize
++            val more = withContext(Dispatchers.IO) { api.messages(acc.id, folder.name, amount, offset) }
+             if (!listCurrent(acc, folder, epoch, null)) return@bg
+             if (more.isNotEmpty() && generation != more.first().uidValidity) {
+                 loadFolderMessages(acc, folder, sync = false); return@bg
+             }
+-            messages = messages + more; listOffset += more.size; hasMore = more.size >= pageSize
++            acceptMessages(messages + more); listOffset += more.size; hasMore = more.size >= amount
+         }
+     }
+ 
+@@ -1650,7 +1678,80 @@
+     }
+ 
+     // ---- Schreiben -------------------------------------------------------
++    @Composable
++    private fun DraftDialogs() {
++        if (discardDraftOpen || replaceDraftOpen) AlertDialog(
++            onDismissRequest = { discardDraftOpen = false; replaceDraftOpen = false; pendingComposeAction = null },
++            title = { Text("Entwurf verwerfen?") },
++            text = { Text("Der gespeicherte Entwurf wird gelöscht. Diese Aktion lässt sich nicht rückgängig machen.") },
++            confirmButton = { TextButton(onClick = {
++                if (discardDraft()) {
++                    val action = pendingComposeAction
++                    pendingComposeAction = null; discardDraftOpen = false; replaceDraftOpen = false
++                    if (action != null) action() else phase = "shell"
++                }
++            }) { Text("Verwerfen") } },
++            dismissButton = { TextButton(onClick = {
++                val resume = replaceDraftOpen
++                discardDraftOpen = false; replaceDraftOpen = false; pendingComposeAction = null
++                if (resume) resumeDraft()
++            }) { Text(if (replaceDraftOpen) "Entwurf fortsetzen" else t("Abbrechen")) } }
++        )
++    }
++
++    private fun snapshotDraft() = ComposeDraft(cAccount?.id ?: restoreComposeAccountId,
++        cTo, cCc, cSubject, cBody, cInReplyTo, cQuotedText, cQuotedHtml, cShowQuote,
++        cIdentity, cSigApplied, composeBodyValue.selection.start, composeBodyValue.selection.end, composeScroll.value)
++
++    private fun persistComposeDraft(): Boolean {
++        val token = prefs.token ?: return false
++        val draft = snapshotDraft()
++        return try {
++            val success = prefs.saveComposeDraft(token, draft.encode())
++            if (success) savedDraft = draft
++            else error = "Entwurf konnte nicht gespeichert werden. Bitte erneut versuchen."
++            success
++        } catch (_: Exception) { error = "Entwurf konnte nicht gespeichert werden. Bitte erneut versuchen."; false }
++    }
++
++    private fun restoreDraftFields(draft: ComposeDraft) {
++        cTo = draft.to; cCc = draft.cc; cSubject = draft.subject
++        composeBodyValue = TextFieldValue(draft.body, TextRange(draft.selectionStart, draft.selectionEnd))
++        cInReplyTo = draft.inReplyTo; cQuotedText = draft.quotedText; cQuotedHtml = draft.quotedHtml
++        cShowQuote = draft.showQuote; cIdentity = draft.identity; cSigApplied = draft.signature
++        restoreComposeAccountId = draft.accountId
++        cAccount = accounts.firstOrNull { it.id == draft.accountId }
++        lifecycleScope.launch { composeScroll.scrollTo(draft.scroll) }
++    }
++
++    private fun resumeDraft() {
++        savedDraft?.let { restoreDraftFields(it); phase = "compose" }
++    }
++
++    private fun discardDraft(): Boolean {
++        val token = prefs.token ?: return false
++        if (!prefs.saveComposeDraft(token, null)) { error = "Entwurf konnte nicht gelöscht werden."; return false }
++        savedDraft = null; restoreComposeAccountId = null
++        return true
++    }
++
++    private fun closeCompose() {
++        if (composeSending && sendCountdown == null) { error = "Versand läuft. Bitte auf das Ergebnis warten."; return }
++        undoSend()
++        if (persistComposeDraft()) phase = "shell"
++    }
++
+     private fun startCompose(reply: MessageDetail? = null, forward: MessageDetail? = null) {
++        if (savedDraft != null) {
++            if (reply == null && forward == null) { resumeDraft(); return }
++            pendingComposeAction = { beginCompose(reply, forward) }
++            replaceDraftOpen = true
++            return
++        }
++        beginCompose(reply, forward)
++    }
++
++    private fun beginCompose(reply: MessageDetail? = null, forward: MessageDetail? = null) {
+         val acc = activeAccount ?: accounts.firstOrNull()
+         when {
+             reply != null -> {
+@@ -1678,6 +1779,8 @@
+         // Standard-Identität des Kontos vorwählen (falls vorhanden), sonst Konto-Signatur.
+         val def = acc?.let { a -> identities.firstOrNull { it.accountId == a.id && it.isDefault } }
+         cAccount = acc
++        restoreComposeAccountId = acc?.id
++        lifecycleScope.launch { composeScroll.scrollTo(0) }
+         cIdentity = def
+         val suffix = sigSuffix(def?.signature ?: acc?.signature ?: "")
+         if (suffix.isNotEmpty()) cBody += suffix
+@@ -1692,6 +1795,7 @@
+     /** Absender wechseln (Konto oder Alias) und die Signatur im Text sauber austauschen. */
+     private fun applyFrom(acc: Account?, ident: Identity?) {
+         cAccount = acc
++        restoreComposeAccountId = acc?.id
+         cIdentity = ident
+         val suffix = sigSuffix(ident?.signature ?: acc?.signature ?: "")
+         // Alte Signatur tolerant entfernen: exakter Suffix ODER — falls der Nutzer den
+@@ -1710,31 +1814,43 @@
+     }
+ 
+     private fun sendCompose() {
+-        val acc = cAccount ?: activeAccount ?: return
++        if (composeSending) return
++        val acc = cAccount ?: run { error = "Bitte ein Absenderkonto wählen."; return }
+         val to = splitAddrs(cTo)
+         if (to.isEmpty()) { error = t("Mindestens einen Empfänger angeben"); return }
+         // „Senden rückgängig": 5-Sek-Countdown, in dem sich der Versand abbrechen
+         // lässt (wie Gmail). Erst danach echter SMTP-Versand.
+         sendJob?.cancel()
++        if (!persistComposeDraft()) return
++        composeSending = true
++        val sendEpoch = ++composeSendEpoch
++        val draft = snapshotDraft()
++        val html = buildReplyHtml()
+         sendJob = lifecycleScope.launch {
+             try {
+                 for (i in 5 downTo 1) { sendCountdown = i; kotlinx.coroutines.delay(1000) }
+                 sendCountdown = null
+-                val cc = splitAddrs(cCc)
+-                val html = buildReplyHtml()
++                val cc = splitAddrs(draft.cc)
+                 // Plaintext-Teil: eigener Text + Signatur (cBody) plus "> "-Zitat (cQuotedText).
+-                val plain = cBody + cQuotedText
++                val plain = draft.body + draft.quotedText
+                 withContext(Dispatchers.IO) {
+-                    api.send(acc.id, to, cc, cSubject, plain, html = html, inReplyTo = cInReplyTo,
+-                        fromAddr = cIdentity?.email ?: "", fromName = cIdentity?.name ?: "")
+-                }
+-                phase = "shell"
++                    api.send(acc.id, to, cc, draft.subject, plain, html = html, inReplyTo = draft.inReplyTo,
++                        fromAddr = draft.identity?.email ?: "", fromName = draft.identity?.name ?: "")
++                }
++                discardDraft()
++                phaseBeforeLock = "shell"
++                if (phase != "locked") phase = "shell"
+             } catch (_: kotlinx.coroutines.CancellationException) {
+-                sendCountdown = null   // abgebrochen → Compose bleibt offen
+-            }
+-        }
+-    }
+-    private fun undoSend() { sendJob?.cancel(); sendCountdown = null }
++                if (sendEpoch == composeSendEpoch) sendCountdown = null
++            } catch (e: Exception) {
++                sendCountdown = null
++                error = e.message ?: t("Fehler")
++            } finally { if (sendEpoch == composeSendEpoch) composeSending = false }
++        }
++    }
++    private fun undoSend() {
++        if (sendCountdown != null) { composeSendEpoch++; sendJob?.cancel(); sendCountdown = null; composeSending = false }
++    }
+ 
+     // ---- Später senden --------------------------------------------------
+     private fun isoUtc(whenMillis: Long): String {
+@@ -1743,16 +1859,23 @@
+         return fmt.format(java.util.Date(whenMillis))
+     }
+     private fun scheduleCompose(whenMillis: Long) {
+-        val acc = cAccount ?: activeAccount ?: return
++        if (composeSending) return
++        val acc = cAccount ?: run { error = "Bitte ein Absenderkonto wählen."; return }
+         val to = splitAddrs(cTo)
+         if (to.isEmpty()) { error = t("Mindestens einen Empfänger angeben"); return }
+         if (whenMillis <= System.currentTimeMillis()) { error = t("Zeitpunkt liegt in der Vergangenheit"); return }
+         val iso = isoUtc(whenMillis)
++        if (!persistComposeDraft()) return
++        val draft = snapshotDraft()
++        val html = buildReplyHtml()
++        composeSending = true
+         bg {
+-            val html = buildReplyHtml()
+-            try { withContext(Dispatchers.IO) { api.scheduleSend(acc.id, to, splitAddrs(cCc), cSubject, cBody + cQuotedText, html, cInReplyTo, iso, cIdentity?.email ?: "", cIdentity?.name ?: "") } }
+-            catch (e: Exception) { error = e.message ?: "Fehler"; return@bg }
+-            phase = "shell"
++            try {
++                withContext(Dispatchers.IO) { api.scheduleSend(acc.id, to, splitAddrs(draft.cc), draft.subject, draft.body + draft.quotedText, html, draft.inReplyTo, iso, draft.identity?.email ?: "", draft.identity?.name ?: "") }
++                discardDraft()
++                phaseBeforeLock = "shell"
++                if (phase != "locked") phase = "shell"
++            } finally { composeSending = false }
+         }
+     }
+     private fun pickCustomSchedule() {
+@@ -1823,17 +1946,38 @@
+         val list = try { withContext(Dispatchers.IO) { api.identities() } } catch (_: Exception) { return@bg }
+         identities = list
+     }
+-    private fun loadUnified() = bg {
++    private fun loadUnified(more: Boolean = false) = bg {
++        if (unifiedBusy) return@bg
++        val token = prefs.token
++        val offset = if (more) unifiedOffset else 0
+         unifiedBusy = true
+         try {
+-            unifiedRows = withContext(Dispatchers.IO) { api.unifiedMessages() }
+-        } catch (_: Exception) {
+-            error = t("Unified Inbox konnte nicht geladen werden")
+-        } finally { unifiedBusy = false }
++            val rows = withContext(Dispatchers.IO) { api.unifiedMessages(offset = offset) }
++            if (token != prefs.token) return@bg
++            unifiedRows = if (more) (unifiedRows + rows).distinctBy { "${it.accountId}:${it.header.folder}:${it.header.uidValidity}:${it.header.uid}" } else rows
++            unifiedOffset = offset + rows.size; unifiedHasMore = rows.size >= 100
++        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
++        catch (_: Exception) { error = t("Unified Inbox konnte nicht geladen werden") }
++        finally { unifiedBusy = false }
+     }
+     /** Zeile der Unified Inbox angetippt: ins Konto wechseln und die Mail öffnen. */
++    private fun returnToMailList() {
++        threadReqId++; openEpoch++
++        openThread = null; phase = "shell"
++        if (returnToUnified) { unifiedMode = true; returnToUnified = false }
++    }
++
++    private fun openUnifiedConversation(u: UnifiedMsg, conv: Conv) {
++        val acc = accounts.firstOrNull { it.id == u.accountId } ?: return
++        returnToUnified = true; unifiedMode = false
++        switchAccount(acc)
++        activeFolder = Folder(conv.latest.folder.ifBlank { "INBOX" }, 0, 0)
++        openConversation(conv)
++    }
++
+     private fun openUnifiedMsg(u: UnifiedMsg) {
+         val acc = accounts.firstOrNull { it.id == u.accountId } ?: return
++        returnToUnified = true
+         unifiedMode = false
+         openFromPush(acc, "INBOX", u.header.uid, u.header.uidValidity)
+     }
+@@ -2365,6 +2509,13 @@
+     // =====================================================================
+     @Composable
+     private fun Root() {
++        LaunchedEffect(phase, cTo, cCc, cSubject, composeBodyValue, cAccount, cIdentity,
++            cQuotedText, cQuotedHtml, cShowQuote, composeScroll.value) {
++            if (phase == "compose") { kotlinx.coroutines.delay(400); persistComposeDraft() }
++        }
++        BackHandler(enabled = phase == "compose") { closeCompose() }
++        BackHandler(enabled = phase == "read" || phase == "thread") { returnToMailList() }
++        if (prefs.token != null && phase in listOf("shell", "read", "thread", "compose")) DraftDialogs()
+         when (phase) {
+             "loading" -> CenterMsg(t("Lade …"))
+             "locked" -> LockedScreen()
+@@ -2693,7 +2844,7 @@
+                     }
+                     IconButton(onClick = {
+                         searchOpen = !searchOpen
+-                        if (!searchOpen) { searchQuery = ""; fUnread = false; fAttach = false; fStar = false }
++                        if (!searchOpen) searchQuery = ""
+                     }) {
+                         Icon(if (searchOpen) Icons.Filled.Close else Icons.Filled.Search, t("Suche"), tint = SelfText)
+                     }
+@@ -2925,72 +3076,77 @@
+     }
+ 
+     // ---- Mail-Tab --------------------------------------------------------
++    private fun retainedMailListState(key: String): LazyListState {
++        if (key !in mailListStates && mailListStates.size >= 64) mailListStates.remove(mailListStates.keys.first())
++        return mailListStates.getOrPut(key) { LazyListState() }
++    }
++
+     @Composable
+     private fun MailTab() {
+-        val q = if (searchOpen) searchQuery.trim().lowercase() else ""
+-        val filtering = searchOpen && (q.isNotEmpty() || fUnread || fAttach || fStar)
+-        val lf = labelFilter
+-        val shown = remember(messages, q, fUnread, fAttach, fStar, lf) {
+-            messages.filter { h ->
+-                (q.isEmpty() || h.from.lowercase().contains(q) || h.subject.lowercase().contains(q) || h.snippet.lowercase().contains(q)) &&
+-                    (!fUnread || !h.seen) && (!fAttach || h.hasAttachments) && (!fStar || h.flagged) &&
+-                    (lf == null || h.labels.contains(lf))
+-            }
+-        }
++        val filters = MailFilters(if (searchOpen) searchQuery.take(200) else "", fUnread, fStar, fAttach, labelFilter)
+         Column(Modifier.fillMaxSize()) {
+-            // Unified-Inbox-Umschalter (ab 2 Konten): alle Posteingänge zusammen.
+-            if (accounts.size > 1) {
+-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+-                    horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+-                    FilterPill("📥 " + t("Alle Postfächer"), unifiedMode) {
+-                        unifiedMode = !unifiedMode
+-                        if (unifiedMode) loadUnified()
+-                    }
+-                    if (unifiedMode) FilterPill("⟳", false) { loadUnified() }
+-                }
+-                HorizontalDivider(color = SelfSurface2, thickness = 0.5.dp)
+-            }
++            savedDraft?.let {
++                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
++                    Text("Entwurf gespeichert", color = SelfMuted, modifier = Modifier.weight(1f), fontSize = 12.sp)
++                    TextButton(onClick = { resumeDraft() }) { Text("Fortsetzen", color = SelfBright) }
++                }
++            }
++            if (accounts.size > 1) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
++                FilterPill("📥 " + t("Alle Postfächer"), unifiedMode) {
++                    unifiedMode = !unifiedMode
++                    if (unifiedMode) loadUnified()
++                }
++                if (unifiedMode) FilterPill("⟳", false) { loadUnified() }
++            }
++            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
++                FilterPill("Alle", !filters.active) {
++                    fUnread = false; fStar = false; fAttach = false; searchQuery = ""
++                    if (labelFilter != null) applyLabelFilter(null)
++                }
++                FilterPill(t("Ungelesen"), fUnread) { fUnread = !fUnread }
++                FilterPill("Markiert", fStar) { fStar = !fStar }
++                if (searchOpen || fAttach) FilterPill(t("Anhang"), fAttach) { fAttach = !fAttach }
++                FilterPill("Unterhaltungen", conversationView) {
++                    conversationView = !conversationView; saveConversationView(conversationView)
++                }
++            }
++            HorizontalDivider(color = SelfSurface2, thickness = 0.5.dp)
++            ErrorBar()
++            if (filters.active) Text("Filter für geladene Nachrichten · weitere über Mehr laden", color = SelfMuted,
++                fontSize = 11.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+             if (unifiedMode) {
+-                ErrorBar()
+-                when {
+-                    unifiedBusy && unifiedRows.isEmpty() -> CenterMsg(t("Laden …"))
+-                    unifiedRows.isEmpty() -> CenterMsg(t("Keine Nachrichten"))
+-                    else -> LazyColumn(Modifier.fillMaxSize()) {
+-                        items(unifiedRows, key = { "${it.accountId}:${it.header.uid}" }) { u -> UnifiedRowItem(u) }
+-                    }
++                val shown = unifiedRows.filter { filters.matches(it.header) }
++                if (unifiedBusy && unifiedRows.isEmpty()) { CenterMsg(t("Laden …")); return@Column }
++                if (unifiedRows.isEmpty() && !unifiedHasMore) { CenterMsg(t("Keine Nachrichten")); return@Column }
++                val state = retainedMailListState(mailListContext(null, "", filters, conversationView, true))
++                val grouped = if (conversationView) remember(unifiedRows, filters, accounts, lang) {
++                    groupUnifiedConversations(unifiedRows, ownEmailSet(), meLabel()).filter { filters.matches(it.second) }
++                } else emptyList()
++                LazyColumn(Modifier.fillMaxSize(), state = state) {
++                    if (conversationView) items(grouped, key = { "${it.first.accountId}:${it.second.key}" }) { (u, conv) ->
++                        UnifiedRowItem(u, conv)
++                    } else items(shown, key = { "${it.accountId}:${it.header.folder}:${it.header.uidValidity}:${it.header.uid}" }) { u -> UnifiedRowItem(u) }
++                    if ((if (conversationView) grouped.isEmpty() else shown.isEmpty())) item { Text(t("Nichts gefunden"), color = SelfMuted, modifier = Modifier.padding(16.dp)) }
++                    if (unifiedHasMore) item { TextButton(onClick = { loadUnified(more = true) }, enabled = !unifiedBusy, modifier = Modifier.fillMaxWidth()) { Text("Mehr laden", color = SelfAccent) } }
+                 }
+                 return@Column
+             }
+-            if (searchOpen) {
+-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+-                    FilterPill(t("Ungelesen"), fUnread) { fUnread = !fUnread }
+-                    FilterPill(t("Anhang"), fAttach) { fAttach = !fAttach }
+-                    FilterPill(t("Stern"), fStar) { fStar = !fStar }
+-                }
+-                HorizontalDivider(color = SelfSurface2, thickness = 0.5.dp)
+-            }
+-            ErrorBar()
+-            // (Label-Filter ist jetzt als Dropdown OBEN in der App-Bar neben der Suche.)
+-            if (shown.isEmpty() && !busy) { CenterMsg(if (filtering || labelFilter != null) t("Nichts gefunden") else t("Keine Nachrichten")); return@Column }
+-            // Konversations-Ansicht: gebündelte Threads statt Einzelmails. Reine
+-            // Einzel-Konversationen (count==1) werden weiter als normale Zeile gezeigt.
+-            val convs = if (conversationView) remember(shown, accounts, lang, counterparts) {
+-                stabilizeConvs(groupThreads(shown, ownEmailSet(), meLabel()))
++            if (messages.isEmpty() && busy) { CenterMsg(t("Laden …")); return@Column }
++            if (messages.isEmpty() && !hasMore) { CenterMsg(if (filters.active) t("Nichts gefunden") else t("Keine Nachrichten")); return@Column }
++            val shown = remember(messages, filters) { messages.filter { filters.matches(it) } }
++            val convs = if (conversationView) remember(messages, filters, accounts, lang, counterparts) {
++                stabilizeConvs(groupThreads(messages, ownEmailSet(), meLabel())).filter { filters.matches(it) }
+             } else emptyList()
+-            LazyColumn(Modifier.fillMaxSize()) {
+-                if (conversationView) {
+-                    items(convs, key = { it.key }) { c ->
+-                        if (c.count <= 1) MessageRow(c.latest) else ConvRow(c)
+-                        HorizontalDivider(color = SelfSurface2, thickness = 0.5.dp)
+-                    }
+-                } else {
+-                    items(shown, key = { it.uid }) { h ->
+-                        MessageRow(h); HorizontalDivider(color = SelfSurface2, thickness = 0.5.dp)
+-                    }
+-                }
+-                if (hasMore && !filtering) {
+-                    item { TextButton(onClick = { loadMore() }, modifier = Modifier.fillMaxWidth().padding(8.dp)) { Text("Mehr laden", color = SelfAccent) } }
+-                }
++            val state = retainedMailListState(mailListContext(activeAccount?.id, activeFolder?.name ?: "", filters, conversationView, false, messages.firstOrNull()?.uidValidity ?: 0))
++            LazyColumn(Modifier.fillMaxSize(), state = state) {
++                if (conversationView) items(convs, key = { it.key }) { c ->
++                    if (c.count <= 1) MessageRow(c.latest) else ConvRow(c)
++                    HorizontalDivider(color = SelfSurface2, thickness = 0.5.dp)
++                } else items(shown, key = { "${it.folder}:${it.uidValidity}:${it.uid}" }) { h ->
++                    MessageRow(h); HorizontalDivider(color = SelfSurface2, thickness = 0.5.dp)
++                }
++                if ((if (conversationView) convs.isEmpty() else shown.isEmpty())) item { Text(t("Nichts gefunden"), color = SelfMuted, modifier = Modifier.padding(16.dp)) }
++                if (hasMore) item { TextButton(onClick = { loadMore() }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(8.dp)) { Text("Mehr laden", color = SelfAccent) } }
+             }
+         }
+     }
+@@ -3007,13 +3163,13 @@
+ 
+     @OptIn(ExperimentalFoundationApi::class)
+     @Composable
+-    private fun UnifiedRowItem(u: UnifiedMsg) {
+-        val h = u.header
++    private fun UnifiedRowItem(u: UnifiedMsg, conversation: Conv? = null) {
++        val h = conversation?.let { u.header.copy(seen = !it.anyUnseen, flagged = it.anyFlagged) } ?: u.header
+         val name = senderName(h.from).ifBlank { "(unbekannt)" }
+         Row(
+             Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                 .background(if (!h.seen) SelfSurface.copy(alpha = 0.5f) else Color.Transparent)
+-                .clickable { openUnifiedMsg(u) },
++                .clickable { if (conversation != null && conversation.count > 1) openUnifiedConversation(u, conversation) else openUnifiedMsg(u) },
+             verticalAlignment = Alignment.Top
+         ) {
+             Box(Modifier.fillMaxHeight().width(4.dp).background(if (!h.seen) SelfAccent else Color.Transparent))
+@@ -3039,6 +3195,7 @@
+                                 .background(SelfSurface2, RoundedCornerShape(6.dp))
+                                 .padding(horizontal = 6.dp, vertical = 2.dp))
+                     }
++                    if (conversation != null && conversation.count > 1) Text("${conversation.count} Nachrichten", color = SelfBright, fontSize = 11.sp)
+                     if (h.snippet.isNotBlank()) {
+                         Spacer(Modifier.height(2.dp))
+                         Text(h.snippet, color = SelfMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+@@ -3839,7 +3996,7 @@
+         Column(Modifier.fillMaxSize().statusBarsPadding()) {
+             Surface(color = SelfSurface, modifier = Modifier.fillMaxWidth(), shadowElevation = 2.dp) {
+                 Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+-                    IconButton(onClick = { phase = "shell" }, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Zurück"), tint = SelfText, modifier = Modifier.size(22.dp)) }
++                    IconButton(onClick = { returnToMailList() }, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Zurück"), tint = SelfText, modifier = Modifier.size(22.dp)) }
+                     Text("Nachricht", color = SelfText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
+                     if (msg != null) {
+                         IconButton(onClick = { startCompose(reply = msg) }, modifier = Modifier.size(38.dp)) { Icon(Icons.AutoMirrored.Filled.Reply, t("Antworten"), tint = SelfBright, modifier = Modifier.size(20.dp)) }
+@@ -4011,7 +4168,7 @@
+         Column(Modifier.fillMaxSize()) {
+             Surface(color = SelfSurface, modifier = Modifier.fillMaxWidth(), shadowElevation = 2.dp) {
+                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+-                    IconButton(onClick = { openThread = null; phase = "shell" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Zurück"), tint = SelfText) }
++                    IconButton(onClick = { returnToMailList() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Zurück"), tint = SelfText) }
+                     Column(Modifier.weight(1f)) {
+                         Text(conv.subject.ifBlank { t("(kein Betreff)") }, color = SelfText, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                         if (conv.participants.isNotEmpty())
+@@ -4426,11 +4583,14 @@
+         Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+             Surface(color = SelfSurface, modifier = Modifier.fillMaxWidth(), shadowElevation = 2.dp) {
+                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+-                    IconButton(onClick = { phase = "shell" }) { Icon(Icons.Filled.Close, t("Schließen"), tint = SelfText) }
++                    IconButton(onClick = { closeCompose() }) { Icon(Icons.Filled.Close, t("Schließen"), tint = SelfText) }
++                    IconButton(onClick = { undoSend(); discardDraftOpen = true }, enabled = !composeSending) {
++                        Icon(Icons.Filled.Delete, "Entwurf verwerfen", tint = SelfMuted)
++                    }
+                     Spacer(Modifier.weight(1f))
+                     // Vorlagen-Menü
+                     Box {
+-                        IconButton(onClick = { tplMenu = true }) { Text("📄", fontSize = 18.sp) }
++                        IconButton(onClick = { tplMenu = true }, enabled = !composeSending) { Text("📄", fontSize = 18.sp) }
+                         DropdownMenu(expanded = tplMenu, onDismissRequest = { tplMenu = false }) {
+                             if (templates.isEmpty())
+                                 DropdownMenuItem(text = { Text(t("Keine Vorlagen"), color = SelfMuted) }, onClick = { })
+@@ -4477,7 +4637,7 @@
+                                 onClick = { schedMenu = false; pickCustomSchedule() })
+                         }
+                     }
+-                    IconButton(onClick = { sendCompose() }, enabled = !busy && sendCountdown == null) { Icon(Icons.AutoMirrored.Filled.Send, t("Senden"), tint = SelfBright) }
++                    IconButton(onClick = { sendCompose() }, enabled = !busy && !composeSending) { Icon(Icons.AutoMirrored.Filled.Send, t("Senden"), tint = SelfBright) }
+                 }
+             }
+             // „Senden rückgängig"-Leiste
+@@ -4492,7 +4652,7 @@
+             }
+             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = SelfAccent, trackColor = SelfSurface2)
+             ErrorBar()
+-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
++            Column(Modifier.fillMaxSize().verticalScroll(composeScroll)) {
+                 ComposeRow(t("Von")) {
+                     Box {
+                         // Anzeige: aktiver Alias (falls gewählt) sonst Konto-Adresse.
+@@ -4500,7 +4660,7 @@
+                             ?: cAccount?.email ?: ""
+                         // Klickbar, sobald es mehr als eine Wahl gibt (mehrere Konten ODER Aliase).
+                         val hasChoice = accounts.size > 1 || identities.isNotEmpty()
+-                        Row(Modifier.fillMaxWidth().clickable { if (hasChoice) fromMenu = true }, verticalAlignment = Alignment.CenterVertically) {
++                        Row(Modifier.fillMaxWidth().clickable { if (hasChoice && !composeSending) fromMenu = true }, verticalAlignment = Alignment.CenterVertically) {
+                             Text(fromLabel, color = SelfBright, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                             if (hasChoice) Icon(Icons.Filled.ExpandMore, null, tint = SelfMuted)
+                         }
+@@ -4508,22 +4668,22 @@
+                             accounts.forEach { a ->
+                                 // Konto-Adresse selbst (kein Alias).
+                                 DropdownMenuItem(text = { Text(a.email, color = SelfText) },
+-                                    onClick = { applyFrom(a, null); fromMenu = false })
++                                    enabled = !composeSending, onClick = { applyFrom(a, null); fromMenu = false })
+                                 // Aliase dieses Kontos, leicht eingerückt.
+                                 identities.filter { it.accountId == a.id }.forEach { i ->
+                                     DropdownMenuItem(
+                                         text = { Text("   " + (if (i.name.isNotBlank()) "${i.name} — ${i.email}" else i.email), color = SelfText) },
+-                                        onClick = { applyFrom(a, i); fromMenu = false })
++                                        enabled = !composeSending, onClick = { applyFrom(a, i); fromMenu = false })
+                                 }
+                             }
+                         }
+                     }
+                 }
+-                ComposeRow(t("An")) { InlineField(cTo, { cTo = it }, t("Empfänger, mit Komma trennen")) }
+-                ComposeRow("Cc") { InlineField(cCc, { cCc = it }, "") }
+-                ComposeRow(t("Betreff")) { InlineField(cSubject, { cSubject = it }, "") }
++                ComposeRow(t("An")) { InlineField(cTo, { cTo = it }, t("Empfänger, mit Komma trennen"), enabled = !composeSending) }
++                ComposeRow("Cc") { InlineField(cCc, { cCc = it }, "", enabled = !composeSending) }
++                ComposeRow(t("Betreff")) { InlineField(cSubject, { cSubject = it }, "", enabled = !composeSending) }
+                 TextField(
+-                    value = cBody, onValueChange = { cBody = it },
++                    value = composeBodyValue, onValueChange = { composeBodyValue = it }, enabled = !composeSending,
+                     placeholder = { Text("Nachricht …", color = SelfMuted) },
+                     colors = TextFieldDefaults.colors(
+                         focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+@@ -4592,9 +4752,9 @@
+     }
+ 
+     @Composable
+-    private fun InlineField(value: String, onChange: (String) -> Unit, placeholder: String) {
++    private fun InlineField(value: String, onChange: (String) -> Unit, placeholder: String, enabled: Boolean = true) {
+         TextField(
+-            value = value, onValueChange = onChange, singleLine = true,
++            value = value, onValueChange = onChange, singleLine = true, enabled = enabled,
+             placeholder = { if (placeholder.isNotEmpty()) Text(placeholder, color = SelfMuted, fontSize = 13.sp) },
+             colors = TextFieldDefaults.colors(
+                 focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+--- a/app/src/main/java/com/selfmailer/app/Api.kt
++++ b/app/src/main/java/com/selfmailer/app/Api.kt
+@@ -113,8 +113,8 @@
+     }
+ 
+     /** Unified Inbox: INBOX aller Konten zusammengeführt (Cache-Aggregat). */
+-    fun unifiedMessages(limit: Int = 100): List<UnifiedMsg> {
+-        val arr = JSONArray(req("GET", "/api/v1/mail/unified/messages?limit=$limit&offset=0", null))
++    fun unifiedMessages(limit: Int = 100, offset: Int = 0): List<UnifiedMsg> {
++        val arr = JSONArray(req("GET", "/api/v1/mail/unified/messages?limit=$limit&offset=$offset", null))
+         return (0 until arr.length()).map { UnifiedMsg.from(arr.getJSONObject(it)) }
+     }
+ 
+--- a/app/src/main/java/com/selfmailer/app/Prefs.kt
++++ b/app/src/main/java/com/selfmailer/app/Prefs.kt
+@@ -36,7 +36,43 @@
+ 
+     var token: String?
+         get() = secure().getString("token", null)
+-        set(v) { secure().edit().apply { if (v == null) remove("token") else putString("token", v) }.apply() }
++        set(v) {
++            synchronized(draftLock) {
++                secure().edit().apply {
++                    if (v == null) { remove("token"); remove("compose_draft"); remove("draft_owner"); remove("current_user_id") } else putString("token", v)
++                }.commit()
++            }
++        }
++
++    private fun ownerKey(userId: Int) = "$serverUrl#$userId"
++
++    val composeDraft: String? get() = synchronized(draftLock) {
++        val userId = secure().getInt("current_user_id", 0)
++        if (userId <= 0 || secure().getString("draft_owner", null) != ownerKey(userId)) null
++        else secure().getString("compose_draft", null)
++    }
++
++    /** Bind to the server-verified numeric user ID, not a reusable username or a rotating JWT. */
++    fun bindDraftUser(userId: Int): Boolean = synchronized(draftLock) {
++        if (userId <= 0) return@synchronized false
++        val old = secure().getInt("current_user_id", 0)
++        secure().edit().putInt("current_user_id", userId).commit()
++        old == 0 || old == userId
++    }
++
++    /** Session expiry requires re-login; it is not the user's request to discard their draft. */
++    fun expireToken() = synchronized(draftLock) { secure().edit().remove("token").commit() }
++
++    /** Same lock as logout: an old session must never write a draft after logout. */
++    fun saveComposeDraft(expectedToken: String, encoded: String?): Boolean = synchronized(draftLock) {
++        val userId = secure().getInt("current_user_id", 0)
++        if (token != expectedToken || userId <= 0) false else secure().edit().apply {
++            if (encoded == null) { remove("compose_draft"); remove("draft_owner") }
++            else { putString("compose_draft", encoded); putString("draft_owner", ownerKey(userId)) }
++        }.commit()
++    }
++
++    companion object { private val draftLock = Any() }
+ 
+     /** Lokale Anmeldebindung: alte/zwischengespeicherte Pushes nach Logout verwerfen. */
+     var pushSessionId: String
+--- a/app/src/main/java/com/selfmailer/app/Threads.kt
++++ b/app/src/main/java/com/selfmailer/app/Threads.kt
+@@ -33,13 +33,13 @@
+         if (n == s) return@repeat
+         s = n
+     }
+-    return s.replace(Regex("\\s+"), " ").trim().lowercase()
++    return s.replace(Regex("\\s+"), " ").trim().lowercase(Locale.ROOT)
+ }
+ 
+ /** Adresse aus "Name <mail@x>" ziehen (kleingeschrieben) bzw. der Rohtext. */
+ fun addrOf(from: String): String {
+     val m = Regex("<([^>]+)>").find(from)
+-    return (m?.groupValues?.get(1) ?: from).trim().lowercase()
++    return (m?.groupValues?.get(1) ?: from).trim().lowercase(Locale.ROOT)
+ }
+ 
+ /** Anzeigename: eigene Adresse → „Ich", sonst Name vor <…> bzw. die Adresse. */
+@@ -101,18 +101,38 @@
+     fun union(a: Int, b: Int) { val ra = find(a); val rb = find(b); if (ra != rb) parent[ra] = rb }
+ 
+     val byId = HashMap<String, Int>()
+-    messages.forEachIndexed { i, m -> val id = m.messageId.trim(); if (id.isNotBlank() && id !in byId) byId[id] = i }
++    messages.forEachIndexed { i, m ->
++        val id = m.messageId.trim()
++        if (id.isNotBlank()) byId.putIfAbsent(id, i)?.let { j -> union(i, j) }
++    }
++    // A common ancestor also connects replies when the root is on another page.
++    val byReference = HashMap<String, Int>()
+     messages.forEachIndexed { i, m ->
+         (idsIn(m.inReplyTo) + idsIn(m.references)).forEach { r ->
+             byId[r.trim()]?.let { j -> union(i, j) }
+-        }
+-    }
+-    val bySubject = HashMap<String, Int>()
++            byReference.putIfAbsent(r.trim(), i)?.let { j -> union(i, j) }
++        }
++    }
++    // Same subject alone is insufficient: invoices/newsletters must stay separate.
++    // Missing headers may fall back only for an actual reply from the same sender.
++    val replyPrefix = Regex("^\\s*(re|aw|sv|antw?|antwort)\\s*(\\[\\d+])?\\s*:", RegexOption.IGNORE_CASE)
++    val bySubject = HashMap<Pair<String, String>, MutableList<Int>>()
+     messages.forEachIndexed { i, m ->
+-        val k = normalizeSubject(m.subject)
+-        if (k.isBlank()) return@forEachIndexed
+-        val j = bySubject[k]
+-        if (j == null) bySubject[k] = i else union(i, j)
++        val subject = normalizeSubject(m.subject)
++        if (subject.isBlank() || addrOf(m.from).isBlank()) return@forEachIndexed
++        bySubject.getOrPut(subject to addrOf(m.from)) { mutableListOf() }.add(i)
++    }
++    for (bucket in bySubject.values) {
++        val originals = bucket.filter { !replyPrefix.containsMatchIn(messages[it].subject) }
++        // Multiple independent originals make a headerless reply ambiguous.
++        if (originals.map { find(it) }.distinct().size > 1) continue
++        for (i in bucket) {
++            val m = messages[i]
++            if (!replyPrefix.containsMatchIn(m.subject) || m.inReplyTo.isNotBlank() || m.references.isNotBlank()) continue
++            // Do not attach a headerless reply to two known independent reply chains.
++            val candidates = bucket.filter { it != i }
++            if (candidates.map { find(it) }.distinct().size == 1) candidates.firstOrNull()?.let { union(i, it) }
++        }
+     }
+ 
+     val groups = LinkedHashMap<Int, MutableList<Int>>()
+@@ -139,8 +159,11 @@
+             else -> listOf(senderDisplay(latest.from, ownEmails, meLabel))
+         }
+         val displayFrom = sorted.lastOrNull { !isOwn(it) } ?: latest
++        val anchor = sorted.firstOrNull { it.inReplyTo.isBlank() && it.references.isBlank() && !replyPrefix.containsMatchIn(it.subject) } ?: sorted.first()
+         convs.add(idxs.min() to Conv(
+-            key = "${latest.folder}:${latest.uid}",
++            key = idsIn(anchor.references).firstOrNull()
++                ?: anchor.inReplyTo.trim().ifBlank { anchor.messageId.trim() }
++                    .ifBlank { "${anchor.folder}:${anchor.uidValidity}:${anchor.uid}" },
+             subject = latest.subject,
+             messages = sorted,
+             latest = latest,
+--- /dev/null
++++ b/app/src/main/java/com/selfmailer/app/ComposeDraft.kt
+@@ -0,0 +1,71 @@
++package com.selfmailer.app
++
++import java.io.ByteArrayInputStream
++import java.io.ByteArrayOutputStream
++import java.io.DataInputStream
++import java.io.DataOutputStream
++import java.util.Base64
++
++/** Payload is stored only in the existing encrypted preferences, never in an Intent/Bundle. */
++data class ComposeDraft(
++    val accountId: Int?, val to: String, val cc: String, val subject: String, val body: String,
++    val inReplyTo: String, val quotedText: String, val quotedHtml: String, val showQuote: Boolean,
++    val identity: Identity?, val signature: String, val selectionStart: Int, val selectionEnd: Int,
++    val scroll: Int,
++) {
++    fun encode(): String {
++        val bytes = ByteArrayOutputStream()
++        DataOutputStream(bytes).use { out ->
++            out.writeInt(1)
++            out.writeInt(accountId ?: -1)
++            fun text(value: String) {
++                val encoded = value.toByteArray(Charsets.UTF_8)
++                require(encoded.size <= MAX_BYTES) { "Entwurf zu groß" }
++                out.writeInt(encoded.size); out.write(encoded)
++            }
++            listOf(to, cc, subject, body, inReplyTo, quotedText, quotedHtml, signature).forEach(::text)
++            out.writeBoolean(showQuote)
++            out.writeBoolean(identity != null)
++            identity?.let { i ->
++                out.writeInt(i.id); out.writeInt(i.accountId)
++                listOf(i.name, i.email, i.signature).forEach(::text)
++                out.writeBoolean(i.isDefault)
++            }
++            out.writeInt(selectionStart); out.writeInt(selectionEnd); out.writeInt(scroll)
++        }
++        require(bytes.size() <= MAX_BYTES) { "Entwurf zu groß" }
++        return Base64.getEncoder().encodeToString(bytes.toByteArray())
++    }
++
++    companion object {
++        private const val MAX_BYTES = 8 * 1024 * 1024
++        fun decode(encoded: String?): ComposeDraft? = try {
++            if (encoded == null || encoded.length > (MAX_BYTES * 4 / 3 + 8)) null else {
++                val bytes = Base64.getDecoder().decode(encoded)
++                require(bytes.size <= MAX_BYTES)
++                DataInputStream(ByteArrayInputStream(bytes)).use { input ->
++                    require(input.readInt() == 1)
++                    val account = input.readInt().takeIf { it > 0 }
++                    fun text(): String {
++                        val length = input.readInt()
++                        require(length in 0..input.available())
++                        val data = ByteArray(length); input.readFully(data)
++                        return data.toString(Charsets.UTF_8)
++                    }
++                    val fields = List(8) { text() }
++                    val quote = input.readBoolean()
++                    val identity = if (input.readBoolean()) Identity(input.readInt(), input.readInt(), text(), text(), text(), input.readBoolean()) else null
++                    val start = input.readInt().coerceIn(0, fields[3].length)
++                    val end = input.readInt().coerceIn(0, fields[3].length)
++                    val scroll = input.readInt().coerceAtLeast(0)
++                    require(input.available() == 0)
++                    ComposeDraft(account, fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], fields[6], quote, identity, fields[7], start, end, scroll)
++                }
++            }
++        } catch (_: Exception) { null }
++    }
++}
++
++/** Locking hides the UI; it must not change the user's navigation destination. */
++fun unlockedDestination(previous: String): String =
++    previous.takeIf { it in setOf("shell", "read", "thread", "pdf", "compose", "settings", "notifyfolders") } ?: "shell"
+--- /dev/null
++++ b/app/src/main/java/com/selfmailer/app/MailFilters.kt
+@@ -0,0 +1,31 @@
++package com.selfmailer.app
++
++data class MailFilters(val query: String = "", val unread: Boolean = false, val starred: Boolean = false, val attachment: Boolean = false, val label: String? = null) {
++    val active: Boolean get() = query.isNotBlank() || unread || starred || attachment || label != null
++    fun matches(message: MessageHeader): Boolean {
++        val words = query.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
++        val text = listOf(message.from, message.subject, message.snippet).joinToString(" ")
++        return words.all { text.contains(it, ignoreCase = true) } &&
++            (!unread || !message.seen) && (!starred || message.flagged) &&
++            (!attachment || message.hasAttachments) && (label == null || label in message.labels)
++    }
++    // Keep the other messages in a matching conversation visible as context.
++    fun matches(conversation: Conv): Boolean = conversation.messages.any(::matches)
++}
++
++fun mailListContext(accountId: Int?, folder: String, filters: MailFilters, conversations: Boolean, unified: Boolean, generation: Long = 0): String =
++    listOf(if (unified) "unified" else accountId.toString(), if (unified) "" else folder,
++        filters.query, filters.unread.toString(), filters.starred.toString(), filters.attachment.toString(),
++        filters.label ?: "", conversations.toString(), if (unified) "0" else generation.toString())
++        .joinToString("") { "${it.length}:$it" }
++
++fun groupUnifiedConversations(rows: List<UnifiedMsg>, ownEmails: Set<String>, meLabel: String): List<Pair<UnifiedMsg, Conv>> =
++    rows.groupBy { it.accountId }.values.flatMap { accountRows ->
++        groupThreads(accountRows.map { it.header }, ownEmails, meLabel).map { conv ->
++            accountRows.first().copy(header = conv.latest) to conv
++        }
++    }.sortedBy { (row, conv) ->
++        rows.indexOfFirst { it.accountId == row.accountId && conv.messages.any { m ->
++            m.uid == it.header.uid && m.folder == it.header.folder && m.uidValidity == it.header.uidValidity
++        } }
++    }
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -27,8 +27,8 @@
+         targetSdk = 34
+         // versionCode MUSS bei jedem Release steigen, sonst lehnt Android die APK
+         // als Update ab (und der SelfStore bietet sie nicht an).
+-        versionCode = 109
+-        versionName = "1.96.2"
++        versionCode = 111
++        versionName = "1.96.3"
+     }
+     signingConfigs {
+         // Debug-Keystore (Passwort "android" ist Android-Standard, kein Secret).
+--- /dev/null
++++ b/app/src/test/java/com/selfmailer/app/ComposeDraftTest.kt
+@@ -0,0 +1,54 @@
++package com.selfmailer.app
++
++import org.junit.Assert.*
++import org.junit.Test
++import java.util.Base64
++
++class ComposeDraftTest {
++    private fun draft() = ComposeDraft(7, "Person <to@example.org>", "copy@example.org", "Grüße ☕",
++        "Erste Zeile\nZweite Zeile", "<original@example.org>", "\n> älteres Zitat", "<blockquote>Zitat</blockquote>", false,
++        Identity(3, 7, "Alias", "alias@example.org", "Signatur", false), "\n-- Signatur", 3, 12, 190)
++
++    @Test fun restoreKeepsAllSenderReplyAndEditorState() {
++        val before = draft()
++        assertEquals(before, ComposeDraft.decode(before.encode()))
++    }
++    @Test fun largeDraftAndQuoteSurviveWithoutBundleTruncation() {
++        val before = draft().copy(body = "ä".repeat(600_000), quotedHtml = "<p>" + "z".repeat(300_000) + "</p>")
++        assertEquals(before, ComposeDraft.decode(before.encode()))
++    }
++    @Test fun missingOrCorruptStorageDoesNotCreateAnEmptyReplacement() {
++        assertNull(ComposeDraft.decode(null))
++        assertNull(ComposeDraft.decode("not base64!"))
++        val bytes = Base64.getDecoder().decode(draft().encode())
++        assertNull(ComposeDraft.decode(Base64.getEncoder().encodeToString(bytes.copyOf(30))))
++        bytes[3] = 99
++        assertNull(ComposeDraft.decode(Base64.getEncoder().encodeToString(bytes)))
++    }
++    @Test fun appendedGarbageIsRejected() {
++        val bytes = Base64.getDecoder().decode(draft().encode()) + byteArrayOf(1)
++        assertNull(ComposeDraft.decode(Base64.getEncoder().encodeToString(bytes)))
++    }
++    @Test fun invalidEditorPositionsAreClampedWithoutChangingText() {
++        val restored = ComposeDraft.decode(draft().copy(selectionStart = -1, selectionEnd = 999, scroll = -3).encode())!!
++        assertEquals(0, restored.selectionStart)
++        assertEquals(restored.body.length, restored.selectionEnd)
++        assertEquals(0, restored.scroll)
++    }
++    @Test fun absentIdentityAndDeletedAccountDoNotInventAnotherSender() {
++        val before = draft().copy(accountId = null, identity = null)
++        assertEquals(before, ComposeDraft.decode(before.encode()))
++        assertNull(ComposeDraft.decode(before.encode())!!.accountId)
++    }
++    @Test(expected = IllegalArgumentException::class)
++    fun oversizedPayloadIsRejectedInsteadOfTruncated() {
++        draft().copy(body = "x".repeat(8 * 1024 * 1024 + 1)).encode()
++    }
++    @Test fun unlockingRestoresComposeAndThreadWithoutOpeningProtectedInvalidRoutes() {
++        assertEquals("compose", unlockedDestination("compose"))
++        assertEquals("thread", unlockedDestination("thread"))
++        assertEquals("read", unlockedDestination("read"))
++        assertEquals("shell", unlockedDestination("login"))
++        assertEquals("shell", unlockedDestination("locked"))
++    }
++}
+--- /dev/null
++++ b/app/src/test/java/com/selfmailer/app/MailOverviewTest.kt
+@@ -0,0 +1,87 @@
++package com.selfmailer.app
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class MailOverviewTest {
++    private fun mail(uid: String, subject: String = "Termin", from: String = "Person <person@example.org>",
++        seen: Boolean = true, flagged: Boolean = false, reply: String = "", refs: String = "", mid: String = "<$uid@example.org>") =
++        MessageHeader(uid, subject, from, "Mon, 12 Oct 2026 12:${uid.padStart(2, '0')}:00 +0200", seen, flagged,
++            "Projekt mit Beispiel", false, mid, reply, refs, "INBOX", uidValidity = 20)
++
++    @Test fun filtersCombineAndKeepWorkingWithoutTheSearchPanel() {
++        val filters = MailFilters(unread = true, starred = true)
++        assertTrue(filters.matches(mail("1", seen = false, flagged = true)))
++        assertFalse(filters.matches(mail("2", seen = false)))
++        assertFalse(filters.matches(mail("3", flagged = true)))
++    }
++    @Test fun searchFindsWordsAcrossSenderSubjectAndSnippet() {
++        assertTrue(MailFilters(" PERSON   projekt ").matches(mail("1")))
++        assertFalse(MailFilters("person fehlt").matches(mail("1")))
++        assertTrue(MailFilters(attachment = true).matches(mail("1").copy(hasAttachments = true)))
++        assertFalse(MailFilters(attachment = true).matches(mail("1")))
++    }
++    @Test fun resetShowsEveryMessageAndLabelsRemainIndependent() {
++        assertFalse(MailFilters().active)
++        assertTrue(MailFilters().matches(mail("1")))
++        assertTrue(MailFilters(label = "work").matches(mail("1").copy(labels = listOf("work"))))
++        assertFalse(MailFilters(label = "work").matches(mail("1")))
++    }
++    @Test fun filteredConversationKeepsReadRepliesForContext() {
++        val root = mail("1", seen = false)
++        val reply = mail("2", subject = "Re: Termin", reply = root.messageId)
++        val conv = groupThreads(listOf(reply, root), emptySet(), "Ich").single()
++        assertTrue(MailFilters(unread = true).matches(conv))
++        assertEquals(2, conv.messages.size)
++        assertTrue(conv.anyUnseen)
++    }
++    @Test fun subjectAloneDoesNotMergeNewslettersOrDifferentSenders() {
++        assertEquals(2, groupThreads(listOf(mail("1", "Rechnung"), mail("2", "Rechnung")), emptySet(), "Ich").size)
++        assertEquals(2, groupThreads(listOf(mail("1"), mail("2", "Re: Termin", "other@example.org")), emptySet(), "Ich").size)
++    }
++    @Test fun headerlessReplyCanJoinTheSameSender() {
++        assertEquals(1, groupThreads(listOf(mail("1"), mail("2", "Aw: Termin")), emptySet(), "Ich").size)
++    }
++    @Test fun ambiguousHeaderlessReplyDoesNotMergeTwoInvoices() {
++        assertEquals(3, groupThreads(listOf(mail("1", "Rechnung"), mail("2", "Rechnung"), mail("3", "Re: Rechnung")), emptySet(), "Ich").size)
++    }
++    @Test fun independentKnownReplyChainsDoNotMergeOnSubject() {
++        assertEquals(2, groupThreads(listOf(mail("1", "Re: Rechnung", reply = "<first>"), mail("2", "Re: Rechnung", reply = "<second>")), emptySet(), "Ich").size)
++    }
++    @Test fun duplicateMessageIdProducesOneStableConversationKey() {
++        assertEquals(1, groupThreads(listOf(mail("1"), mail("2", mid = "<1@example.org>")), emptySet(), "Ich").size)
++    }
++    @Test fun unifiedInboxNeverCombinesDifferentAccountsWithTheSameMessageId() {
++        val one = UnifiedMsg(mail("1"), 1, "Konto A")
++        val two = UnifiedMsg(mail("1"), 2, "Konto B")
++        val result = groupUnifiedConversations(listOf(two, one), emptySet(), "Ich")
++        assertEquals(2, result.size)
++        assertEquals(listOf(2, 1), result.map { it.first.accountId })
++    }
++    @Test fun repliesShareAMissingRootAcrossLoadedPages() {
++        val first = mail("2", "Re: Termin", reply = "<missing@example.org>")
++        val second = mail("3", "Re: Termin", "other@example.org", reply = "<missing@example.org>")
++        assertEquals(1, groupThreads(listOf(second, first), emptySet(), "Ich").size)
++    }
++    @Test fun conversationKeySurvivesNewReplyAndLoadingMissingRoot() {
++        val root = mail("1")
++        val reply = mail("2", "Re: Termin", reply = root.messageId, refs = root.messageId)
++        val newest = mail("3", "Re: Termin", reply = reply.messageId, refs = "${root.messageId} ${reply.messageId}")
++        val key = groupThreads(listOf(reply), emptySet(), "Ich").single().key
++        assertEquals(key, groupThreads(listOf(newest, reply, root), emptySet(), "Ich").single().key)
++    }
++    @Test fun scrollPositionsAreSeparatedByMailboxFilterAndGrouping() {
++        val base = mailListContext(1, "INBOX", MailFilters(), false, false, 20)
++        assertNotEquals(base, mailListContext(2, "INBOX", MailFilters(), false, false, 20))
++        assertNotEquals(base, mailListContext(1, "Sent", MailFilters(), false, false, 20))
++        assertNotEquals(base, mailListContext(1, "INBOX", MailFilters(unread = true), false, false, 20))
++        assertNotEquals(base, mailListContext(1, "INBOX", MailFilters(), true, false, 20))
++        assertNotEquals(base, mailListContext(1, "INBOX", MailFilters(), false, false, 21))
++        assertEquals(mailListContext(1, "INBOX", MailFilters(), false, true), mailListContext(2, "Sent", MailFilters(), false, true))
++    }
++    @Test fun quotedTextAndRealInlineQuotesRemainIntact() {
++        assertEquals("Neu", trimQuotedText("Neu\n> Alt").first)
++        assertFalse(htmlHasQuote("<blockquote>Ein Zitat im Text</blockquote>"))
++        assertTrue(htmlHasQuote("<div class=\"gmail_quote\">Alt</div>"))
++    }
++}
