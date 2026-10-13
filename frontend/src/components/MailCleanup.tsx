@@ -42,6 +42,13 @@ export function MailCleanup({ account, folder, folders, labels, source, de, onCl
     catch { setError(L("Ansicht konnte nicht gespeichert werden.", "Could not save view.")); }
   }
   const seq = useRef(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (result && scrollRef.current && previewRef.current) {
+      scrollRef.current.scrollTop = previewRef.current.offsetTop - scrollRef.current.offsetTop;
+    }
+  }, [result]);
   useEffect(() => () => { seq.current++; }, []);
   function invalidate() { seq.current++; setResult(null); setConfirm(false); setError(""); setNotice(""); setBusy(false); }
   function choose(next: Field) {
@@ -87,9 +94,10 @@ export function MailCleanup({ account, folder, folders, labels, source, de, onCl
   }
   const targets = folders.filter(f => f.name !== folder && f.special !== "noselect");
   const editable = !busy;
-  return <Modal label={L("Ähnliche Mails / Postfach aufräumen", "Similar messages / mailbox cleanup")} onClose={() => { if (!busy) onClose(); }}>
+  return <Modal className="mail-cleanup-modal" label={L("Ähnliche Mails / Postfach aufräumen", "Similar messages / mailbox cleanup")} onClose={() => { if (!busy) onClose(); }}>
     <div className="mail-cleanup">
       <h2>{L("Ähnliche Mails / Postfach aufräumen", "Similar messages / mailbox cleanup")}</h2>
+      <div className="mail-cleanup-scroll" ref={scrollRef}>
       <p>{L("Suche im gesamten Ordner: ", "Search the entire folder: ")}{folder}</p>
       {views.length > 0 && <label>{L("Gespeicherte Ansicht", "Saved view")} <select disabled={busy} value="" onChange={e => {
         const v = views[Number(e.target.value)]; if (!v) return; invalidate(); setField(v.field); setValue(v.value); setBefore(v.before); setRead(v.read); setProtect(v.protect);
@@ -114,11 +122,17 @@ export function MailCleanup({ account, folder, folders, labels, source, de, onCl
       <button disabled={busy || !value.trim() || (field === "domain" && !value.trim().replace(/^@/, "")) || (field === "text" && value.trim().length < 2)} onClick={() => preview()}>{busy ? L("Läuft …", "Working …") : L("Alle Treffer suchen / Vorschau", "Find all matches / preview")}</button>
       {error && <p role="alert" className="err">{error}</p>}{notice && <p role="status">{notice}</p>}
       {result && <>
-        <p role="status">{result.items.length} {L("angezeigt", "shown")} / {result.total_count ?? result.items.length} {L("Treffer", "matches")}
+        <p ref={previewRef} role="status">{result.items.length} {L("angezeigt", "shown")} / {result.total_count ?? result.items.length} {L("Treffer", "matches")}
           {!result.complete && ` — ${L("unvollständig; Suche erneut versuchen", "incomplete; retry search")}`}</p>
         <div className="mail-cleanup-results">{result.items.map(m => <button key={m.uid} disabled={busy} onClick={() => onRead(m)}>
           <b>{m.subject || L("(kein Betreff)", "(no subject)")}</b><span>{m.from} · {listDate(m.date)}</span>
         </button>)}</div>
+        {!value.includes(",") && ["from", "domain", "subject"].includes(field) && <label><input type="checkbox" disabled={busy} checked={rememberRule} onChange={e => setRememberRule(e.target.checked)} />
+          {L("Als Regel für künftige Mails speichern (Posteingang; enthält den Suchwert, ohne Alters-/Gelesen-/Sternfilter)", "Save a rule for future mail (inbox; contains the search value, without date/read/star filters)")}</label>}
+      </>}
+      </div>
+      <div className="mail-cleanup-actions">
+      {result && <>
         <div className="row">
           <button disabled={busy || offset === 0} onClick={() => preview(Math.max(0, offset - 100))}>{L("Zurück", "Previous")}</button>
           <button disabled={busy || !result.truncated} onClick={() => preview(offset + 100)}>{L("Weitere Treffer", "More matches")}</button>
@@ -127,12 +141,11 @@ export function MailCleanup({ account, folder, folders, labels, source, de, onCl
           <option value="">{L("Archiv, Papierkorb oder Ordner wählen", "Choose archive, trash or folder")}</option>
           {targets.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
         </select></label>
-        {!value.includes(",") && ["from", "domain", "subject"].includes(field) && <label><input type="checkbox" disabled={busy} checked={rememberRule} onChange={e => setRememberRule(e.target.checked)} />
-          {L("Als Regel für künftige Mails speichern (Posteingang; enthält den Suchwert, ohne Alters-/Gelesen-/Sternfilter)", "Save a rule for future mail (inbox; contains the search value, without date/read/star filters)")}</label>}
         {!confirm ? <button disabled={busy || !dest || !result.complete || !result.items.length} onClick={() => setConfirm(true)}>{L("Diese Vorschau aufräumen", "Clean up this preview")}</button> :
           <button className="primary" disabled={busy} onClick={move}>{L(`Diese ${result.items.length} Mails nach „${dest}“ verschieben`, `Move these ${result.items.length} messages to “${dest}”`)}</button>}
       </>}
       <button disabled={busy} onClick={onClose}>{L("Schließen", "Close")}</button>
+      </div>
     </div>
   </Modal>;
 }

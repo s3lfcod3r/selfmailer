@@ -1,0 +1,44 @@
+POSTFACH AUFRAEUMEN - Bedienung und Prüfung, 13.10.2026
+Basis: Release 1.96.8 / APK Build 121.
+
+BEDIENUNG
+APK: Ein einzelnes Konto und einen Ordner öffnen; oben den Besen wählen.
+Alternativ in einer geöffneten Mail: Ähnliche Mails anzeigen / Aufräumen.
+Web: In der Mailliste über ... -> Postfach aufräumen.
+Absender enthält, Absender-Domain enthält, Betreff enthält, Thema/Stichwort
+oder Label auswählen. Beispiel: shop@example.org, example.org oder Rechnung.
+Optional ein Datum und Nur gelesene Mails wählen. Markierte Mails behalten
+ist standardmäßig aktiv. Datum ist ein IMAP-Grenztag, nicht die genaue Uhrzeit.
+Alle Treffer suchen / Vorschau durchsucht den gesamten ausgewählten Ordner.
+Vorschau prüfen, ggf. Weitere Treffer. Maximal 100 Mails pro Seite.
+Zielordner wählen -> Diese Vorschau aufräumen -> angezeigte Anzahl und Ziel
+noch einmal bestätigen. Nur diese Seite wird verschoben, nicht alle Treffer.
+Für die restlichen Treffer die Vorschau neu laden und den Ablauf wiederholen.
+Zum bloßen Anzeigen/Lesen ist kein Verschieben nötig.
+Ansicht merken speichert die Suchkriterien. Es löst keine Aktion automatisch aus.
+Optional: Als Regel für künftige Mails speichern gilt im Posteingang und verwendet
+nur Absender/Domain/Betreff; Alters-, Gelesen- und Sternfilter gelten NICHT für die Regel.
+Papierkorb ist ein Verschiebeziel; eine gesonderte Papierkorb-Bereinigung kann später
+Mails endgültig entfernen. Archiv/Zielordner passend auswählen.
+
+PRUEFERGEBNIS
+7 Web-Tests bestanden: vollständige Ordnersuche/Paginierung, explizite zweite
+Bestätigung, nur Vorschau-IDs verschieben, unvollständige Vorschau gesperrt,
+Fehler/Regelfehler, gespeicherte Ansichten und Schutz gegen Doppelklicks.
+42 Backend-Tests zu Suche, Regeln, Tombstones, Schreibzugriffen und Benutzertrennung bestanden.
+6 neue Ablauf-/Schutztests bestanden: echte HTTP-Routen und Such-/Verschiebelogik
+mit synthetischer IMAP-Transportschicht und 250 Testmails. Suche bleibt lesend;
+100 angezeigte Mails werden verschoben, 150 bleiben. Veränderte/unverifizierbare
+Postfachidentität, fehlendes Ziel, ungültige ID-Generation, fehlender Login und
+simulierter Verschiebefehler werden abgefangen.
+8 Android-Suchtests bestanden, einschließlich Parameterkodierung, Domain,
+Stichwort/Label, Filter und ungültiger Eingaben. Gradle BUILD SUCCESSFUL.
+Ruff und Diff-Prüfung bestanden.
+Diese Prüfung betraf die Such-/Verschiebelogik. Die anschließend gemeldeten
+Layoutprobleme sind separat in AUFRAEUMEN-LAYOUT-2026-10-13.txt dokumentiert und behoben.
+Neue Regressionstests sind Bestandteil von Release 1.96.9.
+
+GRENZEN
+Keine echten Mails oder Produktivkonten verschoben. IMAP-Anbieter-Verhalten
+und sichtbare APK-Bedienung auf einem Handy sind damit nicht vollständig geprüft.
+Kein Android-Gerät/Emulator angeschlossen. Prüfungen sind keine echte Geräte-End-to-End-Prüfung.

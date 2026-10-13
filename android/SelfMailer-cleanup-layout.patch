@@ -1,0 +1,108 @@
+--- a/app/src/main/java/com/selfmailer/app/MailCleanupDialog.kt
++++ b/app/src/main/java/com/selfmailer/app/MailCleanupDialog.kt
+@@ -6,7 +6,12 @@
+ import androidx.compose.foundation.verticalScroll
+ import androidx.compose.material3.*
+ import androidx.compose.runtime.*
++import androidx.compose.ui.layout.onGloballyPositioned
++import androidx.compose.ui.layout.positionInParent
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalFocusManager
++import androidx.compose.ui.window.Dialog
++import androidx.compose.ui.window.DialogProperties
+ import androidx.compose.ui.unit.dp
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.launch
+@@ -37,8 +42,15 @@
+     var viewName by remember { mutableStateOf("") }
+     var views by remember { mutableStateOf(prefs.cleanupViews(account, folder)) }
+     val scope = rememberCoroutineScope()
++    val focus = LocalFocusManager.current
++    val scroll = rememberScrollState()
++    var previewOffset by remember { mutableIntStateOf(0) }
++    LaunchedEffect(result, previewOffset) {
++        if (result != null) scroll.animateScrollTo(previewOffset)
++    }
+     fun invalidate() { result = null; rows = emptyList(); confirm = false; error = ""; notice = "" }
+     fun preview(next: Int = 0) {
++        focus.clearFocus()
+         busy = true; invalidate(); offset = next
+         scope.launch {
+             try {
+@@ -70,11 +82,14 @@
+             finally { busy = false }
+         }
+     }
+-    AlertDialog(
+-        onDismissRequest = { if (!busy) onClose() },
+-        title = { Text("Ähnliche Mails / Aufräumen") },
+-        text = {
+-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
++    Dialog(onDismissRequest = { if (!busy) onClose() },
++        properties = DialogProperties(usePlatformDefaultWidth = false)) {
++        Surface(Modifier.fillMaxWidth().fillMaxHeight(.95f).imePadding().padding(12.dp),
++            shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
++            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                Text("Ähnliche Mails / Aufräumen", style = MaterialTheme.typography.titleLarge)
++                Column(Modifier.weight(1f).verticalScroll(scroll),
++                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                 Text("Suche im gesamten Ordner: $folder")
+                 if (views.length() > 0) {
+                     var viewsOpen by remember { mutableStateOf(false) }
+@@ -137,13 +152,22 @@
+                 if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
+                 if (notice.isNotBlank()) Text(notice)
+                 result?.let { r ->
+-                    Text("${rows.size} angezeigt / ${r.optInt("total_count", rows.size)} Treffer" + if (!r.optBoolean("complete")) " — unvollständig; erneut suchen" else "")
++                    Text("${rows.size} angezeigt / ${r.optInt("total_count", rows.size)} Treffer" + if (!r.optBoolean("complete")) " — unvollständig; erneut suchen" else "",
++                        modifier = Modifier.onGloballyPositioned { previewOffset = it.positionInParent().y.toInt() })
+                     rows.forEach { m ->
+                         Column(Modifier.fillMaxWidth().clickable(enabled = !busy) { onRead(m) }.padding(vertical = 6.dp)) {
+                             Text(m.subject.ifBlank { "(kein Betreff)" }, maxLines = 2)
+                             Text("${m.from} · ${m.date}", style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                         }
+                     }
++                    if (field in listOf("from", "domain", "subject") && !value.contains(',')) {
++                        Row { Checkbox(saveRule, { saveRule = it }, enabled = !busy); Text("Als Regel für künftige Mails speichern", Modifier.padding(top = 12.dp)) }
++                        if (saveRule) Text("Regel gilt im Posteingang: enthält den Suchwert, ohne Alters-, Gelesen- und Sternfilter.")
++                    }
++                }
++                }
++                HorizontalDivider()
++                result?.let { r ->
+                     Row {
+                         TextButton(enabled = !busy && offset > 0, onClick = { preview(maxOf(0, offset - 100)) }) { Text("Zurück") }
+                         TextButton(enabled = !busy && r.optBoolean("truncated"), onClick = { preview(offset + 100) }) { Text("Weitere Treffer") }
+@@ -157,16 +181,12 @@
+                             }
+                         }
+                     }
+-                    if (field in listOf("from", "domain", "subject") && !value.contains(',')) {
+-                        Row { Checkbox(saveRule, { saveRule = it }, enabled = !busy); Text("Als Regel für künftige Mails speichern", Modifier.padding(top = 12.dp)) }
+-                        if (saveRule) Text("Regel gilt im Posteingang: enthält den Suchwert, ohne Alters-, Gelesen- und Sternfilter.")
+-                    }
+                     Button(enabled = !busy && rows.isNotEmpty() && r.optBoolean("complete") && target.isNotBlank(), onClick = { if (confirm) move() else confirm = true }) {
+                         Text(if (confirm) "Diese ${rows.size} Mails nach „$target“ verschieben" else "Diese Vorschau aufräumen")
+                     }
+                 }
++                TextButton(enabled = !busy, onClick = onClose, modifier = Modifier.fillMaxWidth()) { Text("Schließen") }
+             }
+-        },
+-        confirmButton = { TextButton(enabled = !busy, onClick = onClose) { Text("Schließen") } },
+-    )
++        }
++    }
+ }
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -27,8 +27,8 @@
+         targetSdk = 34
+         // versionCode MUSS bei jedem Release steigen, sonst lehnt Android die APK
+         // als Update ab (und der SelfStore bietet sie nicht an).
+-        versionCode = 121
+-        versionName = "1.96.8"
++        versionCode = 123
++        versionName = "1.96.9"
+     }
+     signingConfigs {
+         // Debug-Keystore (Passwort "android" ist Android-Standard, kein Secret).
