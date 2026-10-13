@@ -1,0 +1,80 @@
+SelfMailer – APK-Bedienung / 13.10.2026
+
+Release-Build: 1.96.3 / versionCode 111.
+Server-Basis: veröffentlichtes Release 1.96.2.
+Release-Adresse: https://github.com/s3lfcod3r/selfmailer/releases/tag/v1.96.3
+
+1. Entwurf erhalten
+- Die App kehrt nach der biometrischen Entsperrung zur vorherigen Ansicht zurück.
+- Ein aktiver Entwurf wird nach kurzer Schreibpause und beim Verlassen lokal
+  in den bestehenden Android-Keystore-verschlüsselten Einstellungen gespeichert.
+- Empfänger/Cc, Betreff, Nachrichtentext, Absenderkonto/Alias, Signatur,
+  Antwortbezug, vollständiges Zitat, Cursor im Nachrichtentext und Scrollposition bleiben erhalten.
+- Nach einem Neustart bietet die Mailliste Fortsetzen an. Eine neue Antwort oder
+  Weiterleitung überschreibt einen vorhandenen Entwurf erst nach Bestätigung.
+- Abgelaufene Anmeldung: Entwurf bleibt verschlüsselt; Wiederaufnahme nur nach
+  Anmeldung desselben Benutzers am selben Server, anhand der geprüften Benutzer-ID.
+- Bewusstes Abmelden, Verwerfen oder bestätigter Versand entfernt den Entwurf.
+  Speicherausfälle werden angezeigt und verhindern das Schließen des Schreibfensters.
+- Große Texte/Zitate liegen außerhalb des SavedInstanceState-Bundles.
+- Kein automatischer Versand eines wiederhergestellten Entwurfs.
+
+2. Listenposition
+- Eigene Scrollzustände je Konto, Ordner, Filter, Suchbegriff, Gesprächsansicht
+  und UIDVALIDITY; die gemeinsame Inbox hat einen getrennten Zustand.
+- Zurück aus Nachricht/Gespräch bleibt an der Listenposition, auch bei App-Sperre.
+- Ein Klick aus Alle Postfächer führt beim Zurückgehen wieder zu Alle Postfächer.
+- Android-Instanzzustand erhält Filter und Positionen (bis 64 Ansichten).
+  Beim Prozessneustart werden bis 1000 zuletzt geladene Kopfzeilen je Ordner
+  wieder geladen. Tiefere Positionen können weiteres Mehr laden benötigen.
+
+3. Filter
+- Alle, Ungelesen und Markiert direkt über der Mailliste erreichbar.
+- Suche, Anhänge und Labels kombinierbar. Schließen der Suche löscht keine
+  gesetzten Ungelesen-/Markiert-Filter.
+- Suche findet Wörter in Absender, Betreff und Vorschau.
+- Filter gelten für geladene Nachrichten; Mehr laden bleibt auch bei leerem
+  Trefferbereich sichtbar. Die gemeinsame Inbox unterstützt jetzt Nachladen.
+- Bei aktivem Filter lädt Mehr laden im Einzelpostfach größere Seiten.
+
+4. Unterhaltungen
+- Direkter Schalter Unterhaltungen über der Mailliste; bisherige geteilte
+  Server-Einstellung bleibt erhalten.
+- Message-ID, In-Reply-To und References verbinden echte Antwortketten, auch
+  wenn die ursprüngliche Nachricht noch nicht auf der geladenen Seite liegt.
+- Gleicher Betreff allein bündelt keine Newsletter/Rechnungen.
+- Fehlende Antwortheader: nur eindeutige Antwortbezüge desselben Absenders.
+- Filter blenden passende Gespräche ein, behalten darin andere Antworten als Kontext.
+- Stabiler Gesprächsschlüssel vermeidet Sprünge bei neuen Antworten.
+- Konten bleiben in Alle Postfächer beim Bündeln strikt getrennt.
+
+Geprüft
+34 Android-Unit-Tests, Debug-Kotlin-Kompilation und signierter Release-Build.
+APK: v2-Signatur, bisheriges Release-Zertifikat, Manifest/Build 111 und ZIP-CRC.
+HTTP-Smoke gegen lokale synthetische DB mit Server 1.96.2:
+Health/Web-Assets, Token-Widerruf, geprüfte numerische Benutzer-ID und Unified-Offset.
+Android-Quellpatch reproduziert alle 9 geänderten/neuen Dateien gegen die
+verifizierte Android-Basis 1.96.2; Quell-Hashes gespeichert.
+Server/Web-Funktionalität blieb unverändert; Versionsnummer nun 1.96.3.
+391 Backendtests und 48 Frontendtests am 13.10.2026 erneut bestanden.
+
+Geräteprüfung noch offen
+Kein Android-Gerät oder Emulator vorhanden; keine echte Installation oder UI-/Biometrieprüfung.
+Auf dem Handy nach Installation:
+1. Neue Mail mit Empfänger, Cc, Betreff, längerer Nachricht und Alias beginnen.
+   Cursor mitten im Text setzen, nach unten scrollen, zu einer anderen App wechseln,
+   zurückkehren und entsperren. Inhalt, Ansicht und Cursor prüfen.
+2. Entwurf schließen, App vollständig neu starten, Fortsetzen öffnen.
+   Antwort-Zitat und Alias prüfen. Verwerfen abbrechen und anschließend bestätigen.
+3. Mehrere Mailseiten laden, eine Nachricht öffnen, zurückgehen; Postfach/Filter
+   wechseln und zurückwechseln. Gemeinsame Inbox ebenso prüfen.
+4. Ungelesen/Markiert kombinieren, Suche öffnen/schließen, Mehr laden bei
+   zunächst leerem Ergebnis. Filter zurücksetzen.
+5. Unterhaltungen einschalten: echte Antwortketten bündeln, gleich betitelte
+   unabhängige Rechnungen getrennt halten; ungelesene Antworten bleiben erkennbar.
+6. Senden rückgängig machen; Entwurf bleibt erhalten. Versandfehler simulieren;
+   Inhalt bleibt zum erneuten Bearbeiten erhalten. Abmelden entfernt lokale Entwürfe.
+
+Quellen: externes Android-Projekt unter Android/selfmailer-app.
+ANDROID-BEDIENUNG-KORREKTUREN.patch ist gegen Android 1.96.2 anzuwenden:
+git apply --ignore-space-change ANDROID-BEDIENUNG-KORREKTUREN.patch

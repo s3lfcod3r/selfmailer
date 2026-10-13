@@ -1,0 +1,16 @@
+SelfMailer 1.96.3 erhält ungesendete Android-Entwürfe und macht große Postfächer übersichtlicher. Die signierte APK trägt Version 1.96.3 / Build 111 und verwendet das bisherige Release-Zertifikat. Build 111 aktualisiert auch den lokalen Test-Build 110.
+
+Änderungen
+- Entwürfe werden lokal verschlüsselt gespeichert. Empfänger/Cc, Betreff, Text, Absender/Alias, Signatur, Antwortzitat, Cursor im Nachrichtentext und Scrollposition bleiben erhalten. Nach App-Sperre kehrt die APK zur vorherigen Ansicht zurück; nach Neustart gibt es Fortsetzen.
+- Abgelaufene Sitzungen behalten den verschlüsselten Entwurf für die erneute Anmeldung desselben Benutzers am selben Server. Bewusstes Abmelden/Verwerfen entfernt ihn. Ein vorhandener Entwurf wird vor einer neuen Antwort nicht ohne Bestätigung überschrieben; es gibt keinen automatischen Versand wiederhergestellter Entwürfe.
+- Listenpositionen werden je Konto, Ordner, Filter und Gesprächsansicht gemerkt. Zurück aus einer Nachricht der gemeinsamen Inbox führt wieder zu Alle Postfächer.
+- Alle, Ungelesen und Markiert sind direkt erreichbar. Suche, Anhänge und Labels sind kombinierbar; das Schließen der Suche entfernt keine gesetzten Statusfilter. Filter wirken auf geladene Nachrichten; Mehr laden bleibt bei zunächst leeren Ergebnissen erreichbar. Die gemeinsame Inbox unterstützt Nachladen.
+- Unterhaltungen sind direkt umschaltbar. Message-ID/Antwortreferenzen bündeln echte Antwortketten; derselbe Betreff allein verbindet keine unabhängigen Newsletter/Rechnungen. In der gemeinsamen Inbox bleiben Konten getrennt. Passende Gespräche behalten andere Antworten als Kontext.
+- Der Sendepayload wird vor dem Countdown festgehalten; weitere Sendeversuche und Änderungen sind während eines laufenden Versands gesperrt.
+
+Prüfung
+34 Android-Unit-Tests, Debug-Kotlin-Kompilation, signierter Release-Build, APK-Signatur/Manifest/ZIP-CRC und HTTP-Kompatibilität mit Server 1.96.3. 391 Backendtests und 48 Frontendtests bestanden; Ruff, TypeScript und Web-Produktionsbuild erfolgreich. GitHub CI prüft zusätzlich Linux und den Container-Build einschließlich Healthcheck, UID 99, Web-Assets und Datenpersistenz nach Neustart.
+Kein Android-Gerät/Emulator vorhanden: tatsächliche Geräteinstallation, Biometrie und App-Wechsel wurden nicht auf einem Gerät getestet. Der Geräteprüfplan steht in docs/APK-BEDIENUNG-2026-10-13.txt. Beim Prozessneustart werden bis 1000 zuletzt geladene Kopfzeilen je Ordner wieder geladen; tiefere Positionen können weiteres Nachladen benötigen.
+
+Android-Quellen
+Die Änderungen am externen Android-Projekt sind als reproduzierbarer Patch gegen Android 1.96.2 enthalten: android/SelfMailer-usability-local.patch. Anwenden mit git apply --ignore-space-change. APK und SHA-256-Prüfsumme stehen als Release-Assets bereit.
