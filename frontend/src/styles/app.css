@@ -1387,11 +1387,32 @@ button:focus-visible {
    Fieldset mitbringen - so bleiben die unveraendert. */
 .fold-body .acc-fieldset { border: none; padding: 0; margin: 0; }
 .fold-body .acc-fieldset > legend { display: none; }
-.mail-cleanup { width: min(720px, 85vw); display: flex; flex-direction: column; gap: .65rem; }
-.mail-cleanup h2, .mail-cleanup p { margin: 0; }
+/* Keep cleanup actions visible independently of the filters and long results. */
+dialog.mail-cleanup-modal {
+  width: min(820px, calc(100vw - 1.2rem));
+  height: min(900px, calc(100dvh - 1.2rem));
+  max-height: calc(100dvh - 1.2rem); overflow: hidden;
+  background: var(--self-bg-1);
+}
+.mail-cleanup { height: 100%; min-height: 0; display: flex; flex-direction: column; gap: .65rem; padding: 1rem; }
+.mail-cleanup h2 { font-size: clamp(1.1rem, 3vw, 1.5rem); margin: 0; flex: none; }
+.mail-cleanup p { margin: 0; }
+.mail-cleanup-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: .65rem; padding-right: .25rem; }
+.mail-cleanup-scroll > * { flex-shrink: 0; }
 .mail-cleanup label { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-.mail-cleanup-results { max-height: 35vh; overflow: auto; display: flex; flex-direction: column; gap: .3rem; }
-.mail-cleanup-results button { text-align: left; display: flex; flex-direction: column; gap: .2rem; }
-.mail-cleanup-results span { color: var(--self-muted); font-size: .8rem; }
+.mail-cleanup input[type="checkbox"] { width: auto; flex: none; margin: 0; }
+.mail-cleanup .row { flex-wrap: wrap; }
+.mail-cleanup .row input { flex: 1; min-width: 140px; }
+.mail-cleanup-results { display: flex; flex-direction: column; gap: .3rem; }
+.mail-cleanup-results button { text-align: left; display: flex; flex-direction: column; gap: .2rem; overflow-wrap: anywhere; }
+.mail-cleanup-results span { color: var(--self-text-2); font-size: .8rem; }
+.mail-cleanup-actions { flex: none; display: flex; flex-direction: column; gap: .5rem; border-top: 1px solid var(--self-line); padding-top: .65rem; }
+.mail-cleanup-actions button { white-space: normal; overflow-wrap: anywhere; }
+.mail-cleanup-actions .row { justify-content: space-between; }
+@media (max-width: 480px), (max-height: 500px) {
+  .mail-cleanup { padding: .6rem; gap: .4rem; }
+  .mail-cleanup-actions { gap: .3rem; padding-top: .4rem; }
+  .mail-cleanup-actions button, .mail-cleanup-actions select { padding: .4rem .6rem; }
+}
 .mail-compact .mail-row-snippet { display: none; }
 .mail-new-banner { margin: .3rem; }

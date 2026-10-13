@@ -2,8 +2,8 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 /** Native modal dialogs provide focus containment and make the background inert. */
-export function Modal({ children, label, onClose, returnFocus }: {
-  children: ReactNode; label: string; onClose: () => void; returnFocus?: Element | null;
+export function Modal({ children, label, onClose, returnFocus, className }: {
+  children: ReactNode; label: string; onClose: () => void; returnFocus?: Element | null; className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   // Capture before React commits autoFocus on a child input/button.
@@ -19,7 +19,7 @@ export function Modal({ children, label, onClose, returnFocus }: {
     };
   }, []);
   return createPortal(
-    <dialog ref={ref} className="accessible-modal" aria-label={label} aria-modal="true"
+    <dialog ref={ref} className={`accessible-modal${className ? ` ${className}` : ""}`} aria-label={label} aria-modal="true"
       onKeyDown={(e) => e.stopPropagation()}
       onCancel={(e) => { e.preventDefault(); onClose(); }}
       onClick={(e) => {

@@ -1,0 +1,38 @@
+AUFRAEUMEN - LAYOUTKORREKTUR, 13.10.2026
+Release 1.96.9 / Android Build 123 auf Basis Release 1.96.8.
+Veröffentlichung, SelfStore und Downloads werden in der Projektübersicht separat belegt.
+
+BEHOBEN
+Die Aktionen standen hinter der langen Trefferliste; Checkboxen im Web wurden
+von der globalen Eingabebreite auf 100 Prozent verbreitert.
+Web: Dialog innerhalb des sichtbaren Browserfensters; Suche und Trefferliste scrollen
+unabhängig vom festen unteren Aktionsbereich. Zielordner, Paginierung, Bestätigung
+und Schließen bleiben erreichbar. Checkboxen kompakt neben ihrem Text.
+Nach dem Suchen springt der Inhalt direkt zur Vorschau. Kein verschachtelter Listen-Scrollbar.
+APK: Eigener größenbegrenzter Dialog mit scrollbarem Inhalt und festem Aktionsbereich.
+Tastaturfokus beim Suchen freigeben; nach Suchergebnis zur Vorschau scrollen.
+Der weiterhin zweistufige Bestätigungsablauf verschiebt nur angezeigte Mails.
+
+PRUEFUNGEN
+447 Backend-Tests, 56 Web-Tests, zusätzlich 7 Tests der endgültigen Aufräumansicht
+und 111 Android-JVM-Tests bestanden. Web- und signierter APK-Build erfolgreich.
+Reale Chromium-Layoutprüfung mit echter React-Komponente und 71 simulierten Mails:
+1366x768, 1122x1287, 672x384, 360x640, 320x568, 390x350 CSS-Pixel.
+Kein horizontaler Überlauf; Aktionsbereich und Schließen innerhalb des Fensters;
+scrollbarer Inhalt vorhanden; Checkboxbreite unter 30 Pixel; Bestätigung schreibt erst
+beim zweiten Klick und überträgt genau die 71 Vorschau-IDs. Screenshots gespeichert.
+Native Quellpatch auf verifizierte 1.96.8-Basis angewendet und mit aktuellen Quellen verglichen.
+APK-Version, Buildnummer, ZIP-Prüfung und bisheriges Signaturzertifikat überprüft.
+
+ARTEFAKTE
+android/SelfMailer-1.96.9.apk und .sha256
+android/SelfMailer-cleanup-layout.patch (auf native Quellen von Release 1.96.8 anwenden)
+Native Quellen: F:\09_Cloude\Github SelfCoder\Android\selfmailer-app
+Build 123 aktualisiert die öffentliche APK Build 121 sowie den Test-Build 122. Backend 1.96.8 ist kompatibel.
+Für die Webkorrektur den Server auf 1.96.9 aktualisieren.
+
+GRENZEN
+Keine echten Mails verschoben. Browsertests verwenden simulierte Suchantworten.
+Kein echtes Android-Gerät/Emulator vorhanden; das sichtbare native Dialoglayout und
+Bildschirmtastatur-/Systemschriftverhalten erfordern einen Gerätetest.
+Containerprüfung und Veröffentlichung separat in den Release-Nachweisen belegt.

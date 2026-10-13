@@ -1,0 +1,9 @@
+SelfMailer 1.96.9 / Build 123
+
+Aufräumdialog am PC und in der APK überarbeitet: Suche und Trefferliste scrollen getrennt vom festen Aktionsbereich. Zielordner, Bestätigung und Schließen bleiben erreichbar. Checkboxen im Web stehen wieder neben ihrem Text. Nach der Suche erscheint direkt die Vorschau; in der APK wird der Tastaturfokus beim Suchen freigegeben.
+
+Der zweistufige Bestätigungsablauf verschiebt weiterhin nur die angezeigten Mails (höchstens 100 pro Seite). Zusätzliche Regressionstests prüfen Vorschau, Verschieben, veraltete Postfachidentitäten und Fehlerbehandlung.
+
+Signierte APK mit bisherigem Zertifikat. Build 123 aktualisiert auch Test-Build 122. Backend/Web und APK aktualisieren, um die Korrektur auf beiden Geräten zu nutzen.
+
+Validierung: 447 Backend-, 56 Web- und 111 Android-JVM-Tests; Web-/APK-Build und isolierter HTTP-Test. Echte Chromium-Layoutprüfung mit 71 simulierten Treffern in sechs Bildschirmgrößen. APK-Version und Signatur geprüft. Kein physisches Android-Gerät verfügbar; sichtbarer nativer Dialog, Systemschrift und Bildschirmtastatur benötigen weiterhin einen Gerätetest.
