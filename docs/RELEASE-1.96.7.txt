@@ -1,0 +1,21 @@
+SelfMailer 1.96.7 / Android Build 119
+
+SelfMailer-Kontakte aufs Handy exportieren: Kontaktauswahl mit Suchfilter,
+Duplikatvorschau und ausdrücklicher Exportbestätigung. Übernommen werden Namen,
+alle E-Mail-Adressen und Telefonnummern, Firma/Tätigkeit, Website, Anschrift,
+Notizen und Geburtstag. Fotos sind ausgenommen.
+
+Bestehende, mehrdeutige und gleichnamige Handytreffer werden angezeigt und übersprungen.
+Es werden nur neue Kontakte angelegt; keine vorhandenen Kontakte überschrieben oder gelöscht.
+Wiederholte Versuche erkennen abgeschlossene Exporte. Serveränderungen seit der Vorschau
+werden geprüft; nach Teilfehlern bleibt bereits Gespeichertes erhalten.
+
+Schreibzugriff wird erst beim bestätigten Export verwendet. Ziel ist das Android-Standardadressbuch,
+je nach Android-Version/Handyeinstellung lokal oder in einem synchronisierten Konto.
+Kein automatischer Rückabgleich. Maximal 200 Kontakte pro Vorgang.
+
+427 Backend-, 56 Web- und 78 Android-JVM-Tests (22 neue Exporttests), Ruff,
+Produktionsbuilds und signierter APK-Build geprüft. Bisheriges Release-Zertifikat.
+Build 119 aktualisiert auch den lokalen Test-Build 118. Mit Server 1.96.6 kompatibel.
+Praktische Android-Tests von Berechtigungsdialogen, Konten und Provider-Schreibvorgängen
+stehen mangels angeschlossenem Gerät/Emulator noch aus.
