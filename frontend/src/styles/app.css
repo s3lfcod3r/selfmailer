@@ -360,6 +360,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--self-teal); }
 /* --- Auswahl-Leiste (Mehrfachauswahl) --- */
 .bulk-bar {
   display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 20;
   margin-bottom: 0.5rem; padding: 0.45rem 0.6rem;
   background: color-mix(in srgb, var(--self-teal) 9%, var(--self-bg-2));
   border: 1px solid color-mix(in srgb, var(--self-teal) 32%, var(--self-line));
