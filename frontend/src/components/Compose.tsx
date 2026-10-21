@@ -322,6 +322,7 @@ export function Compose({
     }
   }
   async function saveAsTemplate() {
+    setTplOpen(false);
     const name = (await promptDialog(t("tpl.namePrompt")))?.trim();
     if (!name) return;
     const body = editorRef.current?.innerText ?? "";

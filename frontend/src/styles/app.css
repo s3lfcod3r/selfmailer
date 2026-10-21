@@ -666,7 +666,7 @@ dialog.accessible-modal > .modal { min-width: 0; max-width: 100%; }
 /* Kalender-Filter (Farbpunkt + Name + Haken) */
 .cal-filter-dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; }
 /* Kompakte, NICHT klickbare Kalender-Legende (Verwaltung läuft über Sync & Export) */
-.cal-legend { display: flex; flex-wrap: wrap; gap: 0.3rem; 0.8rem; }
+.cal-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.8rem; }
 .cal-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--self-text-2); }
 .cal-legend-item .cal-filter-dot { width: 10px; height: 10px; }
 /* Kalenderwoche-Label in der Montagszelle */
@@ -1039,7 +1039,7 @@ dialog.accessible-modal > .modal { min-width: 0; max-width: 100%; }
     padding: 0.4rem 0.7rem;
   }
 
-  /* Modale füllen auf dem Handy die Breite statt der 420px-Mindestbreite
+  /* Modals füllen auf dem Handy die Breite statt der 420px-Mindestbreite
      (sonst laufen Passwort-/2FA-/Kalender-Termin-Dialoge über den Rand). */
   .modal-backdrop { padding: 0.6rem; }
   .modal {
