@@ -276,6 +276,36 @@ export function Compose({
     if (!list) return;
     setFiles((prev) => [...prev, ...Array.from(list)]);
   }
+  // Dateien vom Desktop ins Compose-Fenster ziehen → als Anhang hinzufügen.
+  // Zähler statt Boolean: dragenter/dragleave feuern auch beim Wechsel über
+  // Kind-Elemente, sonst flackert das Highlight.
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepth = useRef(0);
+  const hasFiles = (e: React.DragEvent<HTMLDivElement>) => Array.from(e.dataTransfer.types).includes("Files");
+  function onDragEnterCompose(e: React.DragEvent<HTMLDivElement>) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragOver(true);
+  }
+  function onDragOverCompose(e: React.DragEvent<HTMLDivElement>) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }
+  function onDragLeaveCompose(e: React.DragEvent<HTMLDivElement>) {
+    if (!hasFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragOver(false);
+  }
+  function onDropCompose(e: React.DragEvent<HTMLDivElement>) {
+    dragDepth.current = 0;
+    setDragOver(false);
+    // Text/HTML-Drop im Editor hat onDropEditor schon erledigt.
+    if (e.defaultPrevented || !hasFiles(e)) return;
+    e.preventDefault();
+    addFiles(e.dataTransfer.files);
+  }
   function removeFile(idx: number) {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
   }
@@ -292,7 +322,6 @@ export function Compose({
     }
   }
   async function saveAsTemplate() {
-    setTplOpen(false);
     const name = (await promptDialog(t("tpl.namePrompt")))?.trim();
     if (!name) return;
     const body = editorRef.current?.innerText ?? "";
@@ -422,7 +451,10 @@ export function Compose({
   return (
     // Klick auf den Hintergrund schließt NICHT (kein versehentliches Verwerfen).
     <div className="modal-backdrop">
-      <div className="modal card compose-modal" onClick={(e) => e.stopPropagation()}>
+      <div className={`modal card compose-modal${dragOver ? " drag-over" : ""}`} onClick={(e) => e.stopPropagation()}
+        onDragEnter={onDragEnterCompose} onDragOver={onDragOverCompose}
+        onDragLeave={onDragLeaveCompose} onDrop={onDropCompose}>
+        {dragOver && <div className="compose-drop-hint">📎 {de ? "Dateien hier ablegen" : "Drop files to attach"}</div>}
         <div className="topbar">
           <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{t("compose.new")}</h2>
           <button className="ghost" onClick={closeAsDraft} title={t("compose.closeDraft")} aria-label={t("compose.closeDraft")}>✕</button>

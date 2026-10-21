@@ -511,6 +511,15 @@ select.bulk-btn { max-width: 170px; }
 .compose-modal { display: flex; flex-direction: column; height: 80vh; overflow: hidden; }
 .compose-modal > .stack { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .compose-modal .compose-editor { flex: 1 1 auto; min-height: 160px; max-height: none; }
+/* Drag & Drop von Dateien: Fenster umranden + Hinweis einblenden. */
+.compose-modal { position: relative; }
+.compose-modal.drag-over { outline: 2px dashed var(--self-teal-bright); outline-offset: -6px; }
+.compose-drop-hint {
+  position: absolute; inset: 6px; z-index: 5; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--self-radius-sm); background: color-mix(in srgb, var(--self-bg-1) 80%, transparent);
+  color: var(--self-teal-bright); font-size: 1.1rem; font-weight: 600;
+}
 .mail-placeholder {
   flex: 1.7 1 0; display: flex; align-items: center; justify-content: center;
   color: var(--self-text-3); min-height: 40vh;
@@ -657,7 +666,7 @@ dialog.accessible-modal > .modal { min-width: 0; max-width: 100%; }
 /* Kalender-Filter (Farbpunkt + Name + Haken) */
 .cal-filter-dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; }
 /* Kompakte, NICHT klickbare Kalender-Legende (Verwaltung läuft über Sync & Export) */
-.cal-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.8rem; }
+.cal-legend { display: flex; flex-wrap: wrap; gap: 0.3rem; 0.8rem; }
 .cal-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--self-text-2); }
 .cal-legend-item .cal-filter-dot { width: 10px; height: 10px; }
 /* Kalenderwoche-Label in der Montagszelle */
@@ -1030,7 +1039,7 @@ dialog.accessible-modal > .modal { min-width: 0; max-width: 100%; }
     padding: 0.4rem 0.7rem;
   }
 
-  /* Modals füllen auf dem Handy die Breite statt der 420px-Mindestbreite
+  /* Modale füllen auf dem Handy die Breite statt der 420px-Mindestbreite
      (sonst laufen Passwort-/2FA-/Kalender-Termin-Dialoge über den Rand). */
   .modal-backdrop { padding: 0.6rem; }
   .modal {
