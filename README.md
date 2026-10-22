@@ -2,8 +2,10 @@
 
 <img src="assets/logo.png" width="240" alt="SelfMailer logo" />
 
+# SelfMailer
 
-**Self-hosted, multi-user e-mail client — with calendar, contacts, notes, a native Android app, and real-time sync. Your own alternative to Synology MailPlus.**
+**Self-hosted, multi-user e-mail client — with calendar, contacts, notes, a native Android app and real-time sync.**<br>
+*Selbstgehosteter Mehrbenutzer-Mailclient — mit Kalender, Kontakten, Notizen, nativer Android-App und Echtzeit-Sync.*
 
 [![Build](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml/badge.svg)](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-1.96.9-33A78C)
@@ -12,27 +14,13 @@
 ![Web](https://img.shields.io/badge/web-React%20%2B%20Vite-43D3AD)
 ![App](https://img.shields.io/badge/android-Kotlin%20%2B%20Compose-9DBDD0)
 
-[English](#-english) · [Deutsch](#-deutsch)
+**[🇬🇧 English](#-english) · [🇩🇪 Deutsch](#-deutsch)**
+
+📰 **What's new / Neuigkeiten** → [CHANGELOG.md](CHANGELOG.md)
 
 </div>
 
 ---
-
-Security update notes / Hinweise zum Sicherheitsupdate:
-[1.96.3: Android-Entwürfe erhalten, Listenposition merken, Filter und Unterhaltungen](docs/RELEASE-1.96.3.txt).
-
-[1.96.4: Ähnliche Mails, Aufräumvorschau, gespeicherte Ansichten und Optimierungen](docs/RELEASE-1.96.4.txt).
-
-[1.96.2: Sitzungswiderruf, transaktionale Datenbereinigung, DAV-Origin-Schutz und aktualisierte Android-APK](docs/RELEASE-1.96.2.txt).
-
-[1.96.0 (Sept 2026): session revocation, hashed feed tokens, hardened mail view — requires re-login and new subscription URLs](docs/SICHERHEIT-1.96.0.md).
-[September 2026: coordinated backend, web and Android update](docs/SECURITY-UPDATE-2026-09.md).
-
-Latest server update / Aktuelles Serverupdate:
-[1.95.4: recognize post-login IMAP capabilities for native MOVE and CONDSTORE](docs/IMAP-CAPABILITIES.md).
-[1.95.5: Gmail sync backoff, bounded live counts and fewer IMAP round trips; Android build 105](docs/GMAIL-SYNC-1.95.5.md).
-[1.96.0: security review follow-up — token revocation, feed tokens as hashes, CSP/DOMPurify on the read path, IMAP/SMTP IP pinning](docs/SICHERHEIT-1.96.0.md).
-[Privacy-preserving mail timing diagnostics; Android 1.95.1 remains compatible](docs/MAIL-TIMING.md).
 
 <a id="-english"></a>
 
@@ -45,7 +33,10 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
 > **TL;DR** — IMAP/SMTP mail client · calendar/contacts/notes · web + native Android · live cross-device sync · 3 notification options (FCM / ntfy / background) · 2FA · single container · no external DB.
 
 ### 📑 Table of contents
-[Features](#-features) · [Blocking senders](#-blocking-senders) · [Architecture](#-architecture) · [Notifications](#-notifications) · [Live sync](#-live-sync) · [Quick start](#-quick-start-docker) · [Unraid](#-unraid) · [Configuration](#%EF%B8%8F-configuration-env-prefix-selfmailer_) · [Android app](#-android-app) · [API](#-api-overview-apiv1-jwt-bearer) · [Security](#%EF%B8%8F-security) · [Tech stack](#-tech-stack) · [Development](#%EF%B8%8F-development) · [Roadmap](#%EF%B8%8F-roadmap)
+
+[Features](#en-features) · [Blocking senders](#en-blocking) · [Architecture](#en-architecture) · [Notifications](#en-notifications) · [Live sync](#en-live-sync) · [Quick start](#en-quick-start) · [Unraid](#en-unraid) · [Configuration](#en-configuration) · [Backups](#en-backups) · [Android app](#en-android) · [API](#en-api) · [Security](#en-security) · [Tech stack](#en-tech-stack) · [Development](#en-development) · [Roadmap](#en-roadmap)
+
+<a id="en-features"></a>
 
 ### ✨ Features
 
@@ -57,14 +48,15 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
 - **Star**, mark read/unread, delete, **move**, **cross-account transfer**
 - **Multi-select** (long-press → select → bulk move / read / unread / star / delete)
 - **Filter rules** (move/star/mark/**delete** — applied automatically on every background sync) and **server-side mailbox migration**
-- **Block sender** in one click → mail goes to **trash** (existing + future); a **blocked-senders list** lets you undo any block, and the trash auto-empties after 7 days (safe 7-day undo window)
+- **Mailbox cleanup**: find similar mail by sender, domain, subject, keyword or label, preview, then move in bulk; **saved search views**
+- **Block sender** in one click → mail goes to **trash** (existing + future); a **blocked-senders list** lets you undo any block
 - **Auto-empty spam & trash** per account (off / immediately / after 7 / 30 days)
 - **Search** with quick filters (unread · has attachment · starred), pagination, snippets
 - A local **SQLite cache** kept warm by a background sync → the UI never waits on a slow provider
 
 **📅 Organizer**
 - **Calendar** — local events, month/agenda views, birthdays from contacts
-- **Contacts** — rich address book (phones, address, organisation, website, birthday)
+- **Contacts** — rich address book (phones, address, organisation, website, birthday); import from / export to the phone, optional two-way sync
 - **Notes** & **Tasks**
 - **CalDAV / CardDAV** pull from external servers (Nextcloud, Synology …) + subscribable **ICS / vCard** export feeds
 
@@ -76,7 +68,7 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
 - Configurable in **both** the web UI and the app — one shared setting
 
 **🔄 Live sync (SSE)**
-- Read/delete/move on your phone → an open web tab **updates instantly** (and vice-versa)
+- Read/delete/move on your phone → an open web tab **updates instantly** (and vice versa)
 
 **🔐 Security & platform**
 - **Multi-user** with admin/user roles; admin can pre-configure accounts for users
@@ -84,6 +76,8 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
 - Account credentials **Fernet-encrypted at rest**
 - **i18n DE/EN**, light/dark themes + custom accent colours
 - **Single container** — FastAPI + SQLite, no external database
+
+<a id="en-blocking"></a>
 
 ### 🚫 Blocking senders
 
@@ -95,12 +89,13 @@ The trash auto-empties after **7 days** (a safe undo window).
 box at the top lists every block; hit **↩ Unblock** to let future mail through again.
 To recover a specific message, open it in the **Trash** folder and move it back to the inbox (within 7 days).
 
-> Auto-empty timings (spam & trash: off / immediately / after 7 / 30 days) live under
-> **👤 → ✎ Edit account**.
+> **💡 Tip:** auto-empty timings (spam & trash: off / immediately / after 7 / 30 days) live under **👤 → ✎ Edit account**.
+
+<a id="en-architecture"></a>
 
 ### 🧭 Architecture
 
-```
+```text
         ┌──────────────┐          ┌───────────────┐
         │   Web UI     │          │  Android app  │
         │ React + Vite │          │ Kotlin/Compose│
@@ -114,13 +109,15 @@ To recover a specific message, open it in the **Trash** folder and move it back 
                  │  + event bus     │  in-memory pub/sub → live sync
                  └────────┬─────────┘
         ┌──────────┬──────┴───────┬──────────────┬───────────┐
-   IMAP   SMTP      CalDAV / CardDAV     FCM         ntfy
-  (read mail) (send mail) (sync cal & contacts) (Google push) (self-hosted push)
+       IMAP       SMTP     CalDAV / CardDAV      FCM         ntfy
+   (read mail) (send mail) (cal & contacts) (Google push) (self-hosted)
 ```
+
+<a id="en-notifications"></a>
 
 ### 🔔 Notifications
 
-Pick a method in **Settings → E-Mail notifications** (web *user menu → 🔔* / app *Settings*). The server can drive **all three** in parallel — e.g. FCM on your main phone, ntfy on a de-Googled one.
+Pick a method in **Settings → E-mail notifications** (web *user menu → 🔔* / app *Settings*). The server can drive **all three** in parallel — e.g. FCM on your main phone, ntfy on a de-Googled one.
 
 | Method | Latency | Persistent notification | Needs |
 |---|---|---|---|
@@ -128,7 +125,7 @@ Pick a method in **Settings → E-Mail notifications** (web *user menu → 🔔*
 | **ntfy** | instant | none (the ntfy app holds one connection for all apps) | ntfy container + ntfy app |
 | **Background check** | ~1 min | yes (Android requirement for a foreground service) | nothing |
 
-**Per-folder:** under *Choose folders* you pick, per account, which folders trigger a push.
+**Per folder:** under *Choose folders* you pick, per account, which folders trigger a push.
 
 <details>
 <summary><b>Setup — FCM (Google Push)</b></summary>
@@ -151,9 +148,13 @@ Pick a method in **Settings → E-Mail notifications** (web *user menu → 🔔*
 3. In SelfMailer: notifications on → **ntfy** → enter the URL → **Save & enable** → pick folders.
 </details>
 
+<a id="en-live-sync"></a>
+
 ### 🔄 Live sync
 
 Every open client (web tab, app in the foreground) holds a thin **SSE** connection (`/api/v1/events/stream`). Whenever anyone performs an action — or new mail arrives — the server emits a tiny event and the other clients refresh the affected folder. No polling storm, no Google, near-instant.
+
+<a id="en-quick-start"></a>
 
 ### 🚀 Quick start (Docker)
 
@@ -167,26 +168,34 @@ docker compose up -d
 
 Open `http://<host>:8090` → the **first-run setup** creates the admin account → then add your mail accounts.
 
+> For access from outside your LAN, put a reverse proxy in front: [HTTPS guide](docs/HTTPS.md).
+
+<a id="en-unraid"></a>
+
 ### 📦 Unraid
 
 Add the template from
 `https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/unraid/selfmailer.xml`
 or import it under *Docker → Add Container → Template*. Set the **Master Secret**, leave the rest on defaults.
 
-> **Master Secret:** never change `SELFMAILER_SECRET` after first run — it encrypts the stored mailbox passwords. Changing it makes them unreadable.
+> **⚠️ Master Secret:** never change `SELFMAILER_SECRET` after first run — it encrypts the stored mailbox passwords. Changing it makes them unreadable.
 >
-> **Permissions:** the container runs **non-root** (uid `99` / gid `100` = `nobody:users`). If a data file is owned by root, fix it once:
+> **⚠️ Permissions:** the container runs **non-root** (uid `99` / gid `100` = `nobody:users`). If a data file is owned by root, fix it once:
 > `chown -R 99:100 /mnt/user/appdata/selfmailer` (or *Tools → Docker Safe New Permissions*).
 
-### ⚙️ Configuration (ENV, prefix `SELFMAILER_`)
+<a id="en-configuration"></a>
+
+### ⚙️ Configuration
+
+Environment variables, all with the prefix `SELFMAILER_`.
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `SELFMAILER_SECRET` | ✅ | – | JWT signing **and** at-rest encryption of mailbox passwords (≥ 32 chars). **Do not change after setup.** |
 | `SELFMAILER_DB_PATH` | – | `/data/selfmailer.db` | SQLite path |
-| `SELFMAILER_FCM_CREDENTIALS` | – | `/data/fcm-service-account.json` | Path to the Firebase service-account JSON for Google push. Empty/missing = FCM off. |
-| `SELFMAILER_TRANSLATE_URL` | – | – | URL of a self-hosted LibreTranslate instance for in-app e-mail translation (e.g. `http://192.168.1.10:5000`). Empty = translation off (button hidden). |
-| `SELFMAILER_TRANSLATE_API_KEY` | – | – | Optional API key, only if your LibreTranslate instance requires one. |
+| `SELFMAILER_FCM_CREDENTIALS` | – | `/data/fcm-service-account.json` | Firebase service-account JSON for Google push. Empty/missing = FCM off. |
+| `SELFMAILER_TRANSLATE_URL` | – | – | Self-hosted LibreTranslate URL for in-app translation (e.g. `http://192.168.1.10:5000`). Empty = off (button hidden). |
+| `SELFMAILER_TRANSLATE_API_KEY` | – | – | Optional API key, only if your LibreTranslate instance requires one |
 | `SELFMAILER_ADMIN_TOKEN` | – | – | If set, first-run admin setup requires this token |
 | `SELFMAILER_BASE_URL` | – | – | Public base URL (e.g. for feed links) |
 | `SELFMAILER_SYNC_INTERVAL` | – | `120` | Seconds between background mail syncs (lower = faster push & sync) |
@@ -196,20 +205,21 @@ or import it under *Docker → Add Container → Template*. Set the **Master Sec
 | `SELFMAILER_DAV_BLOCK_PRIVATE` | – | `false` | Block private/LAN targets for DAV pull (SSRF strict mode) |
 | `SELFMAILER_JWT_ALGORITHM` | – | `HS256` | `HS256` / `HS384` / `HS512` |
 | `SELFMAILER_BACKUP_ENABLED` | – | `true` | Nightly automatic DB backup (~03:00) |
-| `SELFMAILER_BACKUP_KEEP` | – | `7` | How many backups to keep (older ones are rotated out; `0` = keep all) |
+| `SELFMAILER_BACKUP_KEEP` | – | `7` | How many backups to keep (`0` = keep all) |
+
+<a id="en-backups"></a>
 
 ### 💾 Backups
 
-The scheduler takes a **consistent** nightly snapshot of the SQLite database
-(`sqlite3` online-backup API, safe during writes) into `data/backups/`:
+The scheduler takes a **consistent** nightly snapshot of the SQLite database (`sqlite3` online-backup API, safe during writes) into `data/backups/`:
 
-```
+```text
 data/backups/selfmailer-YYYYMMDD-HHMMSS.db
 ```
 
-Only the last `SELFMAILER_BACKUP_KEEP` snapshots are kept. The folder is
-git-ignored. To **restore** a backup, stop the container, replace the live DB
-with a snapshot, then start again:
+Only the last `SELFMAILER_BACKUP_KEEP` snapshots are kept; the folder is git-ignored.
+
+**Restore** — stop the container, replace the live DB with a snapshot, start again:
 
 ```bash
 docker stop selfmailer
@@ -219,6 +229,8 @@ rm -f data/selfmailer.db-wal data/selfmailer.db-shm
 docker start selfmailer
 ```
 
+<a id="en-android"></a>
+
 ### 📱 Android app
 
 A real native client (`android/SelfMailer.apk`) — **not** a web-view wrapper. Built like Synology MailPlus:
@@ -226,11 +238,17 @@ A real native client (`android/SelfMailer.apk`) — **not** a web-view wrapper. 
 - **Hamburger drawer** → account switcher + special folders + sub-folders, with unread badges
 - **Bottom navigation**: Mail · Calendar · Notes
 - HTML mail, attachments, **multi-select** with a bulk action bar, **search filters**, Synology-style **compose** with From picker
+- **Drafts are kept** (encrypted locally) even after app-lock or restart
+- **Contacts**: import from / export to the phone, optional two-way sync
 - **Biometric app-lock** (face / fingerprint / device PIN), unread accent markers
 - **Notifications**: FCM / ntfy / background — your choice, per folder
 - Talks to the same `/api/v1` as the web UI; server URL entered on first launch
 
-### 🔌 API overview (`/api/v1`, JWT Bearer)
+<a id="en-api"></a>
+
+### 🔌 API overview
+
+Base path `/api/v1`, authentication via JWT Bearer. Interactive docs: `http://<host>:8090/docs`.
 
 | Group | Endpoints (excerpt) |
 |---|---|
@@ -243,14 +261,21 @@ A real native client (`android/SelfMailer.apk`) — **not** a web-view wrapper. 
 | **Live** | `events/stream` (Server-Sent Events) |
 | **Dashboard** | `dashboard/summary` (bundled unseen counts) |
 
+<a id="en-security"></a>
+
 ### 🛡️ Security
 
 - Login passwords **Argon2**-hashed; mailbox & DAV passwords **Fernet-encrypted at rest** (key from `SELFMAILER_SECRET`)
+- **Revocable sessions**: logout, password/2FA changes and admin locks revoke tokens, SSE access and push registrations
 - **JWT** pinned to `HS256/384/512`; the 2FA intermediate token grants no access
 - **Rate limiting** on login/2FA/setup; defensive response headers; **anti-enumeration** dummy hash
-- **SSRF guard** on DAV pull (loopback/link-local/cloud-metadata always blocked)
+- **SSRF guard** on DAV pull (loopback/link-local/cloud-metadata always blocked); DAV credentials stay bound to their origin
 - Android: `allowBackup=false`, JWT in the **Android Keystore**, hardened mail-HTML WebView, FileProvider with path-traversal check
-- **Deliberate LAN trade-offs** (documented): cleartext HTTP allowed (TLS terminated externally), `SELFMAILER_SECRET` doubles as the encryption seed. Reviewed with the ECC security reviewer.
+- **Deliberate LAN trade-offs** (documented): cleartext HTTP allowed (TLS terminated externally), `SELFMAILER_SECRET` doubles as the encryption seed
+
+Security update history → [CHANGELOG.md](CHANGELOG.md) (entries marked 🔒).
+
+<a id="en-tech-stack"></a>
 
 ### 🧱 Tech stack
 
@@ -261,6 +286,8 @@ A real native client (`android/SelfMailer.apk`) — **not** a web-view wrapper. 
 | App | Kotlin · Jetpack Compose · OkHttp · WorkManager · Firebase Messaging · BiometricPrompt |
 | Push | FCM (Google) · ntfy (self-hosted) |
 | Deploy | Docker (multi-stage, non-root) · GHCR · Unraid |
+
+<a id="en-development"></a>
 
 ### 🛠️ Development
 
@@ -274,10 +301,13 @@ uvicorn app.main:app --reload --port 8090
 cd frontend && npm install && npm run dev   # http://localhost:5173, proxies /api → :8090
 ```
 
-Interactive API docs: `http://localhost:8090/docs`
+**Tests:**
 
-**Run the tests:** `cd backend && pip install -r requirements.txt -r requirements-dev.txt && pytest --cov=app`
-(pytest + TestClient against a temp SQLite — currently ~48 % coverage; the IMAP/SMTP/DAV paths need mocking to push higher.)
+```bash
+cd backend && pip install -r requirements.txt -r requirements-dev.txt && pytest --cov=app
+```
+
+<a id="en-roadmap"></a>
 
 ### 🗺️ Roadmap
 
@@ -288,9 +318,12 @@ Interactive API docs: `http://localhost:8090/docs`
 - [x] Notifications: **FCM** + **ntfy** + background, per account & folder
 - [x] **Live sync** (SSE) between web clients **and** the Android app (foreground)
 - [x] Calendar month grid in the app
+- [x] Mailbox cleanup · saved views · phone contact import/export/sync
 - [x] [HTTPS reverse-proxy guide](docs/HTTPS.md)
 - [ ] OAuth for Gmail / Outlook
 - [ ] Tests toward 80 % coverage
+
+<p align="right"><a href="#-english">⬆ back to top</a></p>
 
 ---
 
@@ -300,9 +333,15 @@ Interactive API docs: `http://localhost:8090/docs`
 
 Ein einzelner Docker-Container, der **kein Mailserver** ist — sondern ein **Client** für die Postfächer, die du schon hast. Er verbindet sich mit jedem **IMAP**-Konto zum Lesen und mit **SMTP** zum Senden und bringt **Kalender, Kontakte, Notizen und Aufgaben** mit. Eine ausgefeilte **Web-Oberfläche** und eine **native Android-App** teilen sich **eine JSON-API** — und bleiben **live** über Geräte hinweg synchron.
 
-Teil der **Self**-Reihe (SelfAuthenticator, SelfArchiver, SelfDashboard …) — gleiches Design-System, gleicher Deploy-Stil (GHCR → Unraid).
+Teil der **Self**-Familie (SelfAuthenticator, SelfArchiver, SelfDashboard …) — gleiches Design-System, gleicher Deploy-Stil (GHCR → Unraid).
 
-> **Kurz** — IMAP/SMTP-Mail-Client · Kalender/Kontakte/Notizen · Web + native Android · Live-Sync · 3 Benachrichtigungs-Wege (FCM / ntfy / Hintergrund) · 2FA · ein Container · keine externe DB.
+> **Kurz** — IMAP/SMTP-Mailclient · Kalender/Kontakte/Notizen · Web + native Android · Live-Sync zwischen Geräten · 3 Benachrichtigungswege (FCM / ntfy / Hintergrund) · 2FA · ein Container · keine externe DB.
+
+### 📑 Inhaltsverzeichnis
+
+[Funktionen](#de-funktionen) · [Absender blockieren](#de-blockieren) · [Architektur](#de-architektur) · [Benachrichtigungen](#de-benachrichtigungen) · [Live-Sync](#de-live-sync) · [Schnellstart](#de-schnellstart) · [Unraid](#de-unraid) · [Konfiguration](#de-konfiguration) · [Backups](#de-backups) · [Android-App](#de-android) · [API](#de-api) · [Sicherheit](#de-sicherheit) · [Tech-Stack](#de-tech-stack) · [Entwicklung](#de-entwicklung) · [Roadmap](#de-roadmap)
+
+<a id="de-funktionen"></a>
 
 ### ✨ Funktionen
 
@@ -310,55 +349,80 @@ Teil der **Self**-Reihe (SelfAuthenticator, SelfArchiver, SelfDashboard …) —
 - Mehrere **IMAP-/SMTP**-Konten pro Nutzer
 - **Thunderbird-Ansicht**: gestapelte Konten mit Ordnerbaum und **Ungelesen-Zählern**
 - **HTML-Mails** lesen (gehärtet), **Anhänge** öffnen, **SPF/DKIM/DMARC**-Spoofing-Check
-- **Schreiben / Antworten / Weiterleiten** mit **Von-Konto-Auswahl** und **Signaturen**; Entwürfe, Lese-/Empfangsbestätigung
-- **Stern**, gelesen/ungelesen, löschen, **verschieben**, **Konto-übergreifend übertragen**
+- **Schreiben / Antworten / Weiterleiten** mit **Absender-Auswahl** und **Signaturen**; Entwürfe, Lese-/Empfangsbestätigung
+- **Stern**, gelesen/ungelesen, löschen, **verschieben**, **kontoübergreifend übertragen**
 - **Mehrfachauswahl** (lange drücken → auswählen → Sammelaktionen Verschieben/Gelesen/Ungelesen/Stern/Löschen)
-- **Filterregeln** (Verschieben/Stern/Gelesen/**Löschen** — werden bei jedem Hintergrund-Sync automatisch angewandt) und serverseitige **Postfach-Migration**
-- **Absender blockieren** per Klick → Mails wandern in den **Papierkorb** (vorhandene + künftige); eine **Blacklist** zeigt alle Blockierungen und lässt sie wieder aufheben, der Papierkorb leert sich nach 7 Tagen (sicheres 7-Tage-Rückgängig-Fenster)
+- **Filterregeln** (Verschieben/Stern/Gelesen/**Löschen** — bei jedem Hintergrund-Sync automatisch angewandt) und serverseitige **Postfach-Migration**
+- **Postfach aufräumen**: ähnliche Mails nach Absender, Domain, Betreff, Stichwort oder Label finden, Vorschau prüfen, dann gesammelt verschieben; **gespeicherte Suchansichten**
+- **Absender blockieren** per Klick → Mails wandern in den **Papierkorb** (vorhandene + künftige); eine **Liste blockierter Absender** macht jede Blockierung rückgängig
 - **Spam & Papierkorb automatisch leeren** je Konto (aus / sofort / nach 7 / 30 Tagen)
-- **Suche** mit Schnellfiltern (ungelesen · Anhang · Stern), Pagination, Vorschauen
-- Lokaler **SQLite-Cache**, vom Hintergrund-Sync warmgehalten → die UI wartet nie auf einen langsamen Provider
+- **Suche** mit Schnellfiltern (ungelesen · Anhang · Stern), Seitenweise Anzeige, Vorschauen
+- Lokaler **SQLite-Cache**, vom Hintergrund-Sync warmgehalten → die Oberfläche wartet nie auf einen langsamen Anbieter
 
 **📅 Organizer**
 - **Kalender** — lokale Termine, Monats-/Agenda-Ansicht, Geburtstage aus Kontakten
-- **Kontakte** — reiches Adressbuch (Telefon, Adresse, Firma, Website, Geburtstag)
+- **Kontakte** — umfangreiches Adressbuch (Telefon, Adresse, Firma, Website, Geburtstag); Import vom / Export aufs Handy, optional Sync in beide Richtungen
 - **Notizen** & **Aufgaben**
-- **CalDAV-/CardDAV**-Pull von externen Servern (Nextcloud, Synology …) + abonnierbare **ICS-/vCard**-Feeds
+- **CalDAV-/CardDAV**-Abgleich mit externen Servern (Nextcloud, Synology …) + abonnierbare **ICS-/vCard**-Feeds
 
 **🔔 Benachrichtigungen — du wählst**
 - **FCM (Google-Push)** — sofort, keine Dauer-Benachrichtigung (wie Gmail/Synology)
-- **ntfy** — self-hosted, kein Google
-- **Hintergrund-Prüfung** — ~1 Min, null Setup
-- **Pro Konto, pro Ordner** — wähle genau, welche Postfächer benachrichtigen
-- Einstellbar in **Web-UI und App** — eine gemeinsame Einstellung
+- **ntfy** — selbstgehosteter Push, kein Google
+- **Hintergrund-Prüfung** — ~1 Min, keine Einrichtung nötig
+- **Pro Konto, pro Ordner** — du wählst genau, welche Postfächer benachrichtigen
+- Einstellbar in **Web-Oberfläche und App** — eine gemeinsame Einstellung
 
 **🔄 Live-Sync (SSE)**
 - Lesen/Löschen/Verschieben am Handy → ein offener Web-Tab **aktualisiert sich sofort** (und umgekehrt)
 
 **🔐 Sicherheit & Plattform**
-- **Multi-User** mit Admin-/Nutzer-Rollen; Admin kann Konten vorkonfigurieren
+- **Mehrbenutzer** mit Admin-/Nutzer-Rollen; der Admin kann Konten vorkonfigurieren
 - **2FA / TOTP** mit Backup-Codes; biometrische **App-Sperre** unter Android
-- Konto-Zugangsdaten **Fernet-verschlüsselt at-rest**
-- **i18n DE/EN**, helles/dunkles Theme + eigene Akzentfarben
+- Konto-Zugangsdaten **Fernet-verschlüsselt** gespeichert
+- **Deutsch/Englisch**, helles/dunkles Theme + eigene Akzentfarben
 - **Ein Container** — FastAPI + SQLite, keine externe Datenbank
+
+<a id="de-blockieren"></a>
 
 ### 🚫 Absender blockieren
 
 **Blockieren** — Mail öffnen → oben rechts auf **⋯** → **🚫 Absender blockieren** → bestätigen.
-Alle Mails dieses Absenders (vorhandene + künftige, Posteingang + Spam) wandern in den **Papierkorb**
-und werden als gelesen markiert. Der Papierkorb leert sich nach **7 Tagen** automatisch (Rückgängig-Fenster).
+Alle Mails dieses Absenders (vorhandene + künftige, Posteingang + Spam) wandern in den **Papierkorb** und werden als gelesen markiert.
+Der Papierkorb leert sich nach **7 Tagen** automatisch (Rückgängig-Fenster).
 
-**Aufheben** — oben rechts aufs **👤 Benutzer-Menü** → **🔀 Regeln** → ganz oben der Kasten
-**🚫 Blockierte Absender** zeigt alle Blockierungen; mit **↩ Aufheben** kommen künftige Mails wieder an.
-Eine einzelne Mail rettest du, indem du sie im **Papierkorb**-Ordner öffnest und zurück in den Posteingang
-verschiebst (solange die 7 Tage noch nicht um sind).
+**Aufheben** — oben rechts aufs **👤 Benutzermenü** → **🔀 Regeln** → der Kasten **🚫 Blockierte Absender**
+ganz oben zeigt alle Blockierungen; mit **↩ Aufheben** kommen künftige Mails wieder an.
+Eine einzelne Mail rettest du, indem du sie im Ordner **Papierkorb** öffnest und zurück in den Posteingang verschiebst (innerhalb der 7 Tage).
 
-> Die Auto-Leeren-Zeiten (Spam & Papierkorb: aus / sofort / nach 7 / 30 Tagen) findest du unter
-> **👤 → ✎ Konto bearbeiten**.
+> **💡 Tipp:** die Zeiten fürs automatische Leeren (Spam & Papierkorb: aus / sofort / nach 7 / 30 Tagen) findest du unter **👤 → ✎ Konto bearbeiten**.
+
+<a id="de-architektur"></a>
+
+### 🧭 Architektur
+
+```text
+        ┌──────────────┐          ┌───────────────┐
+        │  Web-UI      │          │  Android-App  │
+        │ React + Vite │          │ Kotlin/Compose│
+        └──────┬───────┘          └──────┬────────┘
+               └───── JSON-API + SSE ─────┘
+                   /api/v1 · JWT (Bearer)
+                          │
+                 ┌────────▼─────────┐
+                 │  FastAPI-Kern    │  SQLite (Cache + Konfiguration)
+                 │ Hintergrund-Sync │  Fernet-verschlüsselte Geheimnisse
+                 │  + Event-Bus     │  In-Memory-Pub/Sub → Live-Sync
+                 └────────┬─────────┘
+        ┌──────────┬──────┴───────┬──────────────┬───────────┐
+       IMAP       SMTP     CalDAV / CardDAV      FCM         ntfy
+  (Mail lesen) (Mail senden) (Kal. & Kontakte) (Google-Push) (selbstgehostet)
+```
+
+<a id="de-benachrichtigungen"></a>
 
 ### 🔔 Benachrichtigungen
 
-Methode in **Einstellungen → E-Mail-Benachrichtigungen** wählen (Web *Benutzer-Menü → 🔔* / App *Einstellungen*). Der Server bedient **alle drei** parallel — z. B. FCM aufs Haupt-Handy, ntfy auf ein entgoogeltes.
+Methode unter **Einstellungen → E-Mail-Benachrichtigungen** wählen (Web *Benutzermenü → 🔔* / App *Einstellungen*). Der Server bedient **alle drei** parallel — z. B. FCM aufs Haupt-Handy, ntfy auf ein Handy ohne Google.
 
 | Methode | Latenz | Dauer-Benachrichtigung | Voraussetzung |
 |---|---|---|---|
@@ -366,32 +430,36 @@ Methode in **Einstellungen → E-Mail-Benachrichtigungen** wählen (Web *Benutze
 | **ntfy** | sofort | keine (die ntfy-App hält eine Verbindung für alle Apps) | ntfy-Container + ntfy-App |
 | **Hintergrund-Prüfung** | ~1 Min | ja (Android-Pflicht für einen Vordergrund-Dienst) | nichts |
 
-**Pro Ordner:** unter *Ordner auswählen* legst du je Konto fest, welche Ordner pushen.
+**Pro Ordner:** unter *Ordner auswählen* legst du je Konto fest, welche Ordner einen Push auslösen.
 
 <details>
 <summary><b>Einrichtung — FCM (Google-Push)</b></summary>
 
 1. Kostenloses **Firebase**-Projekt anlegen: <https://console.firebase.google.com>.
-2. **Android-App** mit Paketname `com.selfmailer.viewer` hinzufügen → **`google-services.json`** laden (kommt in den App-Build).
-3. Projekteinstellungen → **Dienstkonten** → **Neuen privaten Schlüssel generieren** → JSON laden.
-4. Diese JSON auf den Server als `…/selfmailer/data/fcm-service-account.json` legen und
+2. **Android-App hinzufügen** mit Paketname `com.selfmailer.viewer` → **`google-services.json`** herunterladen (kommt in den App-Build).
+3. Projekteinstellungen → **Dienstkonten** → **Neuen privaten Schlüssel generieren** → JSON herunterladen.
+4. Diese JSON auf dem Server als `…/selfmailer/data/fcm-service-account.json` ablegen und
    `SELFMAILER_FCM_CREDENTIALS=/data/fcm-service-account.json` setzen → Container neu starten.
-5. In der App: Benachrichtigungen an → **Google-Push (FCM)** → Ordner wählen → mit **Test-Push** prüfen.
+5. In der App: Benachrichtigungen an → **Google-Push (FCM)** → Ordner wählen → mit **Test-Push senden** prüfen.
 
-> Der Push-Inhalt ist bewusst minimal („2 neue E-Mails"); die Details holt die App direkt von **deinem** Server — Google sieht keine Mail-Inhalte.
+> Der Push-Inhalt ist bewusst minimal („2 neue E-Mails“); die App holt die Details direkt von **deinem** Server — Google sieht keine Mail-Inhalte.
 </details>
 
 <details>
-<summary><b>Einrichtung — ntfy (self-hosted)</b></summary>
+<summary><b>Einrichtung — ntfy (selbstgehostet)</b></summary>
 
 1. **ntfy**-Container starten (z. B. `binwiederhier/ntfy serve`, Host-Port `8095` → Container `80`, `NTFY_BASE_URL=http://<host>:8095`).
-2. **ntfy-App** installieren, Server eintragen, das in SelfMailer gezeigte Thema abonnieren.
+2. **ntfy-App** installieren, Server eintragen, das in SelfMailer angezeigte Thema abonnieren.
 3. In SelfMailer: Benachrichtigungen an → **ntfy** → URL eintragen → **Speichern & aktivieren** → Ordner wählen.
 </details>
 
+<a id="de-live-sync"></a>
+
 ### 🔄 Live-Sync
 
-Jeder offene Client (Web-Tab, App im Vordergrund) hält eine dünne **SSE**-Verbindung (`/api/v1/events/stream`). Macht irgendwer eine Aktion — oder trifft neue Mail ein — schickt der Server ein winziges Event und die anderen Clients frischen den betroffenen Ordner auf. Kein Polling-Sturm, kein Google, quasi sofort.
+Jeder offene Client (Web-Tab, App im Vordergrund) hält eine schlanke **SSE**-Verbindung (`/api/v1/events/stream`). Führt jemand eine Aktion aus — oder kommt neue Mail an — schickt der Server ein kleines Event, und die anderen Clients aktualisieren den betroffenen Ordner. Kein Dauer-Polling, kein Google, quasi sofort.
+
+<a id="de-schnellstart"></a>
 
 ### 🚀 Schnellstart (Docker)
 
@@ -403,52 +471,60 @@ python -c "import secrets; print(secrets.token_hex(32))"
 docker compose up -d
 ```
 
-`http://<host>:8090` öffnen → **Erst-Setup** legt den Admin an → danach Mailkonten hinzufügen.
+`http://<host>:8090` öffnen → die **Ersteinrichtung** legt das Admin-Konto an → danach deine Mailkonten hinzufügen.
+
+> Für Zugriff von außerhalb des LANs einen Reverse Proxy davorschalten: [HTTPS-Anleitung](docs/HTTPS.md).
+
+<a id="de-unraid"></a>
 
 ### 📦 Unraid
 
-Template über
+Vorlage von
 `https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/unraid/selfmailer.xml`
-hinzufügen oder unter *Docker → Add Container → Template* importieren. **Master Secret** setzen, Rest auf Standard.
+hinzufügen oder unter *Docker → Add Container → Template* importieren. **Master Secret** setzen, den Rest auf Standard lassen.
 
-> **Master Secret:** `SELFMAILER_SECRET` nach dem ersten Start **nie ändern** — er verschlüsselt die gespeicherten Postfach-Passwörter. Ändern macht sie unlesbar.
+> **⚠️ Master Secret:** `SELFMAILER_SECRET` nach dem ersten Start **nie ändern** — damit werden die gespeicherten Postfach-Passwörter verschlüsselt. Eine Änderung macht sie unlesbar.
 >
-> **Rechte:** der Container läuft **non-root** (uid `99` / gid `100` = `nobody:users`). Gehört eine Datei root, einmal korrigieren:
+> **⚠️ Rechte:** der Container läuft **ohne Root** (uid `99` / gid `100` = `nobody:users`). Gehört eine Datendatei root, einmalig korrigieren:
 > `chown -R 99:100 /mnt/user/appdata/selfmailer` (oder *Tools → Docker Safe New Permissions*).
 
-### ⚙️ Konfiguration (ENV, Prefix `SELFMAILER_`)
+<a id="de-konfiguration"></a>
 
-| Variable | Pflicht | Default | Zweck |
+### ⚙️ Konfiguration
+
+Umgebungsvariablen, alle mit dem Präfix `SELFMAILER_`.
+
+| Variable | Pflicht | Standard | Zweck |
 |---|---|---|---|
-| `SELFMAILER_SECRET` | ✅ | – | JWT-Signatur **und** At-Rest-Verschlüsselung der Postfach-Passwörter (≥ 32 Zeichen). **Nach Setup nicht ändern.** |
+| `SELFMAILER_SECRET` | ✅ | – | JWT-Signatur **und** Verschlüsselung der gespeicherten Postfach-Passwörter (≥ 32 Zeichen). **Nach der Einrichtung nicht ändern.** |
 | `SELFMAILER_DB_PATH` | – | `/data/selfmailer.db` | SQLite-Pfad |
-| `SELFMAILER_FCM_CREDENTIALS` | – | `/data/fcm-service-account.json` | Pfad zur Firebase-Service-Account-JSON für Google-Push. Leer/fehlend = FCM aus. |
-| `SELFMAILER_TRANSLATE_URL` | – | – | URL einer self-hosted LibreTranslate-Instanz für die Mail-Übersetzung (z. B. `http://192.168.1.10:5000`). Leer = Übersetzung aus (Button versteckt). |
-| `SELFMAILER_TRANSLATE_API_KEY` | – | – | Optionaler API-Key, nur falls deine LibreTranslate-Instanz einen verlangt. |
-| `SELFMAILER_ADMIN_TOKEN` | – | – | Wenn gesetzt, verlangt das Erst-Setup diesen Token |
+| `SELFMAILER_FCM_CREDENTIALS` | – | `/data/fcm-service-account.json` | Firebase-Service-Account-JSON für Google-Push. Leer/fehlend = FCM aus. |
+| `SELFMAILER_TRANSLATE_URL` | – | – | URL einer selbstgehosteten LibreTranslate-Instanz für die Übersetzung in der App (z. B. `http://192.168.1.10:5000`). Leer = aus (Button ausgeblendet). |
+| `SELFMAILER_TRANSLATE_API_KEY` | – | – | Optionaler API-Key, nur falls deine LibreTranslate-Instanz einen verlangt |
+| `SELFMAILER_ADMIN_TOKEN` | – | – | Wenn gesetzt, verlangt die Ersteinrichtung diesen Token |
 | `SELFMAILER_BASE_URL` | – | – | Öffentliche Basis-URL (z. B. für Feed-Links) |
-| `SELFMAILER_SYNC_INTERVAL` | – | `120` | Sekunden zwischen Mail-Hintergrund-Syncs (kleiner = schnellerer Push & Sync) |
+| `SELFMAILER_SYNC_INTERVAL` | – | `120` | Sekunden zwischen Mail-Syncs im Hintergrund (kleiner = schnellerer Push & Sync) |
 | `SELFMAILER_DAV_SYNC_INTERVAL` | – | `120` | Sekunden zwischen Kalender-/Kontakt-Syncs (DAV) — getrennt vom Mail-Sync, min. 30 |
 | `SELFMAILER_SYNC_DISABLE` | – | `0` | Hintergrund-Sync abschalten |
 | `SELFMAILER_IMAP_TIMEOUT` | – | `15` | IMAP-Socket-Timeout (Sekunden) |
-| `SELFMAILER_DAV_BLOCK_PRIVATE` | – | `false` | Private/LAN-Ziele beim DAV-Pull blocken (SSRF-Strikt-Modus) |
+| `SELFMAILER_DAV_BLOCK_PRIVATE` | – | `false` | Private/LAN-Ziele beim DAV-Abgleich blockieren (strenger SSRF-Modus) |
 | `SELFMAILER_JWT_ALGORITHM` | – | `HS256` | `HS256` / `HS384` / `HS512` |
 | `SELFMAILER_BACKUP_ENABLED` | – | `true` | Nächtliches automatisches DB-Backup (~03:00) |
-| `SELFMAILER_BACKUP_KEEP` | – | `7` | Anzahl behaltener Backups (ältere werden rotiert; `0` = alle behalten) |
+| `SELFMAILER_BACKUP_KEEP` | – | `7` | Anzahl behaltener Backups (`0` = alle behalten) |
+
+<a id="de-backups"></a>
 
 ### 💾 Backups
 
-Der Scheduler zieht nachts (~03:00) ein **konsistentes** Backup der SQLite-DB
-(via `sqlite3`-Online-Backup-API, sicher auch bei laufenden Schreibvorgängen)
-nach `data/backups/`:
+Der Scheduler erstellt nachts ein **konsistentes** Backup der SQLite-Datenbank (`sqlite3`-Online-Backup-API, sicher auch während Schreibvorgängen) in `data/backups/`:
 
-```
+```text
 data/backups/selfmailer-YYYYMMDD-HHMMSS.db
 ```
 
-Es werden nur die letzten `SELFMAILER_BACKUP_KEEP` Snapshots behalten. Der
-Ordner ist git-ignoriert. **Wiederherstellen:** Container stoppen, die Live-DB
-durch ein Backup ersetzen, neu starten:
+Es werden nur die letzten `SELFMAILER_BACKUP_KEEP` Backups behalten; der Ordner ist git-ignoriert.
+
+**Wiederherstellen** — Container stoppen, die Live-DB durch ein Backup ersetzen, neu starten:
 
 ```bash
 docker stop selfmailer
@@ -458,18 +534,26 @@ rm -f data/selfmailer.db-wal data/selfmailer.db-shm
 docker start selfmailer
 ```
 
+<a id="de-android"></a>
+
 ### 📱 Android-App
 
-Ein echter nativer Client (`android/SelfMailer.apk`) — **kein** WebView-Wrapper. Gebaut wie Synology MailPlus:
+Ein echter nativer Client (`android/SelfMailer.apk`) — **kein** WebView-Wrapper. Aufgebaut wie Synology MailPlus:
 
-- **Hamburger-Schublade** → Konto-Wechsler + Sonderordner + Unterordner, mit Ungelesen-Badges
+- **Seitenmenü** → Kontowechsel + Sonderordner + Unterordner, mit Ungelesen-Badges
 - **Untere Navigation**: Mail · Kalender · Notizen
-- HTML-Mail, Anhänge, **Mehrfachauswahl** mit Aktionsleiste, **Such-Filter**, Synology-Stil-**Schreiben** mit Von-Auswahl
-- **Biometrie-App-Sperre** (Gesicht / Finger / Geräte-PIN), Akzent-Markierung für Ungelesene
+- HTML-Mail, Anhänge, **Mehrfachauswahl** mit Aktionsleiste, **Suchfilter**, **Verfassen** im Synology-Stil mit Absender-Auswahl
+- **Entwürfe bleiben erhalten** (lokal verschlüsselt), auch nach App-Sperre oder Neustart
+- **Kontakte**: Import vom / Export aufs Handy, optional Sync in beide Richtungen
+- **Biometrische App-Sperre** (Gesicht / Fingerabdruck / Geräte-PIN), farbige Markierung für Ungelesenes
 - **Benachrichtigungen**: FCM / ntfy / Hintergrund — deine Wahl, pro Ordner
-- Spricht dieselbe `/api/v1` wie die Web-UI; Server-URL beim ersten Start
+- Nutzt dieselbe `/api/v1` wie die Web-Oberfläche; Server-URL beim ersten Start eingeben
 
-### 🔌 API-Überblick (`/api/v1`, JWT Bearer)
+<a id="de-api"></a>
+
+### 🔌 API-Übersicht
+
+Basispfad `/api/v1`, Anmeldung per JWT Bearer. Interaktive Doku: `http://<host>:8090/docs`.
 
 | Bereich | Endpunkte (Auszug) |
 |---|---|
@@ -482,24 +566,33 @@ Ein echter nativer Client (`android/SelfMailer.apk`) — **kein** WebView-Wrappe
 | **Live** | `events/stream` (Server-Sent Events) |
 | **Dashboard** | `dashboard/summary` (gebündelte Ungelesen-Zähler) |
 
+<a id="de-sicherheit"></a>
+
 ### 🛡️ Sicherheit
 
-- Login-Passwörter **Argon2**-gehasht; Postfach- & DAV-Passwörter **Fernet-verschlüsselt at-rest** (Key aus `SELFMAILER_SECRET`)
-- **JWT** auf `HS256/384/512` festgenagelt; der 2FA-Zwischen-Token gewährt keinen Zugriff
-- **Rate-Limiting** auf Login/2FA/Setup; defensive Response-Header; **Anti-Enumeration**-Dummy-Hash
-- **SSRF-Schutz** beim DAV-Pull (loopback/link-local/Cloud-Metadata immer geblockt)
-- Android: `allowBackup=false`, JWT im **Android-Keystore**, gehärteter Mail-HTML-WebView, FileProvider mit Path-Traversal-Check
-- **Bewusste LAN-Trade-offs** (dokumentiert): Klartext-HTTP erlaubt (TLS extern terminiert), `SELFMAILER_SECRET` ist zugleich der Verschlüsselungs-Seed. Geprüft mit dem ECC-Security-Reviewer.
+- Login-Passwörter mit **Argon2** gehasht; Postfach- & DAV-Passwörter **Fernet-verschlüsselt** gespeichert (Schlüssel aus `SELFMAILER_SECRET`)
+- **Widerrufbare Sitzungen**: Logout, Passwort-/2FA-Änderungen und Admin-Sperren widerrufen Tokens, SSE-Zugriff und Push-Registrierungen
+- **JWT** fest auf `HS256/384/512`; der 2FA-Zwischentoken gewährt keinen Zugriff
+- **Rate-Limiting** bei Login/2FA/Einrichtung; defensive Response-Header; **Schutz gegen Nutzer-Ausspähung** (Dummy-Hash)
+- **SSRF-Schutz** beim DAV-Abgleich (Loopback/Link-Local/Cloud-Metadaten immer blockiert); DAV-Zugangsdaten bleiben am Origin
+- Android: `allowBackup=false`, JWT im **Android-Keystore**, gehärtete Mail-HTML-WebView, FileProvider mit Path-Traversal-Prüfung
+- **Bewusste LAN-Kompromisse** (dokumentiert): unverschlüsseltes HTTP erlaubt (TLS extern terminiert), `SELFMAILER_SECRET` ist zugleich der Verschlüsselungs-Seed
 
-### 🧱 Technik-Stack
+Verlauf der Sicherheitsupdates → [CHANGELOG.md](CHANGELOG.md) (Einträge mit 🔒).
+
+<a id="de-tech-stack"></a>
+
+### 🧱 Tech-Stack
 
 | Teil | Technik |
 |---|---|
 | Backend | FastAPI · SQLModel · SQLite (WAL) · httpx · aiosmtplib · imap-tools · PyJWT |
 | Web | React · Vite · TypeScript · EventSource (SSE) |
 | App | Kotlin · Jetpack Compose · OkHttp · WorkManager · Firebase Messaging · BiometricPrompt |
-| Push | FCM (Google) · ntfy (self-hosted) |
-| Deploy | Docker (Multi-Stage, non-root) · GHCR · Unraid |
+| Push | FCM (Google) · ntfy (selbstgehostet) |
+| Deploy | Docker (Multi-Stage, ohne Root) · GHCR · Unraid |
+
+<a id="de-entwicklung"></a>
 
 ### 🛠️ Entwicklung
 
@@ -510,31 +603,38 @@ export SELFMAILER_SECRET=$(python -c "import secrets; print(secrets.token_hex(32
 uvicorn app.main:app --reload --port 8090
 
 # Web (zweites Terminal)
-cd frontend && npm install && npm run dev   # http://localhost:5173, proxyt /api → :8090
+cd frontend && npm install && npm run dev   # http://localhost:5173, leitet /api → :8090 weiter
 ```
 
-Interaktive API-Doku: `http://localhost:8090/docs`
+**Tests:**
 
-**Tests ausführen:** `cd backend && pip install -r requirements.txt -r requirements-dev.txt && pytest --cov=app`
-(pytest + TestClient gegen eine Temp-SQLite — aktuell ~48 % Coverage; die IMAP/SMTP/DAV-Pfade brauchen Mocking, um höher zu kommen.)
+```bash
+cd backend && pip install -r requirements.txt -r requirements-dev.txt && pytest --cov=app
+```
+
+<a id="de-roadmap"></a>
 
 ### 🗺️ Roadmap
 
 - [x] Mail (IMAP/SMTP) · gestapelte Konten · Ordnerbaum + Ungelesen-Zähler
 - [x] Kalender · Kontakte · Notizen · Aufgaben · CalDAV/CardDAV + ICS/vCard-Feeds
-- [x] 2FA / TOTP · Filterregeln · Konto-übergreifend übertragen · Mehrfachauswahl · Such-Filter
-- [x] Native Android-App (Synology-Stil, Biometrie-Sperre)
+- [x] 2FA / TOTP · Filterregeln · kontoübergreifend übertragen · Mehrfachauswahl · Suchfilter
+- [x] Native Android-App (Synology-Stil, biometrische Sperre)
 - [x] Benachrichtigungen: **FCM** + **ntfy** + Hintergrund, pro Konto & Ordner
 - [x] **Live-Sync** (SSE) zwischen Web-Clients **und** der Android-App (Vordergrund)
-- [x] Kalender-Monatsgitter in der App
+- [x] Kalender-Monatsansicht in der App
+- [x] Postfach aufräumen · gespeicherte Ansichten · Handykontakte importieren/exportieren/abgleichen
 - [x] [HTTPS-Reverse-Proxy-Anleitung](docs/HTTPS.md)
 - [ ] OAuth für Gmail / Outlook
-- [ ] Tests Richtung 80 % Coverage
+- [ ] Tests Richtung 80 % Abdeckung
+
+<p align="right"><a href="#-deutsch">⬆ nach oben</a></p>
 
 ---
 
 <div align="center">
 
-**SelfMailer** · part of the Self family · made with 📬 for self-hosting
+**SelfMailer** · part of the Self family · Teil der Self-Familie<br>
+made with 📬 for self-hosting
 
 </div>
