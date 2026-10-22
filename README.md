@@ -2,15 +2,13 @@
 
 <img src="assets/logo.png" width="240" alt="SelfMailer logo" />
 
-# SelfMailer
-
 **Self-hosted, multi-user e-mail client — with calendar, contacts, notes, a native Android app and real-time sync.**<br>
 *Selbstgehosteter Mehrbenutzer-Mailclient — mit Kalender, Kontakten, Notizen, nativer Android-App und Echtzeit-Sync.*
 
 [![Build](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml/badge.svg)](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-1.96.9-33A78C)
 ![License](https://img.shields.io/badge/license-private-8A9CAA)
-![Backend](https://img.shields.io/badge/backend-FastAPI-009688)
+![Backend](https://img.shields.io/badge/backend-FastAPI-1F7763)
 ![Web](https://img.shields.io/badge/web-React%20%2B%20Vite-43D3AD)
 ![App](https://img.shields.io/badge/android-Kotlin%20%2B%20Compose-9DBDD0)
 
