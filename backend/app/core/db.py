@@ -71,6 +71,8 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("last_notified_unseen", "INTEGER DEFAULT -1"),
         ("spam_purge_days", "INTEGER DEFAULT -1"),
         ("trash_purge_days", "INTEGER DEFAULT -1"),
+        # Leer (Backfill '') = strikte Zertifikatspruefung fuer alle Bestandskonten.
+        ("imap_tls_fingerprint", "VARCHAR"),
     ],
     "mailrule": [("delete_msg", "INTEGER DEFAULT 0")],
     # TEXT (nicht VARCHAR) → kein ''-Backfill: write_token bleibt NULL, bis der
