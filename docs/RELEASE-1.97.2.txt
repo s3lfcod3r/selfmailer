@@ -1,0 +1,59 @@
+SelfMailer 1.97.2 / Build 128 - Neue Mails sofort, Haertung / 24.10.2026
+
+Server / Web
+- IMAP IDLE fuer den Posteingang (#34, #35): je Konto haelt ein Waechter eine
+  eigene Verbindung im IDLE, der Server meldet neue/geloeschte Mails sofort.
+  Dann laeuft ein Schnelldurchlauf nur fuer dieses Konto (Regeln nur auf neue
+  Mails, Abgleich ohne Flag-Pruefung, Live-Event, Push, Vorladen). Die normale
+  Runde alle 120 s bleibt als Sicherheitsnetz. Server ohne IDLE bleiben beim
+  Abfragen. SELFMAILER_IDLE=0 schaltet ab. Eine IMAP-Verbindung mehr je Konto.
+- Text neuer Posteingangs-Mails wird vorgeladen (hoechstens 20 je Lauf, je
+  hoechstens 1 MB, BODY.PEEK - nichts wird als gelesen markiert).
+  SELFMAILER_PREFETCH_NEW=0 schaltet ab.
+- Gemessen am 24.10.2026 (Gmail-Konto, Testmails von Strato): neue Mail in der
+  Liste nach 17-50 s statt 136 s, erstes Oeffnen 15-18 ms statt 3,9 s. Der Rest
+  ist Gmail selbst: die Mail lag sofort bei Gmail, per IMAP gemeldet wurde sie
+  erst nach 6-38 s. Bei einem der Gmail-Konten dauert jeder IMAP-Befehl fest
+  rund 2 s (das andere Gmail-Konto: 0,1-0,2 s) - vermutlich eine Drosselung
+  durch Google, keine Ursache in SelfMailer.
+- Mail-Cache im Ruhezustand verschluesselt (#32): Betreff, Absender, Vorschau und
+  Volltext liegen nicht mehr im Klartext in DB und Backups. Migration v5 stellt
+  den Bestand beim ersten Start um. Aeltere Backups enthalten den Klartext, bis
+  sie durchrotiert sind.
+- Haertung (#33): Uebersetzung mit IP-Pinning (kein DNS-Rebinding), Push-Ordner
+  ohne Steuerzeichen, Mail-HTML in der Web-Version fail-closed.
+- Haertung (#36): API-Antworten mit Cache-Control: no-store; Container ohne
+  Linux-Sonderrechte (no-new-privileges, cap-drop=ALL in docker-compose.yml und
+  Unraid-Vorlage); Basis-Images per Digest; Trivy-Scan der Betriebssystem-Pakete
+  in der CI; pip wird nach der Installation aus dem Image entfernt.
+- Diagnose: /mail/pool-status zeigt die IDLE-Waechter, die Sync-Antwort die
+  Zeiten fuer Status, UID-Suche und neue Kopfzeilen.
+
+APK
+- Mail-Ansicht, Thread und Druck mit Content-Security-Policy: Formulare in Mails
+  lassen sich nicht mehr abschicken (Android fragt bei POST-Formularen nicht nach
+  - eine Phishing-Seite haette sich sonst im Viewer oeffnen koennen), dazu keine
+  Skripte, Plugins, Frames oder <base>-Umleitung.
+- Geoeffnete Anhaenge werden beim Abmelden geloescht.
+- Mit App-Sperre: FLAG_SECURE - kein Mailinhalt im Vorschaubild der
+  App-Uebersicht, keine Screenshots. Ohne App-Sperre unveraendert.
+- Release-Builds ohne Release-Schluessel brechen ab (vorher stiller Rueckfall
+  auf den oeffentlichen Debug-Schluessel).
+
+Hinweise
+- Unraid: die neuen Rechte-Optionen greifen erst, wenn unter "Extra Parameters"
+  --security-opt=no-new-privileges --cap-drop=ALL ergaenzt wird; eine bestehende
+  Vorlage uebernimmt Unraid nicht von selbst.
+
+Kompatibilitaet
+Server 1.97.2 funktioniert mit APK 1.97.1 und 1.97.2, APK 1.97.2 mit Server 1.97.1
+und 1.97.2 (die APK-Aenderungen betreffen nur die App selbst).
+APK signiert mit bisherigem Zertifikat (CN=SelfMailer, SHA-256 cd05a16c...8e4938).
+Build 128 aktualisiert Build 127.
+
+Pruefung
+564 Backend-, 56 Web-, 130 Android-JVM-Tests; CI inklusive Container-Smoke (ohne
+Sonderrechte), TLS-Smoke und Trivy (0 Funde); pip-audit und npm audit ohne Funde;
+IDLE, Vorladen und Header live am eigenen Server gemessen; APK-Version und
+Signatur mit apksigner geprueft. Kein physisches Android-Geraet: Formular-Sperre,
+FLAG_SECURE und das Loeschen der Anhaenge auf einem echten Geraet sind ungetestet.
