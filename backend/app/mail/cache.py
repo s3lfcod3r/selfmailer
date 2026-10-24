@@ -562,6 +562,46 @@ def write_detail(session: Session, account_id: int, folder: str, uid: str, detai
     session.commit()
 
 
+# Neue Mails gleich vollstaendig vorladen (seit 1.97.2). Am 24.10.2026 an einem
+# Gmail-Konto gemessen: das erste Oeffnen einer neuen Mail brauchte 3,9 s (Live-
+# Abruf), jedes weitere 15 ms (Cache). Der Hintergrund holt den Text deshalb
+# direkt nach dem Abgleich - in EINEM Abruf, ohne Gelesen-Flag (BODY.PEEK).
+# Grenzen: hoechstens N Mails je Lauf, je hoechstens _PREFETCH_MAX_BYTES Rohgroesse;
+# was darueber liegt, wird wie bisher beim Oeffnen geladen. 0 schaltet ab.
+_PREFETCH_NEW_MAX = max(0, int(os.getenv("SELFMAILER_PREFETCH_NEW", "20") or 0))
+_PREFETCH_MAX_BYTES = 1024 * 1024
+# Hintergrund darf kurz auf eine Verbindung warten, aber keine Nutzer-Reserve nehmen.
+_PREFETCH_LOCK_TIMEOUT = 10.0
+
+
+def prefetch_new(session: Session, account: MailAccount, password: str, folder: str, uids: list[str]) -> int:
+    """Volltexte frisch eingetroffener Mails vorladen; liefert die Anzahl.
+
+    Nie fatal: ein Fehler hier kostet nur das Vorladen, die Mail wird dann beim
+    Oeffnen wie bisher live geholt.
+    """
+    if not _PREFETCH_NEW_MAX or not uids or account.id is None:
+        return 0
+    todo = uncached_detail_uids(session, account.id, folder, list(uids))[-_PREFETCH_NEW_MAX:]
+    if not todo:
+        return 0
+    try:
+        details = imap_mod.get_messages(
+            account, password, todo, folder, limit=len(todo), max_size=_PREFETCH_MAX_BYTES,
+            lock_timeout=_PREFETCH_LOCK_TIMEOUT, op="prefetch-neu",
+        )
+    except Exception:  # noqa: BLE001 - Vorladen ist reine Beschleunigung
+        logger.info("Vorladen neuer Mails uebersprungen (account_id=%s, folder=%s)", account.id, folder, exc_info=True)
+        return 0
+    n = 0
+    for detail in details:
+        uid = str(detail.get("uid") or "")
+        if uid:
+            write_detail(session, account.id, folder, uid, detail)
+            n += 1
+    return n
+
+
 def _adjust_cached_unseen(session: Session, account_id: int, folder: str, delta: int) -> None:
     """Passt den aggregierten Ungelesen-Zähler eines Ordners SOFORT an (clamped >=0),
     sodass summary()/die Postfach-Badges nicht erst auf den nächsten Scheduler-Sync
@@ -1068,6 +1108,8 @@ def _sync_folder_unlocked(
     )
     return {
         "total": total, "unseen": unseen, "new": len(fetch_uids), "ok": True,
+        # Fuer das Vorladen der Volltexte (prefetch_new) - welche Mails neu sind.
+        "new_uids": list(fetch_uids),
         # Zeiten in Millisekunden mitliefern: ohne Zugriff auf die Container-Logs
         # ist sonst nicht zu sehen, WO die Zeit steckt. Klein und harmlos.
         "ms": {
