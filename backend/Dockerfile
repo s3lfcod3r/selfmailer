@@ -1,5 +1,5 @@
 # --- Stage 1: Frontend bauen ---
-FROM node:24-alpine AS frontend
+FROM node:25-alpine AS frontend
 WORKDIR /fe
 COPY frontend/package*.json ./
 # Nur npm ci: der frueher angehaengte "|| npm install"-Fallback hat bei einem
