@@ -574,6 +574,27 @@ _PREFETCH_MAX_BYTES = 1024 * 1024
 _PREFETCH_LOCK_TIMEOUT = 10.0
 
 
+def max_cached_uid(session: Session, account_id: int, folder: str) -> int | None:
+    """Hoechste gecachte UID eines Ordners (aktuelle Generation) oder None.
+
+    Fuer den IDLE-Schnelldurchlauf: Regeln nur auf Mails DARUEBER anwenden. Bei
+    leerem Cache None -> der Aufrufer prueft dann wie bisher den ganzen Ordner.
+    """
+    fs = session.exec(
+        select(FolderSync).where(FolderSync.account_id == account_id, FolderSync.folder == folder)
+    ).first()
+    if fs is None or not fs.uidvalidity:
+        return None
+    uids = session.exec(
+        select(CachedMessage.uid).where(
+            CachedMessage.account_id == account_id, CachedMessage.folder == folder,
+            CachedMessage.uidvalidity == fs.uidvalidity,
+        )
+    ).all()
+    zahlen = [int(u) for u in uids if str(u).isdigit()]
+    return max(zahlen) if zahlen else None
+
+
 def prefetch_new(session: Session, account: MailAccount, password: str, folder: str, uids: list[str]) -> int:
     """Volltexte frisch eingetroffener Mails vorladen; liefert die Anzahl.
 
@@ -801,8 +822,13 @@ def _folder_lock(account_id: int, folder: str) -> threading.Lock:
 def sync_folder(
     session: Session, account: MailAccount, password: str, folder: str,
     cap: int = _SYNC_CAP, *, store_bodies: bool = False, lock_timeout: float | None = None, op: str = "sync",
+    flags: bool = True,
 ) -> dict:
     """Gleicht den Cache eines Ordners mit dem Server ab (Delta-Sync).
+
+    ``flags=False`` (IDLE-Schnelldurchlauf): nur neue/verschwundene Mails, kein
+    Flag-Abgleich. Dabei werden weder CONDSTORE-Stand noch ``last_sync``
+    vorgerueckt - die normale Runde holt Statusaenderungen sonst nie nach.
 
     Serialisiert ueber eine Sperre je (Konto, Ordner) gegen parallele Doppel-Syncs
     desselben Ordners (sonst Duplikate im Cache, siehe _folder_lock). Die eigentliche
@@ -816,7 +842,7 @@ def sync_folder(
         # zum Schuetzen) -> direkt durchreichen.
         return _sync_folder_unlocked(
             session, account, password, folder, cap,
-            store_bodies=store_bodies, lock_timeout=lock_timeout, op=op,
+            store_bodies=store_bodies, lock_timeout=lock_timeout, op=op, flags=flags,
         )
     started = time.monotonic()
     budget = max(0.0, lock_timeout if lock_timeout is not None else imap_mod._LOCK_TIMEOUT)
@@ -828,7 +854,7 @@ def sync_folder(
         waited = time.monotonic() - started
         result = _sync_folder_unlocked(
             session, account, password, folder, cap,
-            store_bodies=store_bodies, lock_timeout=max(0.0, budget - waited), op=op,
+            store_bodies=store_bodies, lock_timeout=max(0.0, budget - waited), op=op, flags=flags,
         )
         if "ms" in result:
             result["ms"]["ordnersperre"] = int(waited * 1000)
@@ -842,6 +868,7 @@ def sync_folder(
 def _sync_folder_unlocked(
     session: Session, account: MailAccount, password: str, folder: str,
     cap: int = _SYNC_CAP, *, store_bodies: bool = False, lock_timeout: float | None = None, op: str = "sync",
+    flags: bool = True,
 ) -> dict:
     """Kernlogik von sync_folder. NUR unter der (Konto, Ordner)-Sperre aufrufen."""
     fetch_uids: list[str] = []
@@ -853,11 +880,13 @@ def _sync_folder_unlocked(
         # SOFORT auslesen: imaplib verwirft die ungetaggte SELECT-Antwort, sobald
         # das naechste Kommando laeuft (gleich darunter das STATUS).
         _neuer_modseq = imap_mod.read_modseq(box)
+        _t_status = time.monotonic()
         try:
             with timing.phase("folder_status"):
                 st = box.folder.status(folder, ["UIDVALIDITY", "MESSAGES", "UNSEEN"])
         except Exception:  # noqa: BLE001
             st = {}
+        _status_s = time.monotonic() - _t_status
         uidvalidity = int(st.get("UIDVALIDITY", 0) or 0)
         total = int(st.get("MESSAGES", 0) or 0)
         unseen = int(st.get("UNSEEN", 0) or 0)
@@ -887,8 +916,10 @@ def _sync_folder_unlocked(
 
         cached_by_uid = {r.uid: r for r in cached_rows}
         cached_mids = {r.message_id for r in cached_rows if r.message_id}
+        _t_suche = time.monotonic()
         with timing.phase("uid_search"):
             server_uids = list(box.uids())            # aufsteigend (alt → neu)
+        _suche_s = time.monotonic() - _t_suche
         server_set = set(server_uids)
 
         # Zuverlässigkeit der Server-Antwort prüfen: Liefert die UID-Suche DEUTLICH
@@ -930,6 +961,7 @@ def _sync_folder_unlocked(
         # Neue Köpfe holen (neueste zuerst, gedeckelt).
         new_uids = [u for u in server_uids if u not in cached_by_uid]
         fetch_uids = new_uids[-cap:] if cap else new_uids
+        _t_neu = time.monotonic()
         if fetch_uids:
             # WICHTIG: KEINE Zwischen-Commits. Alle neuen Köpfe werden nur in der
             # Session vorgemerkt und erst am Ende in EINEM Commit sichtbar → Leser
@@ -970,13 +1002,16 @@ def _sync_folder_unlocked(
                 if mid:
                     cached_mids.add(mid)
 
+        _neu_s = time.monotonic() - _t_neu
+
         # Flags der neuesten gecachten Mails abgleichen — TEUERSTER Teil (Header-
         # Fetch vieler Mails). Gedrosselt: nur, wenn der letzte Sync länger als
         # _FLAG_REFRESH_SECS her ist. Neue/gelöschte Mails oben laufen immer.
+        # flags=False (IDLE): ganz auslassen, siehe sync_folder.
         now = dt.datetime.now(dt.timezone.utc)
         prev_sync = _as_utc(fs.last_sync) if fs else None
         _intervall = _flag_intervall(account.id or 0, folder)
-        do_flags = prev_sync is None or (now - prev_sync).total_seconds() >= _intervall
+        do_flags = flags and (prev_sync is None or (now - prev_sync).total_seconds() >= _intervall)
         # Flags NUR von einer VERTRAUENSWÜRDIGEN Server-Sicht übernehmen. Bei einer
         # kaputten/partiellen Antwort (web.de-Cluster) NICHT anfassen — sonst würde
         # eine echte ungelesene Mail fälschlich als gelesen (oder umgekehrt) markiert
@@ -990,7 +1025,7 @@ def _sync_folder_unlocked(
         # neu holen. Bei 112 Mails waren das 14,5 s pro Sync - fast immer fuer
         # nichts, weil sich Flags selten aendern. Genau so arbeitet Thunderbird.
         # Schlaegt irgendetwas fehl, faellt der Code auf den vollen Abgleich zurueck.
-        if reliable and _neuer_modseq and fs and fs.highest_modseq and _neuer_modseq >= fs.highest_modseq:
+        if flags and reliable and _neuer_modseq and fs and fs.highest_modseq and _neuer_modseq >= fs.highest_modseq:
             geaendert = imap_mod.flags_changed_since(box, fs.highest_modseq)
             if geaendert is not None:
                 _flag_weg = "condstore"
@@ -1072,13 +1107,20 @@ def _sync_folder_unlocked(
             _flag_cost.pop((account.id or 0, folder), None)
         if not fs:
             fs = FolderSync(account_id=account.id, folder=folder)
-        if _neuer_modseq:
+        # Ohne Flag-Abgleich (IDLE) den CONDSTORE-Stand NICHT vorruecken: sonst
+        # fragt die naechste normale Runde erst ab dem neuen Stand und verpasst
+        # Statusaenderungen dazwischen. last_sync ebenso nicht - er steuert, wann
+        # der Flag-Abgleich wieder faellig ist; haeufige IDLE-Laeufe wuerden ihn
+        # sonst endlos aufschieben. (Ein noch nie gesetzter Wert wird gesetzt:
+        # has_cache/"leerer Ordner" haengen daran.)
+        if _neuer_modseq and flags:
             fs.highest_modseq = _neuer_modseq
         if uidvalidity:
             fs.uidvalidity = uidvalidity
         fs.total = total
         fs.unseen = unseen
-        fs.last_sync = now
+        if flags or fs.last_sync is None:
+            fs.last_sync = now
         session.add(fs)
 
     _t_db = time.monotonic()
@@ -1119,6 +1161,11 @@ def _sync_folder_unlocked(
             "flags": int((_t_flags_ende - _t_flags) * 1000),
             "flags_geprueft": _flag_n, "flags_suche": _flag_such_n,
             "flags_intervall_s": int(_intervall),
-            "flags_weg": _flag_weg,
+            "flags_weg": _flag_weg if flags else "aus",
+            # Einzelschritte (seit 1.97.2), damit "wo steckt die Zeit" ohne
+            # Container-Logs beantwortbar ist.
+            "status": int(_status_s * 1000),
+            "uid_suche": int(_suche_s * 1000),
+            "neue_koepfe": int(_neu_s * 1000),
         },
     }
