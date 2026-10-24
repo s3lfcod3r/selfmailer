@@ -2,7 +2,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const ts = require('typescript');
+// TypeScript 7 (nativer Compiler) hat keine JS-API mehr - Tests nutzen die
+// JS-Version unter dem Alias typescript-api (siehe package.json).
+const ts = require('typescript-api');
 const { JSDOM } = require('jsdom');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://selfmailer.test/' });
 // DOMParser/NodeFilter/Node gehoeren dazu: der Lesepfad (mailview.ts) parst das
