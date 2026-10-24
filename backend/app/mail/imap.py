@@ -2319,22 +2319,35 @@ def _first_match(msg, rules: list):
     return None
 
 
-def apply_rules(account: MailAccount, password: str, rules: list) -> dict:
+def apply_rules(account: MailAccount, password: str, rules: list, *, min_uid: int | None = None) -> dict:
     """Wendet Filterregeln auf den Posteingang an (Modus A). Erste passende Regel je
     Mail gewinnt. rules: Objekte mit .field/.value/.target_folder/.mark_read/.star/
     .enabled. Liefert {affected, matched, errors} — affected = erfolgreich
     bearbeitete Mails, matched = passende Mails, errors = erste Fehlermeldungen
     (z. B. wenn der Zielordner nicht beschreibbar ist).
+
+    ``min_uid``: nur Mails ab dieser UID pruefen (IDLE-Schnelldurchlauf, seit
+    1.97.2). Am 24.10.2026 gemessen: der volle Lauf kostete auf einem Gmail-Konto
+    mit ~120 Mails 4,3 s - bei JEDER neuen Mail. Ein Server liefert fuer "N:*"
+    mindestens die letzte Mail, auch wenn ihre UID kleiner ist; die wird unten
+    herausgefiltert.
     """
     affected = 0
     errors: list[str] = []
-    with _mailbox(account, password, folder="INBOX", op="apply_rules") as box:
+    with _mailbox(account, password, folder="INBOX", op="apply_rules" if min_uid is None else "apply_rules-neu") as box:
         matches: list[tuple[str, object]] = []
         # Regeln prüfen nur Header (from/to/subject) → headers_only spart den
         # Body-Download; bulk=True bündelt die Round-Trips. reverse=True ist
         # ENTSCHEIDEND: ohne es holt imap-tools die ÄLTESTEN Mails — bei großen
         # Postfächern werden so die neuen (zu sortierenden) Mails nie gesehen.
-        for msg in box.fetch(AND(all=True), reverse=True, mark_seen=False, limit=500, headers_only=True, bulk=True):
+        if min_uid is None:
+            kandidaten = box.fetch(AND(all=True), reverse=True, mark_seen=False, limit=500, headers_only=True, bulk=True)
+        else:
+            kandidaten = (
+                m for m in box.fetch(AND(uid=f"{int(min_uid)}:*"), mark_seen=False, limit=500, headers_only=True, bulk=True)
+                if str(m.uid or "").isdigit() and int(m.uid) >= min_uid
+            )
+        for msg in kandidaten:
             rule = _first_match(msg, rules)
             if rule is not None:
                 matches.append((msg.uid, rule))

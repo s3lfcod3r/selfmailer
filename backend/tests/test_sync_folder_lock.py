@@ -40,7 +40,7 @@ def _lauf_gleichzeitig(monkeypatch, jobs):
     zaehl_lock = threading.Lock()
 
     def fake_unlocked(session, account, password, folder, cap=0, *,
-                      store_bodies=True, lock_timeout=None, op="sync"):
+                      store_bodies=True, lock_timeout=None, op="sync", flags=True):
         nonlocal aktiv, max_aktiv
         with zaehl_lock:
             aktiv += 1
