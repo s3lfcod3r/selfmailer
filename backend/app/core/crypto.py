@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 from functools import lru_cache
 
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
@@ -65,3 +66,31 @@ def decrypt(token: str) -> str:
         return _fernet().decrypt(token.encode("utf-8")).decode("utf-8")
     except InvalidToken as exc:  # pragma: no cover - defensiv
         raise ValueError("Zugangsdaten nicht entschlüsselbar (Secret geändert?)") from exc
+
+
+# Verschluesselte JSON-Felder (Durchsicht 2026-10-24): z. B. ScheduledMail.
+# payload_json mit Body, BCC und Anhaengen lag im Klartext in DB und Backups.
+# Das Praefix macht den Zustand an der Zeile selbst erkennbar - so bleiben
+# Altzeilen (reines JSON) lesbar und die Migration ist idempotent.
+SEALED_PREFIX = "enc:v1:"
+
+
+def seal_json(obj: object) -> str:
+    """JSON-serialisieren und verschluesseln -> 'enc:v1:<fernet-token>'."""
+    return SEALED_PREFIX + encrypt(json.dumps(obj))
+
+
+def is_sealed(raw: str | None) -> bool:
+    return bool(raw) and raw.startswith(SEALED_PREFIX)
+
+
+def open_json(raw: str | None) -> dict:
+    """Gegenstueck zu seal_json. Leer -> {}; Altbestand (Klartext-JSON) wird
+    ebenfalls gelesen. ValueError, wenn nicht entschluesselbar."""
+    if not raw:
+        return {}
+    text = decrypt(raw[len(SEALED_PREFIX):]) if is_sealed(raw) else raw
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError("Erwartet ein JSON-Objekt")
+    return data

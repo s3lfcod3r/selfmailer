@@ -212,14 +212,16 @@ class VacationReply(SQLModel, table=True):
 
 class ScheduledMail(SQLModel, table=True):
     """Zum späteren Versand geparkte Mail (Schedule Send). Der Scheduler versendet
-    fällige Einträge per SMTP. ``payload_json`` = vollständige SendRequest als JSON.
-    Tabelle via create_all (keine Migration nötig)."""
+    fällige Einträge per SMTP. ``payload_json`` = vollständige SendRequest, seit
+    2026-10 Fernet-verschlüsselt ("enc:v1:…", core/crypto.seal_json); Altbestand
+    im Klartext bleibt lesbar und wird beim Start migriert (core/db, v4). Nach
+    sent/failed/uncertain ist das Feld leer. Tabelle via create_all."""
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
     account_id: int = Field(index=True, foreign_key="mailaccount.id")
     subject: str = ""
     to_addrs: str = ""                  # Komma-Liste, nur Anzeige
-    payload_json: str = ""              # komplette SendRequest als JSON
+    payload_json: str = ""              # SendRequest, verschlüsselt (seal_json)
     send_at: dt.datetime = Field(index=True)  # geplanter Zeitpunkt (naive UTC)
     status: str = "pending"            # pending | sending | sent | failed | uncertain | canceled
     error: str = ""
