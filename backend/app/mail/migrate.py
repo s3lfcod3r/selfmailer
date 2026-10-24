@@ -19,6 +19,7 @@ import datetime as _dt
 from imap_tools import AND, MailBox
 
 from ..models import MailAccount
+from . import imap as _imap
 from .imap import _IMAP_TIMEOUT, _delimiter, mailbox_generation
 
 SEEN = r"\Seen"
@@ -33,12 +34,12 @@ def _aware(d: _dt.datetime | None) -> _dt.datetime | None:
 
 
 def _open(acc: MailAccount, password: str, folder: str = "INBOX") -> MailBox:
-    # Timeout wie in imap._connect: ein toter/hängender Server darf den
+    # Gleicher Aufbau wie imap._connect (Durchsicht 2026-10-24): bis 1.96.9 baute
+    # Migration/Transfer eine nackte MailBox per Hostnamen - ohne IP-Pinning
+    # (DNS-Rebinding), ohne Zertifikatspruefung und ohne den imap_ssl-Schalter.
+    # _neue_mailbox setzt auch den Timeout: ein toter/hängender Server darf den
     # Migrations-/Transfer-Worker nicht UNENDLICH blockieren.
-    try:
-        box = MailBox(acc.imap_host, port=acc.imap_port, timeout=_IMAP_TIMEOUT)
-    except TypeError:  # ältere imap_tools-Version ohne timeout-Param
-        box = MailBox(acc.imap_host, port=acc.imap_port)
+    box = _imap._neue_mailbox(acc)
     box.login(acc.auth_user or acc.email, password, initial_folder=folder)
     try:
         box.client.sock.settimeout(_IMAP_TIMEOUT)

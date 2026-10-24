@@ -59,6 +59,7 @@ def add_user_account(
         imap_host=data.imap_host,
         imap_port=data.imap_port,
         imap_ssl=data.imap_ssl,
+        imap_tls_fingerprint=data.imap_tls_fingerprint,
         smtp_host=data.smtp_host,
         smtp_port=data.smtp_port,
         smtp_starttls=data.smtp_starttls,

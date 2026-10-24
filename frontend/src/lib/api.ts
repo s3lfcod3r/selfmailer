@@ -101,11 +101,18 @@ export type Note = {
 export type Account = {
   id: number; label: string; email: string; protocol: string;
   imap_host: string; imap_port: number; imap_ssl: boolean;
+  // Leer = normale Zertifikatsprüfung; sonst SHA-256 des vertrauten Server-Zertifikats.
+  imap_tls_fingerprint: string;
   smtp_host: string; smtp_port: number; smtp_starttls: boolean;
   auth_user: string; signature: string;
   // -1 = aus | 0 = sofort | N>0 = Mails älter als N Tage endgültig löschen
   spam_purge_days: number;
   trash_purge_days: number;
+};
+/** Zertifikat des IMAP-Servers (POST /accounts/{id}/tls-certificate, ohne Login). */
+export type TlsCertificate = {
+  fingerprint: string; subject: string; issuer: string; not_after: string;
+  ca_valid: boolean; ca_error: string;
 };
 /** Server-Version und Build-Kennung.
  *  Eigener Aufruf statt über `api.get`, weil /api/health bewusst OHNE /v1-Präfix
