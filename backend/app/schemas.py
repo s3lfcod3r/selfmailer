@@ -750,7 +750,18 @@ class PushConfigOut(BaseModel):
 
 class FolderNotifyIn(BaseModel):
     account_id: int
-    folders: list[str] = []   # vollständige Liste der zu benachrichtigenden Ordner
+    # vollständige Liste der zu benachrichtigenden Ordner
+    folders: list[str] = Field(default=[], max_length=500)
+
+    @field_validator("folders")
+    @classmethod
+    def _ordnernamen(cls, v: list[str]) -> list[str]:
+        # Die Namen gehen später als IMAP-Argumente über den Socket - Steuerzeichen
+        # (CR/LF) gar nicht erst speichern, nicht erst beim Poll scheitern.
+        for name in v:
+            if len(name) > 1000 or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in name):
+                raise ValueError("Ordnername enthält ungültige Zeichen")
+        return v
 
 
 class DeviceTokenIn(BaseModel):

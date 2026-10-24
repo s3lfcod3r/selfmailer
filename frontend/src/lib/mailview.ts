@@ -160,10 +160,16 @@ function _prepareMailHtml(html: string, block: boolean): string {
         }
       });
     }
-    return doc.body ? doc.body.innerHTML : html;
+    return doc.body ? doc.body.innerHTML : "";
   } catch {
-    return html;
+    // Fail closed: lieber die Mail als maskierten Text zeigen als ungefiltertes
+    // HTML (ohne Bildblockade und ohne DOMPurify) ins iframe zu geben.
+    return `<pre style="white-space:pre-wrap">${_escapeHtml(html)}</pre>`;
   }
+}
+
+function _escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
 export function buildSrcDoc(html: string, block: boolean, dark: boolean): string {
