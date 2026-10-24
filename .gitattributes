@@ -1,0 +1,5 @@
+# Lockfiles immer mit LF (seit 1.97.0). npm, uv und Dependabot schreiben LF;
+# lag die Datei im Repo mit CRLF, zeigte jeder Dependabot-PR ueber 5.000
+# geaenderte Zeilen fuer ein einziges Paket-Update.
+frontend/package-lock.json text eol=lf
+backend/requirements.lock text eol=lf
