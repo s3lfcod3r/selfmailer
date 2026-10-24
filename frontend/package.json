@@ -1,7 +1,7 @@
 {
   "name": "selfmailer-frontend",
   "private": true,
-  "version": "1.96.9",
+  "version": "1.97.0",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.cjs",

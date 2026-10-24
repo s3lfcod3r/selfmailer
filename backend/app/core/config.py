@@ -15,6 +15,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # und Fernet-Schlüsselableitung.
 _MIN_SECRET_LEN = 32
 _ALLOWED_JWT_ALGS = {"HS256", "HS384", "HS512"}
+# cookie_secure war bis 1.96.9 ein bool - alte .env-Werte gelten weiter.
+_TRUE_WORDS = {"true", "1", "yes", "on"}
+_FALSE_WORDS = {"false", "0", "no", "off"}
 
 
 class Settings(BaseSettings):
@@ -48,11 +51,34 @@ class Settings(BaseSettings):
     # Session-Cookie (Web-Login). HttpOnly = JavaScript kann das Token NICHT lesen
     # (Schutz gegen Token-Diebstahl per XSS). Die native APK nutzt weiterhin den
     # Bearer-Header — das Backend akzeptiert beides.
-    # cookie_secure NUR aktivieren, wenn die WebUI ausschließlich über HTTPS
-    # laeuft: über LAN-http (http://192.168.x:8090) würde ein Secure-Cookie
-    # vom Browser NICHT gesendet → Login-Schleife.
+    # cookie_secure (seit 1.97.0 dreiwertig):
+    #   auto  (Standard) = Secure-Flag genau dann, wenn die Anfrage per HTTPS
+    #         kam (direkt oder per X-Forwarded-Proto von einem vertrauten Proxy,
+    #         siehe trusted_proxies). HTTP im LAN und HTTPS von aussen gehen
+    #         damit GLEICHZEITIG, ohne Login-Schleife.
+    #   true  = immer Secure (nur sinnvoll, wenn die WebUI NIE per http laeuft).
+    #   false = nie Secure (altes Verhalten).
     cookie_name: str = "sm_session"
-    cookie_secure: bool = False
+    cookie_secure: str = "auto"
+
+    # Reverse-Proxy (seit 1.97.0): kommagetrennte IPs/Netze, deren
+    # X-Forwarded-For/-Proto uvicorn glauben darf - z. B. die IP von Nginx Proxy
+    # Manager. Nur dann stimmen Client-IP (Login-Bremse) und Schema (Cookie
+    # "auto", HSTS). Leer = nur 127.0.0.1. "*" nur, wenn der Container
+    # AUSSCHLIESSLICH ueber den Proxy erreichbar ist.
+    trusted_proxies: str = ""
+
+    # Optional HTTPS direkt im Container (seit 1.97.0). Beide Pfade gesetzt =
+    # zusaetzlich zu HTTP auf 8090 lauscht HTTPS auf tls_port. HTTP bleibt immer
+    # an (Healthcheck, LAN); wer nur HTTPS will, gibt 8090 einfach nicht frei.
+    tls_cert: str = ""
+    tls_key: str = ""
+    tls_port: int = 8443
+
+    # HSTS (seit 1.97.0): Sekunden, 0 = aus. Wird NUR auf HTTPS-Antworten
+    # gesendet - HTTP-Zugriff im LAN bleibt also moeglich, solange man ihn
+    # unter einem anderen Hostnamen als dem HTTPS-Namen aufruft.
+    hsts_max_age: int = 0
 
     # DAV-Pull SSRF-Schutz: link-local/loopback/metadata werden IMMER blockiert.
     # Private/LAN-Ziele (10/8, 172.16/12, 192.168/16, fc00::/7, 100.64/10 CGNAT)
@@ -77,6 +103,10 @@ class Settings(BaseSettings):
     # Rotation (alle behalten).
     backup_enabled: bool = True
     backup_keep: int = 7
+    # Zielordner der Backups. Leer = <DB-Ordner>/backups (wie bisher). Sinnvoll
+    # ist ein ANDERER Datentraeger oder Share (eigenes Volume im Container), damit
+    # ein Plattenschaden nicht DB und Backups zugleich trifft.
+    backup_dir: str = ""
 
     @property
     def cors_list(self) -> list[str]:
@@ -92,7 +122,23 @@ class Settings(BaseSettings):
             )
         if self.jwt_algorithm not in _ALLOWED_JWT_ALGS:
             raise ValueError(f"SELFMAILER_JWT_ALGORITHM muss in {_ALLOWED_JWT_ALGS} liegen")
+        mode = str(self.cookie_secure).strip().lower() or "auto"
+        if mode in _TRUE_WORDS:
+            mode = "true"
+        elif mode in _FALSE_WORDS:
+            mode = "false"
+        if mode not in ("auto", "true", "false"):
+            raise ValueError("SELFMAILER_COOKIE_SECURE muss auto, true oder false sein")
+        self.cookie_secure = mode
+        if bool(self.tls_cert.strip()) != bool(self.tls_key.strip()):
+            raise ValueError("SELFMAILER_TLS_CERT und SELFMAILER_TLS_KEY nur zusammen setzen")
+        if self.hsts_max_age < 0:
+            raise ValueError("SELFMAILER_HSTS_MAX_AGE darf nicht negativ sein")
         return self
+
+    @property
+    def tls_enabled(self) -> bool:
+        return bool(self.tls_cert.strip() and self.tls_key.strip())
 
 
 @lru_cache

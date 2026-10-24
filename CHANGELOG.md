@@ -8,6 +8,15 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.97.0 · Server only (APK 1.96.9 / Build 123 stays compatible)
+- 🇬🇧 **Security release.** IMAP certificates are now verified (before: any certificate was accepted), with an optional per-account fingerprint for self-signed LAN servers · CSRF protection for cookie sessions · scheduled mails encrypted at rest, backups/DB readable by the container user only · certifi without the compromised emSign CA.
+- 🇬🇧 **HTTP stays the default, HTTPS is your choice:** cookie mode `auto` (HTTP in the LAN and HTTPS side by side), reverse-proxy support (`SELFMAILER_TRUSTED_PROXIES`), optional HSTS, optional HTTPS directly in the container (port 8443).
+- 🇬🇧 Operations: configurable backup folder, app code read-only in the container, blocking dependency audits + weekly audit + Dependabot.
+- 🇩🇪 **Sicherheitsrelease.** IMAP-Zertifikate werden geprüft (vorher wurde jedes akzeptiert), optional mit Fingerprint pro Konto für selbstsignierte LAN-Server · CSRF-Schutz für Cookie-Sitzungen · geplante Mails verschlüsselt, Backups/DB nur für den Container-Nutzer lesbar · certifi ohne die kompromittierte emSign-CA.
+- 🇩🇪 **HTTP bleibt Standard, HTTPS ist wählbar:** Cookie-Modus `auto` (HTTP im LAN und HTTPS gleichzeitig), Reverse-Proxy-Unterstützung (`SELFMAILER_TRUSTED_PROXIES`), optional HSTS, optional HTTPS direkt im Container (Port 8443).
+- 🇩🇪 Betrieb: Backup-Ordner wählbar, App-Code im Container schreibgeschützt, blockierende Abhängigkeitsprüfung + wöchentlicher Audit + Dependabot.
+- 📄 [RELEASE-1.97.0.txt](docs/RELEASE-1.97.0.txt)
+
 ## 1.96.9 · Build 123
 - 🇬🇧 Cleanup dialog reworked (web + APK): search and results scroll separately from the fixed action bar; preview appears right after searching; web checkboxes sit next to their labels again.
 - 🇩🇪 Aufräumdialog überarbeitet (Web + APK): Suche und Trefferliste scrollen getrennt vom festen Aktionsbereich; Vorschau direkt nach der Suche; Checkboxen im Web stehen wieder neben ihrem Text.

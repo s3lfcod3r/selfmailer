@@ -208,11 +208,30 @@ def _ensure_indexes() -> None:
             conn.execute(text(ddl))
 
 
+def _haerte_db_datei() -> None:
+    """DB-Datei (+ WAL/SHM) auf 600 (seit 1.97.0).
+
+    Die Datei enthaelt den Mail-Cache und verschluesselte Zugangsdaten; mit
+    der Standard-umask (022) war sie fuer jeden Host-Nutzer lesbar. SQLite
+    legt -wal/-shm mit denselben Rechten wie die DB an. Fehler (fremder
+    Eigentuemer, Dateisystem ohne Rechte) duerfen den Start nicht verhindern.
+    """
+    for suffix in ("", "-wal", "-shm"):
+        pfad = _db_path + suffix
+        if not os.path.exists(pfad):
+            continue
+        try:
+            os.chmod(pfad, 0o600)
+        except OSError:
+            logger.warning("Rechte fuer %s nicht setzbar", pfad, exc_info=True)
+
+
 def init_db() -> None:
     # Modelle importieren, damit SQLModel sie kennt.
     from .. import models  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
+    _haerte_db_datei()
     _ensure_columns()
     _ensure_indexes()
     _run_one_time_backfills()

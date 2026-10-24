@@ -1,0 +1,61 @@
+SelfMailer 1.97.0 - Sicherheitsrelease / 24.10.2026
+
+Reines Server-Release (Backend + Web). Die Android-App 1.96.9 (Build 123)
+bleibt kompatibel, eine neue APK ist nicht noetig.
+
+Sicherheit
+- IMAP-Zertifikate werden geprueft (PR #11). Bis 1.96.9 nahm imaplib den
+  ungeprueften stdlib-Kontext: jedes Zertifikat galt, das Postfach-Passwort
+  ging danach per LOGIN raus. Jetzt: System-CAs + Hostname, mind. TLS 1.2.
+  Fuer selbstsignierte LAN-Server optional ein SHA-256-Fingerprint pro Konto
+  (Konten -> Bearbeiten -> "Server-Zertifikat abrufen"). Migration/Transfer
+  nutzen jetzt ebenfalls IP-Pinning und Pruefung.
+- CSRF-Schutz fuer Cookie-Sitzungen (PR #12): schreibende Anfragen fremder
+  Herkunft (auch andere Ports derselben IP) werden mit 403 abgewiesen.
+  APK (Bearer) und Feed-/Schreib-Token sind nicht betroffen.
+- Daten im Ruhezustand (PR #13): geplante Mails verschluesselt, Inhalt nach
+  sent/failed/uncertain geleert; Backups 700/600, Migration v4 beim Start.
+- certifi 2026.10.23 (PR #14): ohne die kompromittierte emSign-ECC-Root-CA
+  (PYSEC-2026-4320). Betraf DAV-Abgleich, ntfy-Push, Uebersetzung.
+
+HTTP oder HTTPS - waehlbar (neu in 1.97.0)
+- HTTP auf 8090 bleibt Standard und laeuft immer.
+- SELFMAILER_COOKIE_SECURE=auto (neuer Standard): Secure-Cookie nur bei HTTPS.
+  HTTP im LAN und HTTPS gleichzeitig, ohne Login-Schleife. true/false gelten
+  weiter. Wer in der .env noch "false" stehen hat, behaelt das alte Verhalten.
+- SELFMAILER_TRUSTED_PROXIES: IP(s) eines Reverse-Proxys. Nur dann gelten
+  X-Forwarded-For/-Proto (echte Client-IP fuer die Login-Bremse, HTTPS-Erkennung).
+- SELFMAILER_HSTS_MAX_AGE: optional, nur auf HTTPS-Antworten.
+- SELFMAILER_TLS_CERT/_KEY/_PORT: optional HTTPS direkt im Container
+  (Standard-Port 8443) zusaetzlich zu HTTP.
+- Der Container startet jetzt mit "python -m app.serve" statt direkt mit
+  uvicorn; ohne TLS-Variablen verhaelt er sich wie bisher (ohne
+  "server: uvicorn"-Header). Details: docs/HTTPS.md.
+
+Betrieb
+- SELFMAILER_BACKUP_DIR: Backups auf einen anderen Datentraeger legen.
+- DB-Datei (+ WAL/SHM) wird beim Start auf 600 gesetzt.
+- App-Code unter /app gehoert root und ist fuer den Laufzeit-User nur lesbar;
+  nur /data ist beschreibbar.
+- CI: pip-audit und npm audit (ab high) blockieren den Deploy; woechentlicher
+  Audit-Lauf (security-audit.yml); Dependabot fuer npm, Docker, Actions.
+
+Nach dem Update
+1. Image neu ziehen, Container neu erstellen. Unraid: Vorlage neu einlesen,
+   damit die neuen (optionalen) Felder erscheinen.
+2. Log pruefen:
+   - "IMAP-Zertifikat abgelehnt" / SSLCertVerificationError -> betroffenes
+     Konto braucht einen Fingerprint oder ein gueltiges Zertifikat.
+   - selfmailer.csrf -> abgewiesene Anfrage fremder Herkunft. Steht dort die
+     eigene Oberflaeche, SELFMAILER_BASE_URL setzen.
+3. Alte Backups enthalten geplante Mails noch im Klartext, bis sie
+   herausrotiert sind (SELFMAILER_BACKUP_KEEP, Standard 7).
+4. Datenordner (./data bzw. /mnt/user/appdata/selfmailer) nicht per SMB
+   freigeben - Dateirechte schuetzen nicht gegen Zugriff als derselbe User.
+
+Pruefung
+Backend: 528 Tests bestanden (3 nur unter Linux, laufen in der CI), Ruff sauber.
+Echter Start von app.serve mit HTTP + HTTPS: beide Listener, HSTS nur auf
+HTTPS, Secure-Cookie nur auf HTTPS bzw. per vertrautem X-Forwarded-Proto,
+Lifespan genau einmal. Container-Smoke (UID 99, /app schreibgeschuetzt,
+DB 600, TLS-Container, Shutdown-Zeit) laeuft in der CI nach dem Merge.

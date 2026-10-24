@@ -146,7 +146,7 @@ def setup(
     session.commit()
     session.refresh(admin)
     token = create_access_token(admin.username, admin.role.value, admin.token_version)
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, request)
     return TokenResponse(access_token=token)
 
 
@@ -173,7 +173,7 @@ def login(
     if user.totp_enabled and user.totp_secret:
         return LoginResponse(needs_totp=True, mfa_token=create_mfa_token(user.username, user.token_version))
     token = create_access_token(user.username, user.role.value, user.token_version)
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, request)
     return LoginResponse(access_token=token)
 
 
@@ -202,7 +202,7 @@ def login_totp(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Code falsch")
     session.commit()
     token = create_access_token(user.username, user.role.value, user.token_version)
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, request)
     return TokenResponse(access_token=token)
 
 
@@ -214,12 +214,13 @@ def logout(request: Request, response: Response, session: Session = Depends(get_
     if user is not None:
         revoke_session(raw, user, session)
         session.commit()
-    clear_session_cookie(response)
+    clear_session_cookie(response, request)
     return {"ok": True}
 
 
 @router.post("/logout-all")
 def logout_all(
+    request: Request,
     response: Response,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -238,7 +239,7 @@ def logout_all(
     """
     revoke_all(user, session)
     session.commit()
-    clear_session_cookie(response)
+    clear_session_cookie(response, request)
     return {"ok": True, "feed_token_hint": _FEED_HINT}
 
 
@@ -250,6 +251,7 @@ def me(user: User = Depends(get_current_user)) -> User:
 @router.post("/password")
 def change_password(
     data: PasswordChange,
+    request: Request,
     response: Response,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -272,7 +274,7 @@ def change_password(
     # access_token aus der Antwort; ignoriert ein alter Client das Feld, muss
     # er sich einmal neu anmelden (erwartetes Verhalten nach Passwortwechsel).
     token = create_access_token(user.username, user.role.value, user.token_version)
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, request)
     # Befund 5: Feed-Token werden ABSICHTLICH nicht automatisch rotiert — das
     # würde eine eingerichtete SelfDashboard-Kachel und alle Abo-Links ohne
     # Vorwarnung brechen. Stattdessen der Hinweis an die UI.
@@ -313,6 +315,7 @@ def totp_setup(
 @router.post("/totp/enable", response_model=TotpEnableOut)
 def totp_enable(
     data: TotpEnableRequest,
+    request: Request,
     response: Response,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -346,13 +349,14 @@ def totp_enable(
     session.commit()
     session.refresh(user)
     token = create_access_token(user.username, user.role.value, user.token_version)
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, request)
     return TotpEnableOut(backup_codes=codes, access_token=token)
 
 
 @router.post("/totp/disable")
 def totp_disable(
     data: TotpDisableRequest,
+    request: Request,
     response: Response,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -373,7 +377,7 @@ def totp_disable(
     session.commit()
     session.refresh(user)
     token = create_access_token(user.username, user.role.value, user.token_version)
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, request)
     # Befund 5: Feed-Token NICHT automatisch rotieren (bricht die Kachel),
     # sondern anbieten.
     return {"ok": True, "access_token": token, "feed_token_hint": _FEED_HINT}

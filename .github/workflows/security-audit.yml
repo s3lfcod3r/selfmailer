@@ -1,0 +1,53 @@
+name: Security Audit
+
+# Woechentlicher Abgleich der festgenagelten Abhaengigkeiten gegen bekannte
+# Schwachstellen (seit 1.97.0). ci.yml prueft nur bei Pushes/PRs - ein
+# Advisory, das NACH dem letzten Commit erscheint, faellt dort erst beim
+# naechsten Commit auf. Dieser Lauf baut und veroeffentlicht nichts; ein Fund
+# macht ihn rot und GitHub schickt die uebliche Fehlermail.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1" # montags 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: pip-audit (requirements.lock)
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          pip-audit -r requirements.lock --desc
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: npm audit (Laufzeit-Pakete)
+        run: npm audit --omit=dev --audit-level=high --package-lock-only
