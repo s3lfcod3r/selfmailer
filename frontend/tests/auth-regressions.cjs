@@ -3,7 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const ts = require('typescript');
+// TypeScript 7 (nativer Compiler) hat keine JS-API mehr - Tests nutzen die
+// JS-Version unter dem Alias typescript-api (siehe package.json).
+const ts = require('typescript-api');
 
 function logout(env) {
   const tree = ts.createSourceFile('App.tsx', fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8'), ts.ScriptTarget.Latest, true);
