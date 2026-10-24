@@ -1229,6 +1229,21 @@ button:focus-visible {
 }
 .set-foot a { color: var(--self-text-2); text-decoration: none; }
 .set-foot a:hover { color: var(--self-teal-bright); }
+/* Reiter (Allgemein | Sicherheit) — schmale Unterstreichung, kein Kasten. */
+.set-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--self-line); margin-top: -0.6rem; }
+.set-tab {
+  background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+  padding: 0.5rem 0.85rem; margin-bottom: -1px; width: auto;
+  color: var(--self-text-2); font-size: 0.92rem; cursor: pointer;
+}
+.set-tab:hover { color: var(--self-text); border-color: transparent; background: none; }
+.set-tab[aria-selected="true"] { color: var(--self-text); border-bottom-color: var(--self-teal); font-weight: 600; }
+.set-intro { margin: 0; color: var(--self-text-2); font-size: 0.85rem; line-height: 1.45; }
+.set-status { font-size: 0.74rem; line-height: 1.3; }
+.set-status.ok { color: var(--self-teal-bright); }
+.set-status.warn { color: #d97706; }
+.set-status.off { color: var(--self-text-3); }
+.um-switch:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ---- Mailliste: ruhige Zeile ------------------------------------------
    Die Liste ist der Bildschirm, den man am längsten ansieht — hier zählt Ruhe

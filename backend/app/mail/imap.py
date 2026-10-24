@@ -1561,6 +1561,10 @@ def _detail_dict(msg, account: MailAccount) -> dict:
         # Bittet der Absender um eine Lesebestätigung? Adresse aus dem Header,
         # sonst leer. Das Frontend zeigt daraufhin den Bestätigungs-Hinweis.
         "mdn_request": msg.obj.get("Disposition-Notification-To", "") or "",
+        # Ein-Klick-Abmeldung (RFC 8058, seit 1.97.3). Roh gespeichert; was davon
+        # angeboten wird, entscheidet mail/security.unsubscribe_info.
+        "list_unsubscribe": str(msg.obj.get("List-Unsubscribe", "") or "")[:2000],
+        "list_unsubscribe_post": str(msg.obj.get("List-Unsubscribe-Post", "") or "")[:200],
     }
 
 
@@ -2302,6 +2306,12 @@ def _rule_hay(msg, field: str) -> str:
         return " ".join(msg.to or ()).lower()
     if field == "subject":
         return (msg.subject or "").lower()
+    # Seit 1.97.3: Merkmale, die Spammer seltener wechseln als die Absenderadresse.
+    if field == "reply_to":
+        return " ".join(getattr(msg, "reply_to", ()) or ()).lower()
+    if field == "list_id":
+        headers = getattr(msg, "headers", None) or {}
+        return " ".join(headers.get("list-id", ()) or ()).lower()
     return ""
 
 
@@ -2351,6 +2361,12 @@ def apply_rules(account: MailAccount, password: str, rules: list, *, min_uid: in
             rule = _first_match(msg, rules)
             if rule is not None:
                 matches.append((msg.uid, rule))
+        # Treffer je Regel (seit 1.97.3) - der Aufrufer schreibt sie zur Regel.
+        hits: dict[int, int] = {}
+        for _uid, rule in matches:
+            rid = getattr(rule, "id", None)
+            if rid is not None:
+                hits[rid] = hits.get(rid, 0) + 1
         to_delete: list[str] = []
         star_uids: list[str] = []
         read_uids: list[str] = []
@@ -2395,7 +2411,7 @@ def apply_rules(account: MailAccount, password: str, rules: list, *, min_uid: in
             except Exception as exc:  # noqa: BLE001
                 if len(errors) < 3:
                     errors.append(f"delete: {type(exc).__name__}: {exc}")
-    return {"affected": affected, "matched": len(matches), "errors": errors}
+    return {"affected": affected, "matched": len(matches), "errors": errors, "hits": hits}
 
 
 def sweep_block_folders(
@@ -2442,17 +2458,22 @@ def sweep_block_folders(
         targets.append(name)
 
     total = 0
+    hits: dict[int, int] = {}
     for folder in targets:
         try:
             # Cleanup shares only the background slots; the UI reserve stays free.
             with _mailbox(account, password, folder=folder,
                           op="sweep_block_folders") as box:
-                to_del = [
-                    m.uid for m in box.fetch(
-                        AND(all=True), reverse=True, mark_seen=False, limit=500, headers_only=True, bulk=True
-                    )
-                    if m.uid and _first_match(m, del_rules) is not None
-                ]
+                to_del = []
+                for m in box.fetch(
+                    AND(all=True), reverse=True, mark_seen=False, limit=500, headers_only=True, bulk=True
+                ):
+                    rule = _first_match(m, del_rules) if m.uid else None
+                    if rule is not None:
+                        to_del.append(m.uid)
+                        rid = getattr(rule, "id", None)
+                        if rid is not None:
+                            hits[rid] = hits.get(rid, 0) + 1
                 if to_del:
                     _soft_delete(box, to_del, folder)
                     total += len(to_del)
@@ -2460,7 +2481,7 @@ def sweep_block_folders(
             _log_imap_problem(
                 "Block-Sweep fehlgeschlagen (account_id=%s, folder=%s)", account.id, folder, exc=exc
             )
-    return {"deleted": total}
+    return {"deleted": total, "hits": hits}
 
 
 def ensure_default_folders(account: MailAccount, password: str) -> None:

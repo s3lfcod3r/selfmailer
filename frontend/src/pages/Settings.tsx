@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useLang } from "../lib/i18n";
 import { LangPicker } from "../components/LangPicker";
+import { SecuritySettings } from "../components/SecuritySettings";
 
 /**
  * Einstellungen-Seite.
@@ -56,10 +58,23 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
 
 export function Settings(p: SettingsProps) {
   const { t } = useLang();
+  // Reiter (seit 1.97.3): „Allgemein" und „Sicherheit" (inkl. Spam- & Virenschutz).
+  const [tab, setTab] = useState<"general" | "security">(() => {
+    try { return localStorage.getItem("selfmailer.settingsTab") === "security" ? "security" : "general"; } catch { return "general"; }
+  });
+  function pick(next: "general" | "security") {
+    setTab(next);
+    try { localStorage.setItem("selfmailer.settingsTab", next); } catch { /* nur Komfort */ }
+  }
   return (
     <div className="set-page">
       <h2 className="set-title">{t("nav.settings")}</h2>
+      <div className="set-tabs" role="tablist">
+        <button type="button" role="tab" className="set-tab" aria-selected={tab === "general"} onClick={() => pick("general")}>{t("settings.tabGeneral")}</button>
+        <button type="button" role="tab" className="set-tab" aria-selected={tab === "security"} onClick={() => pick("security")}>{t("menu.security")}</button>
+      </div>
 
+      {tab === "general" && <>
       <section className="set-group">
         <h3 className="set-group-title">{t("menu.appearance")}</h3>
         <div className="set-card">
@@ -105,7 +120,9 @@ export function Settings(p: SettingsProps) {
           </Row>
         </div>
       </section>
+      </>}
 
+      {tab === "security" && <>
       <section className="set-group">
         <h3 className="set-group-title">{t("menu.security")}</h3>
         <div className="set-card">
@@ -117,6 +134,8 @@ export function Settings(p: SettingsProps) {
           </Row>
         </div>
       </section>
+      <SecuritySettings />
+      </>}
 
       <div className="set-foot">
         <span>SelfMailer{p.appVersion && ` ${p.appVersion}`}</span>

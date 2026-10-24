@@ -1,5 +1,5 @@
 import { lazy, Suspense, memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, ApiError, copyText, download, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount, type SearchResult, type MailLabel, type ScheduledMail, type ContactAvatar } from "../lib/api";
+import { api, ApiError, copyText, download, downloadAttachment, type Account, type MsgHeader, type MsgDetail, type AuthInfo, type TransferResult, type FolderCount, type SearchResult, type MailLabel, type ScheduledMail, type ContactAvatar } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { promptDialog } from "../lib/dialog";
 import { buildFolderTree, specialKind, SPECIAL_ICON, type FolderNode } from "../lib/folders";
@@ -449,6 +449,8 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
   // Lesebestätigung: pro UID gemerkt, ob schon gesendet ("sent") oder ignoriert ("hidden").
   // Nur für diese Sitzung — verhindert doppeltes Nachfragen nach der Aktion.
   const [mdnState, setMdnState] = useState<Record<string, "sent" | "hidden">>({});
+  // Ein-Klick-Abmeldung je Mail (uid): läuft gerade / erledigt.
+  const [unsubState, setUnsubState] = useState<Record<string, "busy" | "done">>({});
   const [mdnBusy, setMdnBusy] = useState(false);
   // Helle Mails automatisch in den dunklen App-Look umfaerben. Standard kommt aus
   // der globalen Einstellung (darkMail), ist aber pro Mail umschaltbar.
@@ -2110,6 +2112,71 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
     }
   }
 
+  // Anhang laden — mit Virenscan (Einstellungen → Sicherheit): ist der Scanner
+  // gerade nicht erreichbar, nur nach Rückfrage ungeprüft. Ein Virusfund (403)
+  // kommt als Fehlermeldung zurück und lässt sich nicht übergehen.
+  function attDownload(path: string) {
+    downloadAttachment(path, (reason) => window.confirm(`${reason}\n\n${t("mail.scanUnavailable")}`))
+      .catch((e) => setErr((e as Error).message));
+  }
+  function infected(msg: MsgDetail, index: number) {
+    return (msg.virus ?? []).find((v) => v.index === index && v.status === "infected");
+  }
+
+  async function unsubscribeNow(msg: MsgDetail) {
+    const u = msg.unsubscribe;
+    if (!u?.available || activeId == null) return;
+    const text = t("mail.unsubConfirm", { host: u.host }) + (u.verified ? "" : `\n\n${t("mail.unsubUnverified")}`);
+    if (!window.confirm(text)) return;
+    setUnsubState((s) => ({ ...s, [msg.uid]: "busy" }));
+    try {
+      const r = await api.post<{ ok: boolean; status: number }>(
+        `/mail/${activeId}/messages/${msg.uid}/unsubscribe?folder=${encodeURIComponent(msg.folder || folder)}${messageGeneration(msg)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setUnsubState((s) => ({ ...s, [msg.uid]: "done" }));
+    } catch (e) {
+      setUnsubState((s) => { const n = { ...s }; delete n[msg.uid]; return n; });
+      setErr((e as Error).message);
+    }
+  }
+
+  // Spam- & Virenschutz (seit 1.97.3): Virus-Warnung und Abmelde-Angebot.
+  function securityBanner(msg: MsgDetail): ReactNode {
+    const viren = (msg.virus ?? []).filter((v) => v.status === "infected");
+    const ungeprueft = (msg.virus ?? []).filter((v) => v.status !== "infected");
+    const inSpam = !!spamFolder && (msg.folder || folder) === spamFolder;
+    const u = msg.unsubscribe;
+    const state = unsubState[msg.uid];
+    return (
+      <>
+        {viren.length > 0 && (
+          <div role="alert" style={{ margin: "8px 0 0", padding: "6px 10px", borderRadius: 8, fontSize: "0.82rem", lineHeight: 1.4, color: "var(--self-text)", background: "rgba(220,38,38,0.14)", border: "1px solid rgba(220,38,38,0.5)" }}>
+            🦠 <b>{t("mail.virusFound")}:</b> {viren.map((v) => `${v.filename || `#${v.index + 1}`} (${v.signature})`).join(", ")}. {t("mail.virusBlocked")}
+          </div>
+        )}
+        {ungeprueft.length > 0 && (
+          <div style={{ margin: "6px 0 0", fontSize: "0.76rem", color: "var(--self-text-3)" }}>
+            ⚠ {t("mail.virusUnchecked")}: {ungeprueft.map((v) => v.filename || `#${v.index + 1}`).join(", ")}
+          </div>
+        )}
+        {u?.available && !inSpam && (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "8px 0 0", padding: "6px 10px", borderRadius: 8, fontSize: "0.8rem", lineHeight: 1.4, color: "var(--self-text)", background: "rgba(20,184,166,0.08)", border: "1px solid var(--self-line)" }}>
+            <span style={{ flexShrink: 0 }} aria-hidden>✉</span>
+            <span style={{ flex: 1, minWidth: 140 }}>
+              {state === "done" ? `✓ ${t("mail.unsubDone")}` : t("mail.unsubPrompt")}
+              {u.verified && state !== "done" && <span className="muted"> · ✓ {t("mail.unsubVerified")}</span>}
+            </span>
+            {state !== "done" && (
+              <button className="ghost" style={{ width: "auto", padding: "2px 10px" }} disabled={state === "busy"} onClick={() => unsubscribeNow(msg)}>
+                {state === "busy" ? "…" : t("mail.unsubscribe")}
+              </button>
+            )}
+          </div>
+        )}
+      </>
+    );
+  }
+
   // Hinweisleiste, wenn der Absender eine Lesebestätigung angefordert hat.
   function mdnBanner(msg: MsgDetail): ReactNode {
     const addr = (msg.mdn_request || "").trim();
@@ -2652,6 +2719,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
               </div>
               {authDetail(open)}
               {mdnBanner(open)}
+              {securityBanner(open)}
               {detailsOpen && (
                 <div className="mail-head-details">
                   <div><span className="label">{t("mail.hdrFrom")}</span><span>{open.from}</span></div>
@@ -2669,8 +2737,9 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
                 <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
                   {open.attachments.map((att) => (
                     <button key={att.index} className="ghost" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
-                      onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(open.folder || folder)}${messageGeneration(open)}`).catch((e) => setErr((e as Error).message))}>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220, whiteSpace: "nowrap" }}>⬇ {att.filename}</span>
+                      disabled={!!infected(open, att.index)} title={infected(open, att.index) ? `${t("mail.virusFound")}: ${infected(open, att.index)!.signature}` : undefined}
+                      onClick={() => attDownload(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(open.folder || folder)}${messageGeneration(open)}`)}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220, whiteSpace: "nowrap" }}>{infected(open, att.index) ? "🦠" : "⬇"} {att.filename}</span>
                       <span className="muted" style={{ fontSize: "0.72rem" }}>{fmtSize(att.size)}</span>
                     </button>
                   ))}
@@ -2883,6 +2952,7 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
             {authOpen && open.auth && (
               <div style={{ padding: "0 16px" }}>{authDetail(open)}{mdnBanner(open)}</div>
             )}
+            <div style={{ padding: "0 16px" }}>{securityBanner(open)}</div>
             <div style={{ overflow: "auto", padding: 16, flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
               {translatePanel()}
               {mailBody()}
@@ -2892,8 +2962,9 @@ export function Mail({ active = true, search = "", filter, pollMin = 5, blockIma
                   <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
                     {open.attachments.map((att) => (
                       <button key={att.index} className="ghost" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
-                        onClick={() => download(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(open.folder || folder)}${messageGeneration(open)}`).catch((e) => setErr((e as Error).message))}>
-                        {att.filename || `att-${att.index}`}{att.size ? <span className="muted" style={{ fontSize: "0.75rem" }}>({fmtSize(att.size)})</span> : null}
+                        disabled={!!infected(open, att.index)}
+                        onClick={() => attDownload(`/mail/${activeId}/messages/${open.uid}/attachments/${att.index}?folder=${encodeURIComponent(open.folder || folder)}${messageGeneration(open)}`)}>
+                        {infected(open, att.index) ? "🦠 " : ""}{att.filename || `att-${att.index}`}{att.size ? <span className="muted" style={{ fontSize: "0.75rem" }}>({fmtSize(att.size)})</span> : null}
                       </button>
                     ))}
                   </div>
