@@ -304,6 +304,21 @@ def _run_one_time_backfills() -> None:
                 conn.execute(text("PRAGMA user_version = 3"))
         except Exception:  # noqa: BLE001 - Reparatur darf den Start nie blockieren
             logger.warning("Feed-Token-Hashing (v3) fehlgeschlagen", exc_info=True)
+        with engine.begin() as conn:
+            ver = int(conn.execute(text("PRAGMA user_version")).scalar() or 0)
+    if ver < 4:
+        # v4 (Durchsicht 2026-10-24): geplante Mails lagen mit Body, BCC und
+        # Anhaengen im Klartext in DB und Backups. Offene (pending) werden
+        # verschluesselt, abgeschlossene geleert - einen erneuten Versand aus
+        # sent/failed/uncertain gibt es nicht. "sending" bleibt unangetastet:
+        # recover_interrupted_sends macht daraus gleich danach "uncertain" und
+        # leert es selbst. Idempotent ueber das enc:v1:-Praefix.
+        try:
+            _seal_scheduled_payloads()
+            with engine.begin() as conn:
+                conn.execute(text("PRAGMA user_version = 4"))
+        except Exception:  # noqa: BLE001 - Reparatur darf den Start nie blockieren
+            logger.warning("Verschluesselung geplanter Mails (v4) fehlgeschlagen", exc_info=True)
 
 
 def _looks_hashed(value: str) -> bool:
@@ -356,6 +371,62 @@ def _migrate_feed_tokens_to_hash() -> None:
                 migrated += 1
     if migrated:
         logger.info("Feed-Token auf SHA-256 umgestellt: %d Zeile(n)", migrated)
+
+
+def _seal_scheduled_payloads() -> None:
+    """Klartext-Payloads geplanter Mails verschluesseln bzw. leeren (v4).
+
+    secure_delete=ON fuer genau diese Verbindung: SQLite ueberschreibt dann die
+    freiwerdenden Seiten (grosse Anhaenge liegen in Overflow-Seiten) mit Nullen,
+    statt den alten Klartext als freien Platz in der Datei liegen zu lassen.
+    Der Checkpoint schreibt das ins Hauptfile und kuerzt das WAL.
+    """
+    from .crypto import SEALED_PREFIX, encrypt
+
+    with engine.connect() as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+    if "scheduledmail" not in tables:
+        return
+    versiegelt = geleert = 0
+    # Eine Verbindung fuer alles: das PRAGMA gilt pro Verbindung und soll nach
+    # der Migration nicht an einer Pool-Verbindung haengen bleiben.
+    with engine.connect() as conn:
+        conn.exec_driver_sql("PRAGMA secure_delete = ON")
+        try:
+            rows = list(conn.execute(text(
+                "SELECT id, status, payload_json FROM scheduledmail "
+                "WHERE payload_json IS NOT NULL AND payload_json != ''"
+            )))
+            for row_id, status, payload in rows:
+                if status == "pending":
+                    if payload.startswith(SEALED_PREFIX):
+                        continue
+                    neu = SEALED_PREFIX + encrypt(payload)
+                    versiegelt += 1
+                elif status == "sending":
+                    continue
+                else:
+                    neu = ""
+                    geleert += 1
+                conn.execute(
+                    text("UPDATE scheduledmail SET payload_json = :p WHERE id = :id"),
+                    {"p": neu, "id": row_id},
+                )
+            conn.commit()
+            if versiegelt or geleert:
+                conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+                conn.commit()
+        finally:
+            conn.rollback()
+            conn.exec_driver_sql("PRAGMA secure_delete = OFF")
+            conn.commit()
+    if versiegelt or geleert:
+        logger.info(
+            "Geplante Mails: %d verschluesselt, %d abgeschlossene geleert", versiegelt, geleert,
+        )
 
 
 def get_session() -> Iterator[Session]:
