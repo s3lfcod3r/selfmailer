@@ -12,6 +12,8 @@ from sqlalchemy import Column, JSON, UniqueConstraint
 
 from sqlmodel import Field, SQLModel
 
+from .core.encrypted_types import EncryptedText
+
 
 def _now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
@@ -374,9 +376,15 @@ class MailRule(SQLModel, table=True):
 class CachedMessage(SQLModel, table=True):
     """Lokaler Cache eines Mail-Kopfs (für die schnelle Listenanzeige).
 
-    Pro (account_id, folder, uid) eine Zeile. Inhalt/Anhänge werden NICHT
-    gespeichert — nur was die Liste braucht. Der Body wird beim Öffnen weiterhin
-    live geholt. Der Cache ist reine Beschleunigung; bei Zweifel wird live geladen.
+    Pro (account_id, folder, uid) eine Zeile; der Volltext (detail_json) erst,
+    wenn die Mail einmal geöffnet wurde. Der Cache ist reine Beschleunigung; bei
+    Zweifel wird live geladen.
+
+    Seit 1.97.2 sind subject, from_addr, snippet und detail_json in der DB
+    verschlüsselt (EncryptedText, transparent für den Code). Diese Spalten nie
+    per SQL durchsuchen oder vergleichen - nur "leer/nicht leer" funktioniert.
+    Unverschlüsselt bleiben, was SQL braucht: Sortierdatum, Flags, Keywords,
+    Message-IDs (Thread-Suche).
     """
 
     id: int | None = Field(default=None, primary_key=True)
@@ -384,13 +392,13 @@ class CachedMessage(SQLModel, table=True):
     folder: str = Field(index=True)
     uid: str = ""                         # IMAP-UID (stabil je UIDVALIDITY)
     uidvalidity: int = 0                  # Generation gehört zur Nachrichtenidentität
-    subject: str = ""
-    from_addr: str = ""
+    subject: str = Field(default="", sa_type=EncryptedText)
+    from_addr: str = Field(default="", sa_type=EncryptedText)
     date_str: str = ""                    # Anzeige-Datum (wie vom Server)
     sort_date: dt.datetime | None = Field(default=None, index=True)  # zum Sortieren
     seen: bool = False
     flagged: bool = False
-    snippet: str = ""
+    snippet: str = Field(default="", sa_type=EncryptedText)
     has_attachments: bool = False
     # Gesetzte IMAP-Keywords (Labels) als Space-getrennte Liste — für farbige Chips
     # in der Liste ohne erneuten Fetch. Systemflags (\Seen etc.) NICHT enthalten.
@@ -405,7 +413,7 @@ class CachedMessage(SQLModel, table=True):
     # Gecachter Volltext der Mail (JSON: text/html/to/message_id/attachments-Meta).
     # Leer, solange die Mail noch nie geöffnet wurde; dann beim ersten Öffnen
     # einmal live geholt und hier abgelegt → jedes weitere Öffnen ohne IMAP.
-    detail_json: str = ""
+    detail_json: str = Field(default="", sa_type=EncryptedText)
     # Aufeinanderfolgende Syncs OHNE Server-Treffer. Schützt vor flatternden Cluster-
     # Servern (z. B. web.de): eine Mail wird erst nach mehreren Fehlläufen entfernt,
     # nicht schon, wenn ein einzelner Sync sie kurz nicht sieht.
