@@ -338,6 +338,20 @@ def _run_one_time_backfills() -> None:
                 conn.execute(text("PRAGMA user_version = 4"))
         except Exception:  # noqa: BLE001 - Reparatur darf den Start nie blockieren
             logger.warning("Verschluesselung geplanter Mails (v4) fehlgeschlagen", exc_info=True)
+        with engine.begin() as conn:
+            ver = int(conn.execute(text("PRAGMA user_version")).scalar() or 0)
+    if ver < 5:
+        # v5 (1.97.2): Mail-Cache - Betreff, Absender, Vorschau und Volltext lagen
+        # im Klartext in DB und Backups. Seit 1.97.2 schreibt der Code sie
+        # verschluesselt (EncryptedText); hier wird der Bestand umgestellt.
+        # Idempotent ueber das enc:v1:-Praefix; bricht der Lauf ab, macht der
+        # naechste Start mit den restlichen Zeilen weiter.
+        try:
+            _seal_cache_texts()
+            with engine.begin() as conn:
+                conn.execute(text("PRAGMA user_version = 5"))
+        except Exception:  # noqa: BLE001 - Reparatur darf den Start nie blockieren
+            logger.warning("Verschluesselung des Mail-Caches (v5) fehlgeschlagen", exc_info=True)
 
 
 def _looks_hashed(value: str) -> bool:
@@ -446,6 +460,66 @@ def _seal_scheduled_payloads() -> None:
         logger.info(
             "Geplante Mails: %d verschluesselt, %d abgeschlossene geleert", versiegelt, geleert,
         )
+
+
+# Spalten des Mail-Caches, die seit 1.97.2 verschluesselt sind (models.CachedMessage).
+_CACHE_SEALED_COLUMNS = ("subject", "from_addr", "snippet", "detail_json")
+_CACHE_SEAL_BATCH = 500
+
+
+def _seal_cache_texts() -> None:
+    """Klartext im Mail-Cache verschluesseln (v5), paketweise nach id.
+
+    Wie v4 mit secure_delete auf genau dieser Verbindung, damit alter Klartext
+    nicht als freier Platz in der Datei bleibt; ein Checkpoint am Ende schreibt
+    das ins Hauptfile. Jedes Paket ist eine eigene Transaktion - ein grosser
+    Cache blockiert den Start damit nicht in einem Stueck.
+    """
+    from .crypto import SEALED_PREFIX
+    from .encrypted_types import seal_text
+
+    with engine.connect() as conn:
+        tables = {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+    if "cachedmessage" not in tables:
+        return
+    cols = ", ".join(_CACHE_SEALED_COLUMNS)
+    plain_cond = " OR ".join(
+        f"({c} IS NOT NULL AND {c} != '' AND substr({c}, 1, {len(SEALED_PREFIX)}) != :p)"
+        for c in _CACHE_SEALED_COLUMNS
+    )
+    umgestellt = 0
+    with engine.connect() as conn:
+        conn.exec_driver_sql("PRAGMA secure_delete = ON")
+        try:
+            last_id = 0
+            while True:
+                rows = list(conn.execute(
+                    text(f"SELECT id, {cols} FROM cachedmessage WHERE id > :last AND ({plain_cond}) "
+                         f"ORDER BY id LIMIT :n"),
+                    {"last": last_id, "p": SEALED_PREFIX, "n": _CACHE_SEAL_BATCH},
+                ))
+                if not rows:
+                    break
+                for row in rows:
+                    werte = {}
+                    for name, value in zip(_CACHE_SEALED_COLUMNS, row[1:]):
+                        if value and not value.startswith(SEALED_PREFIX):
+                            werte[name] = seal_text(value)
+                    if werte:
+                        setzen = ", ".join(f"{k} = :{k}" for k in werte)
+                        conn.execute(text(f"UPDATE cachedmessage SET {setzen} WHERE id = :id"), {**werte, "id": row[0]})
+                        umgestellt += 1
+                conn.commit()
+                last_id = rows[-1][0]
+            if umgestellt:
+                conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+                conn.commit()
+        finally:
+            conn.rollback()
+            conn.exec_driver_sql("PRAGMA secure_delete = OFF")
+            conn.commit()
+    if umgestellt:
+        logger.info("Mail-Cache: %d Zeilen verschluesselt", umgestellt)
 
 
 def get_session() -> Iterator[Session]:
