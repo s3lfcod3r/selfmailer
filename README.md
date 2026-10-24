@@ -47,10 +47,17 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
 - **Multi-select** (long-press → select → bulk move / read / unread / star / delete)
 - **Filter rules** (move/star/mark/**delete** — applied automatically on every background sync) and **server-side mailbox migration**
 - **Mailbox cleanup**: find similar mail by sender, domain, subject, keyword or label, preview, then move in bulk; **saved search views**
-- **Block sender** in one click → mail goes to **trash** (existing + future); a **blocked-senders list** lets you undo any block
+- **Block sender** in one click → mail goes to **trash** (existing + future); a **blocked-senders list** lets you undo any block. Rules also match the **reply-to address** and the **newsletter ID (List-Id)** and show a **hit counter**
 - **Auto-empty spam & trash** per account (off / immediately / after 7 / 30 days)
 - **Search** with quick filters (unread · has attachment · starred), pagination, snippets
 - A local **SQLite cache** kept warm by a background sync → the UI never waits on a slow provider
+- **New mail right away** via **IMAP IDLE**: the server reports new mail itself (2-minute polling stays as a safety net); the text of new mail is **prefetched**, so it opens instantly
+
+**🛡️ Spam & virus protection** (Settings → **Security**, everything **off** until you switch it on)
+- **Blocks for all accounts** — a sender blocked in one account is removed from all your accounts
+- **One-click unsubscribe** for newsletters (RFC 8058) — with a warning when the sender is not verified
+- **Virus scan of attachments** with your own **ClamAV** — new mail is checked before it shows up or pushes; infected mail goes to spam, infected downloads are blocked
+- **Spam filter** with **rspamd** — rates new mail, moves spam away and **learns from your “Spam” button**
 
 **📅 Organizer**
 - **Calendar** — local events, month/agenda views, birthdays from contacts
@@ -71,7 +78,7 @@ Part of the **Self** family (SelfAuthenticator, SelfArchiver, SelfDashboard …)
 **🔐 Security & platform**
 - **Multi-user** with admin/user roles; admin can pre-configure accounts for users
 - **2FA / TOTP** login with backup codes; biometric **app-lock** on Android
-- Account credentials **Fernet-encrypted at rest**
+- Account credentials and the **mail cache** **Fernet-encrypted at rest**
 - **i18n DE/EN**, light/dark themes + custom accent colours
 - **Single container** — FastAPI + SQLite, no external database
 
@@ -86,6 +93,13 @@ The trash auto-empties after **7 days** (a safe undo window).
 **Undo a block** — click your **👤 user menu** (top right) → **🔀 Rules** → the **🚫 Blocked senders**
 box at the top lists every block; hit **↩ Unblock** to let future mail through again.
 To recover a specific message, open it in the **Trash** folder and move it back to the inbox (within 7 days).
+
+**Still getting mail from a blocked sender?** Spammers keep changing their address. Under **⚙️ Settings → Security → Spam & virus protection** you can:
+- let every block apply to **all your accounts**,
+- and under **🔀 Rules** block by **reply-to address** or **newsletter ID (List-Id)** — features spammers change less often than the sender.
+
+Each rule shows **how often it matched** — so you can see whether a block still works.
+For real newsletters, the **Unsubscribe** button (same settings page) is the cleaner way out; for unknown senders, blocking is safer, because unsubscribing confirms that your address exists.
 
 > **💡 Tip:** auto-empty timings (spam & trash: off / immediately / after 7 / 30 days) live under **👤 → ✎ Edit account**.
 
@@ -269,12 +283,16 @@ Base path `/api/v1`, authentication via JWT Bearer. Interactive docs: `http://<h
 ### 🛡️ Security
 
 - Login passwords **Argon2**-hashed; mailbox & DAV passwords **Fernet-encrypted at rest** (key from `SELFMAILER_SECRET`)
-- **Revocable sessions**: logout, password/2FA changes and admin locks revoke tokens, SSE access and push registrations
+- **Data at rest**: the mail cache (subject, sender, preview, full text) and scheduled mails are encrypted; database and backups readable by the container user only
+- **IMAP certificates verified**, optionally pinned per account (fingerprint) for self-signed LAN servers
+- **Revocable sessions**: logout, password/2FA changes and admin locks revoke tokens, SSE access and push registrations; **CSRF protection** for cookie sessions
 - **JWT** pinned to `HS256/384/512`; the 2FA intermediate token grants no access
-- **Rate limiting** on login/2FA/setup; defensive response headers; **anti-enumeration** dummy hash
-- **SSRF guard** on DAV pull (loopback/link-local/cloud-metadata always blocked); DAV credentials stay bound to their origin
-- Android: `allowBackup=false`, JWT in the **Android Keystore**, hardened mail-HTML WebView, FileProvider with path-traversal check
-- **Deliberate LAN trade-offs** (documented): cleartext HTTP allowed (TLS terminated externally), `SELFMAILER_SECRET` doubles as the encryption seed
+- **Rate limiting** on login/2FA/setup; defensive response headers; API responses `Cache-Control: no-store`; **anti-enumeration** dummy hash
+- **SSRF guard** with IP pinning on DAV pull, ntfy, translation and unsubscribe (loopback/link-local/cloud-metadata always blocked; unsubscribe only to public addresses); DAV credentials stay bound to their origin
+- **Container**: non-root (uid 99), app code read-only, no Linux capabilities (`no-new-privileges`, `cap-drop=ALL`), base images pinned by digest, **Trivy** image scan and dependency audits in CI
+- **Virus scan** never reports “clean” without a real scan — errors and oversized files are marked “not checked”
+- Android: `allowBackup=false`, token in the **Android Keystore**, hardened mail-HTML WebView (no JavaScript, no form submission), FileProvider with path-traversal check
+- **Deliberate LAN trade-offs** (documented): cleartext HTTP allowed (HTTPS optional in the container or via a reverse proxy), `SELFMAILER_SECRET` doubles as the encryption seed
 
 Security update history → [CHANGELOG.md](CHANGELOG.md) (entries marked 🔒).
 
@@ -357,10 +375,17 @@ Teil der **Self**-Familie (SelfAuthenticator, SelfArchiver, SelfDashboard …) �
 - **Mehrfachauswahl** (lange drücken → auswählen → Sammelaktionen Verschieben/Gelesen/Ungelesen/Stern/Löschen)
 - **Filterregeln** (Verschieben/Stern/Gelesen/**Löschen** — bei jedem Hintergrund-Sync automatisch angewandt) und serverseitige **Postfach-Migration**
 - **Postfach aufräumen**: ähnliche Mails nach Absender, Domain, Betreff, Stichwort oder Label finden, Vorschau prüfen, dann gesammelt verschieben; **gespeicherte Suchansichten**
-- **Absender blockieren** per Klick → Mails wandern in den **Papierkorb** (vorhandene + künftige); eine **Liste blockierter Absender** macht jede Blockierung rückgängig
+- **Absender blockieren** per Klick → Mails wandern in den **Papierkorb** (vorhandene + künftige); eine **Liste blockierter Absender** macht jede Blockierung rückgängig. Regeln greifen auch auf die **Antwort-Adresse** und die **Newsletter-Kennung (List-Id)** und zeigen einen **Trefferzähler**
 - **Spam & Papierkorb automatisch leeren** je Konto (aus / sofort / nach 7 / 30 Tagen)
 - **Suche** mit Schnellfiltern (ungelesen · Anhang · Stern), Seitenweise Anzeige, Vorschauen
 - Lokaler **SQLite-Cache**, vom Hintergrund-Sync warmgehalten → die Oberfläche wartet nie auf einen langsamen Anbieter
+- **Neue Mails sofort** per **IMAP IDLE**: der Server meldet neue Mails selbst (die Abfrage alle 2 Minuten bleibt als Sicherheitsnetz); der Text neuer Mails wird **vorgeladen** und öffnet sich ohne Wartezeit
+
+**🛡️ Spam- & Virenschutz** (Einstellungen → **Sicherheit**, alles **aus**, bis du es einschaltest)
+- **Sperren für alle Konten** — ein in einem Konto gesperrter Absender verschwindet aus allen deinen Konten
+- **Abmelden mit einem Klick** für Newsletter (RFC 8058) — mit Warnung, wenn der Absender nicht geprüft ist
+- **Virenscan der Anhänge** mit deinem eigenen **ClamAV** — neue Mails werden geprüft, bevor sie erscheinen oder pushen; infizierte Mails wandern in den Spam-Ordner, infizierte Downloads werden gesperrt
+- **Spamfilter** mit **rspamd** — bewertet neue Mails, verschiebt Spam und **lernt mit deinem „Spam"-Knopf**
 
 **📅 Organizer**
 - **Kalender** — lokale Termine, Monats-/Agenda-Ansicht, Geburtstage aus Kontakten
@@ -381,7 +406,7 @@ Teil der **Self**-Familie (SelfAuthenticator, SelfArchiver, SelfDashboard …) �
 **🔐 Sicherheit & Plattform**
 - **Mehrbenutzer** mit Admin-/Nutzer-Rollen; der Admin kann Konten vorkonfigurieren
 - **2FA / TOTP** mit Backup-Codes; biometrische **App-Sperre** unter Android
-- Konto-Zugangsdaten **Fernet-verschlüsselt** gespeichert
+- Konto-Zugangsdaten und **Mail-Cache** **Fernet-verschlüsselt** gespeichert
 - **Deutsch/Englisch**, helles/dunkles Theme + eigene Akzentfarben
 - **Ein Container** — FastAPI + SQLite, keine externe Datenbank
 
@@ -396,6 +421,13 @@ Der Papierkorb leert sich nach **7 Tagen** automatisch (Rückgängig-Fenster).
 **Aufheben** — oben rechts aufs **👤 Benutzermenü** → **🔀 Regeln** → der Kasten **🚫 Blockierte Absender**
 ganz oben zeigt alle Blockierungen; mit **↩ Aufheben** kommen künftige Mails wieder an.
 Eine einzelne Mail rettest du, indem du sie im Ordner **Papierkorb** öffnest und zurück in den Posteingang verschiebst (innerhalb der 7 Tage).
+
+**Kommen trotzdem Mails vom gesperrten Absender?** Spammer wechseln ständig ihre Adresse. Unter **⚙️ Einstellungen → Sicherheit → Spam- & Virenschutz** kannst du:
+- jede Sperre für **alle deine Konten** gelten lassen,
+- und unter **🔀 Regeln** nach **Antwort-Adresse** oder **Newsletter-Kennung (List-Id)** sperren — Merkmale, die Spammer seltener wechseln als den Absender.
+
+Jede Regel zeigt, **wie oft sie zugeschlagen hat** — so siehst du, ob eine Sperre noch wirkt.
+Bei echten Newslettern ist der **Abmelden**-Knopf (gleiche Einstellungsseite) der sauberere Weg; bei Unbekannten ist Sperren sicherer, denn Abmelden bestätigt, dass deine Adresse existiert.
 
 > **💡 Tipp:** die Zeiten fürs automatische Leeren (Spam & Papierkorb: aus / sofort / nach 7 / 30 Tagen) findest du unter **👤 → ✎ Konto bearbeiten**.
 
@@ -579,12 +611,16 @@ Basispfad `/api/v1`, Anmeldung per JWT Bearer. Interaktive Doku: `http://<host>:
 ### 🛡️ Sicherheit
 
 - Login-Passwörter mit **Argon2** gehasht; Postfach- & DAV-Passwörter **Fernet-verschlüsselt** gespeichert (Schlüssel aus `SELFMAILER_SECRET`)
-- **Widerrufbare Sitzungen**: Logout, Passwort-/2FA-Änderungen und Admin-Sperren widerrufen Tokens, SSE-Zugriff und Push-Registrierungen
+- **Daten im Ruhezustand**: Mail-Cache (Betreff, Absender, Vorschau, Volltext) und geplante Mails verschlüsselt; Datenbank und Backups nur für den Container-Nutzer lesbar
+- **IMAP-Zertifikate werden geprüft**, für selbstsignierte LAN-Server optional pro Konto per Fingerprint festgelegt
+- **Widerrufbare Sitzungen**: Logout, Passwort-/2FA-Änderungen und Admin-Sperren widerrufen Tokens, SSE-Zugriff und Push-Registrierungen; **CSRF-Schutz** für Cookie-Sitzungen
 - **JWT** fest auf `HS256/384/512`; der 2FA-Zwischentoken gewährt keinen Zugriff
-- **Rate-Limiting** bei Login/2FA/Einrichtung; defensive Response-Header; **Schutz gegen Nutzer-Ausspähung** (Dummy-Hash)
-- **SSRF-Schutz** beim DAV-Abgleich (Loopback/Link-Local/Cloud-Metadaten immer blockiert); DAV-Zugangsdaten bleiben am Origin
-- Android: `allowBackup=false`, JWT im **Android-Keystore**, gehärtete Mail-HTML-WebView, FileProvider mit Path-Traversal-Prüfung
-- **Bewusste LAN-Kompromisse** (dokumentiert): unverschlüsseltes HTTP erlaubt (TLS extern terminiert), `SELFMAILER_SECRET` ist zugleich der Verschlüsselungs-Seed
+- **Rate-Limiting** bei Login/2FA/Einrichtung; defensive Response-Header; API-Antworten mit `Cache-Control: no-store`; **Schutz gegen Nutzer-Ausspähung** (Dummy-Hash)
+- **SSRF-Schutz** mit IP-Pinning bei DAV-Abgleich, ntfy, Übersetzung und Abmelden (Loopback/Link-Local/Cloud-Metadaten immer blockiert; Abmelden nur an öffentliche Adressen); DAV-Zugangsdaten bleiben am Origin
+- **Container**: ohne Root (uid 99), App-Code schreibgeschützt, keine Linux-Sonderrechte (`no-new-privileges`, `cap-drop=ALL`), Basis-Images per Digest festgelegt, **Trivy**-Image-Scan und Abhängigkeits-Audits in der CI
+- **Virenscan** meldet nie „sauber" ohne echten Scan — Fehler und zu große Dateien gelten als „nicht geprüft"
+- Android: `allowBackup=false`, Token im **Android-Keystore**, gehärtete Mail-HTML-WebView (kein JavaScript, keine Formulare), FileProvider mit Path-Traversal-Prüfung
+- **Bewusste LAN-Kompromisse** (dokumentiert): unverschlüsseltes HTTP erlaubt (HTTPS optional im Container oder über einen Reverse-Proxy), `SELFMAILER_SECRET` ist zugleich der Verschlüsselungs-Seed
 
 Verlauf der Sicherheitsupdates → [CHANGELOG.md](CHANGELOG.md) (Einträge mit 🔒).
 

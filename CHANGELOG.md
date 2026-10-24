@@ -8,6 +8,22 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.97.3 · not released yet / noch nicht veröffentlicht
+_Already in the `latest` image, but not yet part of a release · Schon im `latest`-Image, aber noch in keinem Release._
+- 🇬🇧 🔒 **Spam & virus protection** — new tab **Settings → Security**, every switch **off** until you turn it on, and you can turn it off again at any time:
+  - **Blocks for all accounts**: a sender blocked in one account is removed from all your accounts.
+  - **One-click unsubscribe** for newsletters (RFC 8058): only https, only public addresses, with a warning for unverified senders; not offered in the spam folder.
+  - **Virus scan of attachments** with your own **ClamAV** (`SELFMAILER_CLAMAV`): new mail is checked before it appears or pushes, infected mail goes to spam, infected downloads are blocked; never reports “clean” without a real scan.
+  - **Spam filter** with **rspamd** (`SELFMAILER_RSPAMD_URL`): rates new mail, moves spam away and learns from the “Spam” button (`SELFMAILER_RSPAMD_CONTROLLER_URL` / `_PASSWORD`).
+- 🇬🇧 Rules: new criteria **reply-to address** and **newsletter ID (List-Id)**, plus a **hit counter** per rule. README updated (features, blocking, security).
+- 🇩🇪 🔒 **Spam- & Virenschutz** — neuer Reiter **Einstellungen → Sicherheit**, jeder Schalter **aus**, bis du ihn einschaltest, und jederzeit wieder abschaltbar:
+  - **Sperren für alle Konten**: ein in einem Konto gesperrter Absender verschwindet aus allen deinen Konten.
+  - **Abmelden mit einem Klick** für Newsletter (RFC 8058): nur https, nur öffentliche Adressen, Warnung bei ungeprüftem Absender; nicht im Spam-Ordner.
+  - **Virenscan der Anhänge** mit deinem eigenen **ClamAV** (`SELFMAILER_CLAMAV`): neue Mails werden geprüft, bevor sie erscheinen oder pushen, infizierte Mails wandern in den Spam-Ordner, infizierte Downloads werden gesperrt; meldet nie „sauber" ohne echten Scan.
+  - **Spamfilter** mit **rspamd** (`SELFMAILER_RSPAMD_URL`): bewertet neue Mails, verschiebt Spam und lernt mit dem „Spam"-Knopf (`SELFMAILER_RSPAMD_CONTROLLER_URL` / `_PASSWORD`).
+- 🇩🇪 Regeln: neue Merkmale **Antwort-Adresse** und **Newsletter-Kennung (List-Id)** sowie ein **Trefferzähler** je Regel. README nachgezogen (Funktionen, Absender blockieren, Sicherheit).
+- 🇩🇪 Unraid: neue Felder für ClamAV/rspamd in der Vorlage — bei einem bestehenden Container die Variable `SELFMAILER_CLAMAV` von Hand ergänzen.
+
 ## 1.97.2 · Build 128
 - 🇬🇧 **New mail right away: IMAP IDLE on the inbox.** The server reports new mail itself instead of SelfMailer polling every 2 minutes; the text of new mails is prefetched (not marked as read). Measured on a Gmail account: new mail in the list after 17–50 s instead of 136 s (the rest is Gmail's own IMAP delay), first open 15 ms instead of 3.9 s. Switch off with `SELFMAILER_IDLE=0` / `SELFMAILER_PREFETCH_NEW=0`.
 - 🇬🇧 **Mail cache encrypted at rest** (subject, sender, preview, full text). Hardening: API responses `no-store`, container without Linux privileges (`no-new-privileges`, `cap-drop=ALL`), base images pinned by digest, Trivy image scan, translation with IP pinning.
