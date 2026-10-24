@@ -602,6 +602,25 @@ def _connect(account: MailAccount, login: str, password: str, folder: str) -> Ma
     return box
 
 
+def open_idle_connection(account: MailAccount, password: str) -> MailBox:
+    """EIGENE Verbindung fuer den IDLE-Waechter (mail/idle_watch.py).
+
+    Bewusst NICHT aus dem Pool: eine Verbindung im IDLE ist dauerhaft belegt und
+    wuerde dort einen Platz fuer Sync/Loeschen blockieren. Gleicher Aufbau wie
+    jede andere Verbindung (gepinnte IP, TLS-Pruefung, Fingerprint), Posteingang
+    ausgewaehlt."""
+    return _connect(account, account.auth_user or account.email, password, "INBOX")
+
+
+def supports_idle(box: MailBox) -> bool:
+    """Kann der Server IDLE (RFC 2177)? Nach dem Login gelesene Faehigkeiten."""
+    return "IDLE" in tuple(getattr(box.client, "capabilities", ()) or ())
+
+
+def close_idle_connection(box: MailBox | None) -> None:
+    _close(box)
+
+
 def _close(box: MailBox | None) -> None:
     if box is None:
         return
@@ -1640,16 +1659,25 @@ def get_message(account: MailAccount, password: str, uid: str, folder: str = "IN
     return None
 
 
-def get_messages(account: MailAccount, password: str, uids: list[str], folder: str = "INBOX", *, uidvalidity: int | None = None) -> list[dict]:
-    """Vorladen von höchstens drei kleinen Mails (je <=64 KiB) ohne UI-Reserve."""
+def get_messages(
+    account: MailAccount, password: str, uids: list[str], folder: str = "INBOX", *,
+    uidvalidity: int | None = None, limit: int = 3, max_size: int = 64 * 1024,
+    lock_timeout: float = 0, op: str = "prefetch",
+) -> list[dict]:
+    """Mehrere kleine Mails vorladen, ohne UI-Reserve und ohne Gelesen-Flag.
+
+    Standard (Vorwärmen aus der Liste): höchstens drei Mails je <=64 KiB, kein
+    Warten auf eine belegte Verbindung. Der Hintergrund lädt neue Mails mit
+    eigenen Grenzen vor (cache.prefetch_new).
+    """
     if not uids:
         return []
     out: list[dict] = []
-    with _mailbox(account, password, folder=folder, lock_timeout=0, op="prefetch") as box:
+    with _mailbox(account, password, folder=folder, lock_timeout=lock_timeout, op=op) as box:
         generation = mailbox_generation(box, folder, uidvalidity)
-        candidates = list(dict.fromkeys(uids))[:3]
+        candidates = list(dict.fromkeys(uids))[:limit]
         headers = box.fetch(AND(uid=",".join(candidates)), uid_list=candidates, headers_only=True, mark_seen=False, bulk=True)
-        small = [m.uid for m in headers if m.uid and 0 < m.size_rfc822 <= 64 * 1024]
+        small = [m.uid for m in headers if m.uid and 0 < m.size_rfc822 <= max_size]
         if not small:
             return []
         for msg in box.fetch(AND(uid=",".join(small)), uid_list=small, mark_seen=False, bulk=True):

@@ -199,7 +199,9 @@ def pool_status(user: User = Depends(require_admin)) -> dict:
     ohne Zugriff auf die Container-Logs war die nicht zu beantworten.
     Liefert nur Metadaten, keine Zugangsdaten.
     """
-    return {"pool": imap_mod.pool_status()}
+    from ..mail import idle_watch  # lazy: Scheduler-Modul nicht beim API-Import laden
+
+    return {"pool": imap_mod.pool_status(), "idle": idle_watch.status()}
 
 
 @router.get("/jobs/{job_id}")
