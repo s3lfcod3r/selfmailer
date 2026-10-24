@@ -106,6 +106,7 @@ def _validate_dav_url(url: str) -> None:
 def _pinned_request(
     client: httpx.Client, method: str, url: str, *, content: str | bytes | None = None,
     json: object | None = None, headers: dict[str, str] | None = None, credential_origin: str | None = None,
+    resolved: tuple[str, str, int] | None = None,
 ) -> httpx.Response:
     """Request mit an die vorab geprüfte IP GEPINNTER Verbindung.
 
@@ -114,7 +115,9 @@ def _pinned_request(
     Hostnamen (``sni_hostname``-Extension + ``Host``-Header)."""
     if credential_origin is not None:
         _require_same_origin(url, credential_origin)
-    ip, host, port = _resolve_validated(url)
+    # resolved: vom Aufrufer bereits geprueftes Ergebnis - NICHT neu aufloesen,
+    # sonst koennte ein zweites DNS eine andere (z. B. private) IP liefern.
+    ip, host, port = resolved if resolved is not None else _resolve_validated(url)
     parsed = urlparse(url)
     ip_host = f"[{ip}]" if ":" in ip else ip
     pinned_url = parsed._replace(netloc=f"{ip_host}:{port}").geturl()
@@ -134,6 +137,26 @@ def post_pinned(url: str, *, json: object | None = None, timeout: float | httpx.
     zwischen Prüfung und Verbindung."""
     with httpx.Client(timeout=timeout, follow_redirects=False) as client:
         return _pinned_request(client, "POST", url, json=json)
+
+
+def post_pinned_form(url: str, data: dict[str, str], *, timeout: float | httpx.Timeout = 10.0) -> httpx.Response:
+    """Wie post_pinned, aber als Formular (application/x-www-form-urlencoded).
+
+    Fuer die Ein-Klick-Abmeldung aus Newslettern (RFC 8058): Ziel kommt aus einer
+    FREMDEN Mail, deshalb dieselbe SSRF-Pruefung + IP-Pinning und keine Redirects.
+    Zusaetzlich NUR oeffentliche Adressen: die allgemeine Pruefung laesst private
+    LAN-Ziele zu (DAV im Heimnetz) - eine Spam-Mail duerfte den Server so aber nie
+    auf Geraete im eigenen Netz ansetzen."""
+    import ipaddress
+    from urllib.parse import urlencode
+
+    resolved = _resolve_validated(url)
+    if not ipaddress.ip_address(resolved[0]).is_global:
+        raise DavUrlError("Nur oeffentliche Adressen erlaubt")
+    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+        return _pinned_request(client, "POST", url, content=urlencode(data),
+                               headers={"Content-Type": "application/x-www-form-urlencoded"},
+                               resolved=resolved)
 
 
 def validate_external_url(url: str) -> None:

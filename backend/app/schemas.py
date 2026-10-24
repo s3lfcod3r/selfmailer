@@ -244,6 +244,21 @@ class AuthInfo(BaseModel):
     analysis_version: int = 2
 
 
+class UnsubscribeInfo(BaseModel):
+    """Ein-Klick-Abmeldung (RFC 8058) - nur, wenn die Mail sie anbietet."""
+    available: bool = False
+    verified: bool = False          # Echtheit des Absenders bestätigt (DMARC pass)
+    host: str = ""                  # Ziel des Abmelde-Aufrufs, zur Anzeige
+
+
+class VirusFinding(BaseModel):
+    """Ergebnis des Virenscans für einen Anhang (nur Auffälliges)."""
+    index: int
+    filename: str = ""
+    status: str = ""                # infected | error | skipped
+    signature: str = ""             # z. B. "Win.Test.EICAR_HDB-1"
+
+
 class MessageDetail(MessageHeader):
     to: list[str] = []
     message_id: str = ""
@@ -252,6 +267,10 @@ class MessageDetail(MessageHeader):
     attachments: list[AttachmentMeta] = []
     auth: AuthInfo | None = None
     mdn_request: str = ""           # Adresse aus "Disposition-Notification-To" (Lesebestätigung angefordert)
+    # Ein-Klick-Abmeldung (RFC 8058), nur bei eingeschaltetem sec_unsubscribe.
+    unsubscribe: UnsubscribeInfo | None = None
+    # Virenscan der Anhänge (sec_virus_scan): Befund je Anhang-Index.
+    virus: list[VirusFinding] = []
 
 
 # Server-seitige Obergrenze für die Anhang-Gesamtgröße (Summe der base64-Längen).
@@ -284,7 +303,9 @@ class SendRequest(BaseModel):
 
 
 # ---- Filterregeln --------------------------------------------------------
-RuleField = Literal["from", "from_domain", "to", "subject"]
+# reply_to / list_id (seit 1.97.3): Merkmale, die Spammer seltener wechseln als die
+# Absenderadresse - Antwort-Adresse und Newsletter-Kennung (List-Id-Header).
+RuleField = Literal["from", "from_domain", "to", "subject", "reply_to", "list_id"]
 
 
 class RuleCreate(BaseModel):
@@ -345,6 +366,8 @@ class RuleOut(BaseModel):
     delete_msg: bool
     enabled: bool
     position: int
+    hits: int = 0
+    last_hit_at: dt.datetime | None = None
 
 
 class BlockSenderRequest(BaseModel):

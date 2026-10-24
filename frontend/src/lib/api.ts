@@ -72,7 +72,12 @@ export async function copyText(text: string): Promise<boolean> {
 // Bearer setzen, das Cookie wird aber automatisch mitgesendet).
 export async function download(path: string): Promise<void> {
   const res = await fetch(`/api/v1${path}`, { credentials: "same-origin" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    // Begründung des Servers weitergeben (z. B. „Virus gefunden … Download gesperrt").
+    let detail = "";
+    try { detail = ((await res.json()) as { detail?: string })?.detail ?? ""; } catch { /* kein JSON */ }
+    throw new ApiError(res.status, detail || `HTTP ${res.status}`);
+  }
   const blob = await res.blob();
   const cd = res.headers.get("content-disposition") || "";
   const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
@@ -85,6 +90,21 @@ export async function download(path: string): Promise<void> {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// Anhang laden mit Virenscan (Einstellungen → Sicherheit): ist der Scanner gerade
+// nicht erreichbar (503), nur nach ausdrücklicher Rückfrage ungeprüft laden.
+// Ein gefundener Virus (403) lässt sich nicht übergehen.
+export async function downloadAttachment(path: string, confirmUnchecked: (reason: string) => boolean): Promise<void> {
+  try {
+    await download(path);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 503 && confirmUnchecked(e.message)) {
+      await download(path + (path.includes("?") ? "&" : "?") + "ungeprueft=true");
+      return;
+    }
+    throw e;
+  }
 }
 
 // ---- Typen ----
@@ -153,6 +173,16 @@ export type MsgDetail = MsgHeader & {
   to: string[]; message_id: string; text: string; html: string; attachments: Attachment[];
   auth?: AuthInfo | null;
   mdn_request?: string;   // Absender bittet um Lesebestätigung (Adresse), sonst leer
+  /** Ein-Klick-Abmeldung (nur mit Schalter „Abmelden-Knopf"). */
+  unsubscribe?: { available: boolean; verified: boolean; host: string } | null;
+  /** Virenscan: auffällige Anhänge (nur mit Schalter „Virenscan"). */
+  virus?: VirusFinding[];
+};
+export type VirusFinding = { index: number; filename: string; status: "infected" | "error" | "skipped" | string; signature: string };
+/** Einstellungen → Sicherheit: sind Virenscanner/Spamfilter eingerichtet? */
+export type SecurityStatus = {
+  clamav: { configured: boolean; reachable: boolean; version: string };
+  rspamd: { configured: boolean; reachable: boolean; learning: boolean };
 };
 
 export type CalEvent = {
@@ -212,6 +242,8 @@ export type WriteToken = {
 export type Rule = {
   id: number; field: string; value: string; target_folder: string;
   mark_read: boolean; star: boolean; delete_msg: boolean; enabled: boolean; position: number;
+  /** Wie oft die Regel zugeschlagen hat (seit 1.97.3). */
+  hits?: number; last_hit_at?: string | null;
 };
 export type SyncResult = {
   ok: boolean; imported: number; updated: number; removed: number; error: string;
