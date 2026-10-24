@@ -20,6 +20,13 @@ services:
     # image: ghcr.io/s3lfcod3r/selfmailer:latest
     container_name: selfmailer
     restart: unless-stopped
+    # Haertung (seit 1.97.2): die App laeuft als normaler Nutzer auf Port
+    # 8090/8443 und braucht keine Linux-Sonderrechte. Ohne sie kann eine Luecke
+    # im Code auch keine erlangen (kein setuid, keine Capabilities).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "8090:8090"
       # Optional HTTPS direkt im Container (siehe .env.example: SELFMAILER_TLS_*,

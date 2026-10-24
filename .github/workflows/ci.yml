@@ -153,7 +153,10 @@ jobs:
           image="$REGISTRY/$IMAGE_NAME@$IMAGE_DIGEST"
           docker pull "$image"
           docker volume create "$volume"
+          # Mit denselben Haertungs-Optionen wie docker-compose.yml/Unraid: der
+          # Smoke beweist, dass der Container OHNE Sonderrechte laeuft.
           docker run -d --name "$container" -v "$volume:/data" \
+            --security-opt=no-new-privileges --cap-drop=ALL \
             -e SELFMAILER_SECRET=ci-container-synthetic-secret-0123456789 \
             -e SELFMAILER_SYNC_DISABLE=1 -e SELFMAILER_COOKIE_SECURE=false "$image"
           for phase in initial restarted; do
@@ -172,10 +175,14 @@ jobs:
           assert os.getuid() == 99, "Container must run as UID 99"
           assert not os.access("/app/app/main.py", os.W_OK), "App code must not be writable by the runtime user"
           assert os.access("/data", os.W_OK), "/data must stay writable"
+          proc = dict(line.split(":", 1) for line in open("/proc/self/status") if ":" in line)
+          assert proc["NoNewPrivs"].strip() == "1", "no-new-privileges must be active"
+          assert int(proc["CapEff"].strip(), 16) == 0, "no Linux capabilities expected"
           base = "http://127.0.0.1:8090"
           with urllib.request.urlopen(base + "/api/health") as response:
               health = json.load(response)
               assert health["status"] == "ok" and health["version"]
+              assert response.headers.get("Cache-Control") == "no-store", "API responses must not be cached"
           with urllib.request.urlopen(base + "/") as response:
               assert response.headers.get("Content-Security-Policy")
               shell = response.read().decode()
@@ -198,7 +205,7 @@ jobs:
                   assert error.code == 409, error.code
           assert os.path.getsize("/data/selfmailer.db") > 0
           assert os.stat("/data/selfmailer.db").st_mode & 0o077 == 0, "DB must be 600"
-          print("PASS", os.environ["SMOKE_PHASE"], health, "UID 99, CSP, assets, persistent setup")
+          print("PASS", os.environ["SMOKE_PHASE"], health, "UID 99, no privileges, CSP, no-store, assets, persistent setup")
           PY
           done
 
@@ -223,6 +230,7 @@ jobs:
           chmod 644 "$certs/key.pem" "$certs/cert.pem"
           image="$REGISTRY/$IMAGE_NAME@$IMAGE_DIGEST"
           docker run -d --name "$container" -v "$certs:/certs:ro" \
+            --security-opt=no-new-privileges --cap-drop=ALL \
             -e SELFMAILER_SECRET=ci-container-synthetic-secret-0123456789 \
             -e SELFMAILER_SYNC_DISABLE=1 -e SELFMAILER_HSTS_MAX_AGE=600 \
             -e SELFMAILER_TLS_CERT=/certs/cert.pem -e SELFMAILER_TLS_KEY=/certs/key.pem "$image"
@@ -263,3 +271,21 @@ jobs:
           if [ "$(docker logs "$container" 2>&1 | grep -c 'Application startup complete')" -ne 1 ]; then
             docker logs "$container"; echo "Lifespan must start exactly once"; exit 1
           fi
+
+      - name: Image-Scan (Trivy, Betriebssystem-Pakete)
+        # Seit 1.97.2: pip-audit/npm audit pruefen nur unsere Python-/JS-Pakete,
+        # nicht die Debian-Pakete des Basis-Images. Trivy schaut genau dort.
+        # Rot nur bei KRITISCHEN Luecken, fuer die es schon einen Fix gibt
+        # (dann hilft ein neues Basis-Image). HIGH steht zur Info im Protokoll.
+        # Luecken ohne Fix blendet --ignore-unfixed aus - die kann niemand beheben.
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          image="$REGISTRY/$IMAGE_NAME@$IMAGE_DIGEST"
+          trivy() {
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:0.75.0 image --quiet --scanners vuln --ignore-unfixed "$@" "$image"
+          }
+          trivy --severity HIGH,CRITICAL --exit-code 0
+          trivy --severity CRITICAL --exit-code 1
