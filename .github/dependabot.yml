@@ -13,7 +13,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Gruppen (seit 1.97.0, nach den ersten Dependabot-PRs): Pakete, die nur
+    # GEMEINSAM die naechste Hauptversion vertragen, kommen in EINEM PR. Einzeln
+    # scheiterte schon "npm ci" (peer dependency) - z. B. react 19 ohne
+    # react-dom 19, vite 8 ohne @vitejs/plugin-react 6.
+    # Reihenfolge zaehlt: ein Paket landet in der ERSTEN passenden Gruppe.
     groups:
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      vite:
+        patterns: ["vite", "@vitejs/*"]
       frontend-minor-patch:
         update-types: [minor, patch]
 
@@ -21,6 +30,18 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+    ignore:
+      # Node nur LTS: Dependabot kennt keine LTS-Linien und schlug node:25
+      # (kurzlebig, ohne LTS) vor. Hauptversionen hebt man deshalb bewusst von
+      # einer geraden LTS-Version zur naechsten (24 -> 26 ...), zusammen mit
+      # node-version in ci.yml/security-audit.yml.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+      # Python: 3.13 -> 3.14 ist fuer Dependabot nur "minor", haengt hier aber
+      # an requirements.lock (--python-version 3.13) und setup-python in der
+      # CI. Ebenfalls nur bewusst und gemeinsam anheben.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: github-actions
     directory: /
