@@ -10,6 +10,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
+import httpx
 from aiosmtplib.errors import SMTPRecipientsRefused
 
 from typing import Annotated
@@ -22,15 +23,18 @@ from sqlmodel import Session, select
 
 from ..core.crypto import decrypt, seal_json
 from ..core.db import engine, get_session
+from ..dav.client import DavUrlError
 from ..events import bus
 from ..mail import cache as cache_mod
 from ..mail import imap as imap_mod
 from ..mail import migrate as migrate_mod
+from ..mail import scan as scan_mod
+from ..mail import security as security_mod
 from ..mail import smtp as smtp_mod
 from ..mail import timing
 from ..mail.counts_control import counts_gate
 from ..core import jobs
-from ..models import MailAccount, MailIdentity, ScheduledMail, User, FolderSync
+from ..models import CachedMessage, MailAccount, MailIdentity, ScheduledMail, User, FolderSync
 from ..schemas import (
     BatchRequest,
     MAX_ATTACHMENTS_B64_BYTES,
@@ -784,6 +788,26 @@ def transfer(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Übertragen fehlgeschlagen")
 
 
+def _mit_schutz(detail: dict, user: User, account_id: int) -> dict:
+    """Spam-/Virenschutz-Angaben zur Mail ergaenzen (nur eingeschaltete Schalter).
+
+    Arbeitet auf einer Kopie: das gecachte Detail bleibt unveraendert, die Angaben
+    haengen von den AKTUELLEN Schaltern ab, nicht von denen beim Cachen."""
+    try:
+        flags = security_mod.user_flags(user.id)
+    except Exception:  # noqa: BLE001 - Schutz-Angaben sind Zugabe
+        return detail
+    out = dict(detail)
+    if flags.get("sec_unsubscribe"):
+        out["unsubscribe"] = security_mod.unsubscribe_info(detail)
+    if flags.get("sec_virus_scan"):
+        try:
+            out["virus"] = scan_mod.findings_for(account_id, detail)
+        except Exception:  # noqa: BLE001
+            logger.info("Virenbefund nicht gelesen (account_id=%s)", account_id, exc_info=True)
+    return out
+
+
 @router.get("/{account_id}/messages/{uid}", response_model=MessageDetail)
 def message(
     account_id: int,
@@ -793,6 +817,10 @@ def message(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict:
+    return _mit_schutz(_message_detail(account_id, uid, folder, uidvalidity, user, session), user, account_id)
+
+
+def _message_detail(account_id: int, uid: str, folder: str, uidvalidity: int | None, user: User, session: Session) -> dict:
     acc = _account(account_id, user, session)
     generation = _generation_args(session, account_id, folder, uidvalidity)
     # Cache-first: schon einmal geöffnet → Body kommt SOFORT aus der DB (kein IMAP).
@@ -854,6 +882,35 @@ def message(
     return msg
 
 
+@router.post("/{account_id}/messages/{uid}/unsubscribe")
+def unsubscribe(
+    account_id: int,
+    uid: str,
+    folder: FolderParam = "INBOX",
+    uidvalidity: int | None = None,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Newsletter per Ein-Klick-Abmeldung (RFC 8058) abbestellen.
+
+    Nur mit eingeschaltetem Schalter "Abmelden-Knopf" (Einstellungen -> Sicherheit).
+    Die Adresse stammt aus der fremden Mail: nur https, nur oeffentliche Ziele,
+    IP-Pinning, keine Weiterleitungen (dav.client.post_pinned_form)."""
+    if not security_mod.flag(user.id, "sec_unsubscribe"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Abmelden ist in den Einstellungen ausgeschaltet")
+    detail = _message_detail(account_id, uid, folder, uidvalidity, user, session)
+    if security_mod.unsubscribe_url(detail) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Diese Mail bietet keine Ein-Klick-Abmeldung an")
+    try:
+        code = security_mod.do_unsubscribe(detail)
+    except DavUrlError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Abmelde-Adresse nicht erlaubt: {exc}") from exc
+    except httpx.HTTPError as exc:
+        logger.info("Abmelden fehlgeschlagen (account_id=%s): %s", account_id, type(exc).__name__)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Abmelde-Server nicht erreichbar") from exc
+    return {"ok": 200 <= code < 300, "status": code}
+
+
 @router.get("/{account_id}/thread")
 def thread(
     account_id: int,
@@ -910,6 +967,7 @@ def attachment(
     index: int,
     folder: FolderParam = "INBOX",
     uidvalidity: int | None = None,
+    ungeprueft: bool = False,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> Response:
@@ -919,9 +977,23 @@ def attachment(
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Anhang nicht gefunden")
     filename, content_type, data = result
-    disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
-    return Response(content=data, media_type=_safer_attachment_type(content_type),
-                    headers={"Content-Disposition": disposition})
+    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
+    # Virenscan vor dem Download (Einstellungen -> Sicherheit, 1.97.3).
+    if security_mod.flag(user.id, "sec_virus_scan") and scan_mod.clamav_configured():
+        befund, sig = scan_mod.scan_bytes(data)
+        try:
+            kopf = cache_mod.read_header(session, account_id, folder, uid) or {}
+            scan_mod.record_one(account_id, scan_mod.mail_key(kopf, folder, uid), index, filename, befund, sig)
+        except Exception:  # noqa: BLE001 - Befund merken ist Zugabe
+            pass
+        if befund == "infected":
+            logger.warning("Download gesperrt, Virus im Anhang (account_id=%s): %s", account_id, sig)
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"Virus gefunden ({sig}) – Download gesperrt")
+        if befund == "error" and not ungeprueft:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                                "Virenscan gerade nicht möglich (ClamAV nicht erreichbar)")
+        headers["X-SelfMailer-Scan"] = "clean" if befund == "clean" else "unchecked"
+    return Response(content=data, media_type=_safer_attachment_type(content_type), headers=headers)
 
 
 @router.get("/{account_id}/export.mbox")
@@ -1019,12 +1091,40 @@ def move_message(
     except Exception:  # noqa: BLE001
         logger.warning("Nachricht verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Verschieben fehlgeschlagen")
+    _spam_lernen(acc, user, session, folder, [uid], dest)
     try:
         cache_mod.hide_uids(session, account_id, folder, [uid], **generation)
     except Exception:  # noqa: BLE001
         pass
     bus.publish(user.id, {"type": "mail", "account_id": account_id, "folder": folder})
     return {"ok": True}
+
+
+def _spam_lernen(acc: MailAccount, user: User, session: Session, folder: str, uids: list[str], dest: str) -> None:
+    """Verschieben in den / aus dem Spam-Ordner als Lernsignal fuer rspamd (1.97.3).
+
+    Nur mit eingeschaltetem Spamfilter und eingerichtetem Lern-Zugang; laeuft im
+    Hintergrund, die Verschiebe-Aktion wartet nicht darauf. Ob Ziel/Quelle der
+    Spam-Ordner ist, entscheidet scan.learn_after_move selbst."""
+    if not uids or not scan_mod.rspamd_learn_configured() or not security_mod.flag(user.id, "sec_spam_filter"):
+        return
+    try:
+        mids = [m for m in session.exec(select(CachedMessage.message_id).where(
+            CachedMessage.account_id == acc.id, CachedMessage.folder == folder, CachedMessage.uid.in_(uids[:50]),
+        )).all() if m]
+    except Exception:  # noqa: BLE001
+        return
+    if not mids:
+        return
+    pw = _account_secret(acc)
+
+    def _lauf() -> None:
+        try:
+            scan_mod.learn_after_move(acc, pw, mids, folder, dest)
+        except Exception:  # noqa: BLE001 - Lernen ist Zugabe
+            logger.info("Spam-Lernen fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+
+    threading.Thread(target=_lauf, name="spam-lernen", daemon=True).start()
 
 
 @router.post("/{account_id}/messages/prefetch")
@@ -1137,6 +1237,7 @@ def move_messages_batch(
     except Exception:  # noqa: BLE001
         logger.warning("Batch-Verschieben fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Verschieben fehlgeschlagen")
+    _spam_lernen(acc, user, session, data.folder, data.uids, data.dest)
     try:
         cache_mod.hide_uids(session, account_id, data.folder, data.uids, **generation)
     except Exception:  # noqa: BLE001

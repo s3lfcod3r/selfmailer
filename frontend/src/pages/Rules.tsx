@@ -106,7 +106,16 @@ export function Rules() {
     if (f === "to") return t("rules.to");
     if (f === "subject") return t("filter.subject");
     if (f === "from_domain") return t("rules.fromDomain");
+    if (f === "reply_to") return t("rules.replyTo");
+    if (f === "list_id") return t("rules.listId");
     return t("filter.from");
+  }
+
+  // Trefferzähler (seit 1.97.3): zeigt, ob eine Sperre/Regel überhaupt greift.
+  function hitsLine(r: Rule): string {
+    if (!r.hits) return "";
+    const when = r.last_hit_at ? new Date(r.last_hit_at.endsWith("Z") || r.last_hit_at.includes("+") ? r.last_hit_at : r.last_hit_at + "Z").toLocaleDateString() : "";
+    return t("rules.hits", { n: r.hits }) + (when ? ` · ${t("rules.lastHit", { date: when })}` : "");
   }
 
   if (accounts.length === 0) return err ? <div className="err" role="alert">{err}</div> : <p className="muted">{t("mail.noAccount")}</p>;
@@ -130,7 +139,8 @@ export function Rules() {
               {blocked.map((r) => (
                 <div className="row" key={r.id} style={{ alignItems: "center" }}>
                   <span className="grow" style={{ fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.value}{r.field === "from_domain" ? ` (${t("rules.fromDomain")})` : ""}
+                    {r.value}{r.field !== "from" ? ` (${fieldLabel(r.field)})` : ""}
+                    {hitsLine(r) && <span className="muted" style={{ fontWeight: 400, fontSize: "0.78rem" }}> · {hitsLine(r)}</span>}
                   </span>
                   <button className="ghost" disabled={busy || loading} onClick={() => remove(r)}>↩ {t("rules.unblock")}</button>
                 </div>
@@ -149,6 +159,8 @@ export function Rules() {
             <option value="from_domain">{t("rules.fromDomain")}</option>
             <option value="to">{t("rules.to")}</option>
             <option value="subject">{t("filter.subject")}</option>
+            <option value="reply_to">{t("rules.replyTo")}</option>
+            <option value="list_id">{t("rules.listId")}</option>
           </select>
           <input placeholder={t("rules.valuePlaceholder")} value={form.value} onChange={(e) => set("value", e.target.value)} />
         </div>
@@ -197,6 +209,7 @@ export function Rules() {
                 {r.delete_msg
                   ? <span style={{ color: "var(--self-danger, #d44)", fontWeight: 600 }}>→ {t("rules.delete")}</span>
                   : <>→ {r.target_folder ? `${t("rules.moveTo")}: ${r.target_folder}` : ""}{r.star ? " ★" : ""}{r.mark_read ? ` · ${t("rules.markRead")}` : ""}</>}
+                {hitsLine(r) && <span className="muted"> · {hitsLine(r)}</span>}
               </div>
             </div>
             <button className="ghost" disabled={busy || loading} onClick={() => startEdit(r)}>{t("rules.editBtn")}</button>

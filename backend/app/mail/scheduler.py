@@ -37,6 +37,8 @@ from . import cache as cache_mod
 from . import idle_watch
 from . import imap as imap_mod
 from . import push as push_mod
+from . import scan as scan_mod
+from . import security as security_mod
 from . import smtp as smtp_mod
 from . import vacation as vacation_mod
 
@@ -138,6 +140,11 @@ def _regeln_und_benachrichtigung(acc: MailAccount) -> tuple[list[MailRule], list
                 select(FolderNotify).where(FolderNotify.account_id == acc.id)
             ).all()
         ]
+    # Einstellungen -> Sicherheit: Sperren der anderen Konten mit anwenden (1.97.3).
+    try:
+        rules = rules + security_mod.global_block_rules(acc, rules)
+    except Exception:  # noqa: BLE001 - ohne globale Sperren weiter wie bisher
+        logger.info("Globale Sperren nicht geladen (account_id=%s)", acc.id, exc_info=True)
     return rules, notify_folders
 
 
@@ -153,6 +160,7 @@ def _warm_sync(acc: MailAccount, pw: str, op: str, *, flags: bool = True) -> dic
             with Session(engine) as s:
                 res = cache_mod.sync_folder(s, acc, pw, folder, op=op, flags=flags)
             if folder == "INBOX":
+                res = _neue_pruefen(acc, pw, res)
                 inbox = res
             if int(res.get("new", 0) or 0) > 0:
                 bus.publish(acc.user_id, {"type": "mail", "account_id": acc.id, "folder": folder})
@@ -161,6 +169,37 @@ def _warm_sync(acc: MailAccount, pw: str, op: str, *, flags: bool = True) -> dic
                 "Hintergrund-Sync fehlgeschlagen (account_id=%s, folder=%s)", acc.id, folder, exc_info=True
             )
     return inbox
+
+
+def _neue_pruefen(acc: MailAccount, pw: str, res: dict) -> dict:
+    """Spam- & Virenschutz (1.97.3): neue Posteingangs-Mails pruefen, BEVOR Liste
+    und Push sie sehen. Verdaechtiges wandert in den Spam-Ordner und aus dem Cache;
+    das Ergebnis wird so angepasst, als waere die Mail nie angekommen."""
+    uids = list(res.get("new_uids") or [])
+    if not uids or acc.user_id is None:
+        return res
+    try:
+        flags = security_mod.user_flags(acc.user_id)
+        if not (flags.get("sec_virus_scan") or flags.get("sec_spam_filter")):
+            return res
+        erg = scan_mod.inspect_new(acc, pw, "INBOX", uids,
+                                   virus=bool(flags.get("sec_virus_scan")), spam=bool(flags.get("sec_spam_filter")))
+    except Exception:  # noqa: BLE001 - Pruefung darf Sync/Push nie aufhalten
+        logger.warning("Spam-/Virenpruefung fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+        return res
+    weg = set(erg.get("moved") or [])
+    if not weg:
+        return res
+    logger.info("Spam-/Virenschutz: %d Mail(s) in den Spam-Ordner (account_id=%s, Virus=%s, Spam=%s)",
+                len(weg), acc.id, erg.get("virus"), erg.get("spam"))
+    try:
+        with Session(engine) as s:
+            cache_mod.remove_uids(s, acc.id or 0, "INBOX", sorted(weg))
+    except Exception:  # noqa: BLE001 - der naechste Abgleich raeumt notfalls auf
+        logger.info("Cache-Bereinigung nach Pruefung fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+    rest = [u for u in uids if u not in weg]
+    return {**res, "new_uids": rest, "new": len(rest),
+            "unseen": max(0, int(res.get("unseen", 0) or 0) - int(erg.get("moved_unseen", 0) or 0))}
 
 
 def _vorladen(acc: MailAccount, pw: str, res: dict | None) -> None:
@@ -245,7 +284,8 @@ def sync_inbox_now(account_id: int) -> None:
                 # Am 24.10.2026 gemessen: voller Lauf 4,3 s je neuer Gmail-Mail.
                 with Session(engine) as s:
                     hoechste = cache_mod.max_cached_uid(s, acc.id or 0, "INBOX")
-                imap_mod.apply_rules(acc, pw, rules, min_uid=None if hoechste is None else hoechste + 1)
+                erg = imap_mod.apply_rules(acc, pw, rules, min_uid=None if hoechste is None else hoechste + 1)
+                security_mod.record_rule_hits((erg or {}).get("hits"))
         except Exception:  # noqa: BLE001 - Regeln dürfen den Sync nie kippen
             logger.warning("Auto-Regeln (IDLE) fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
         # Kein Flag-Abgleich: IDLE meldet neue/geloeschte Mails, die Flags der neuen
@@ -272,12 +312,14 @@ def _sync_account(acc: MailAccount) -> None:
         try:
             rules, notify_folders = _regeln_und_benachrichtigung(acc)
             if rules and not _stop.is_set():
-                imap_mod.apply_rules(acc, pw, rules)          # Posteingang: alle Regeltypen
+                erg = imap_mod.apply_rules(acc, pw, rules)          # Posteingang: alle Regeltypen
+                security_mod.record_rule_hits((erg or {}).get("hits"))
                 # Geblockte Absender auch aus Spam + überwachten Ordnern entfernen,
                 # BEVOR unten der Push-Check läuft — sonst pingt eine geblockte Mail,
                 # die serverseitig in einen anderen Ordner sortiert wurde.
                 if not _stop.is_set() and _sweep_faellig(acc.id or 0):
-                    imap_mod.sweep_block_folders(acc, pw, rules, notify_folders)
+                    erg = imap_mod.sweep_block_folders(acc, pw, rules, notify_folders)
+                    security_mod.record_rule_hits((erg or {}).get("hits"))
         except Exception:  # noqa: BLE001 - Regeln dürfen den Sync nie kippen
             logger.warning("Auto-Regeln fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 

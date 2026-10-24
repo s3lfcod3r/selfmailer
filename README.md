@@ -199,6 +199,9 @@ Environment variables, all with the prefix `SELFMAILER_`.
 | `SELFMAILER_SYNC_INTERVAL` | – | `120` | Seconds between background mail syncs (lower = faster push & sync) |
 | `SELFMAILER_IDLE` | – | `1` | IMAP IDLE on the inbox: new mail is reported by the server right away (one extra connection per account); `0` = off |
 | `SELFMAILER_PREFETCH_NEW` | – | `20` | Prefetch the full text of up to N new inbox mails per run (≤ 1 MB each, not marked as read); `0` = off |
+| `SELFMAILER_CLAMAV` | – | – | ClamAV (clamd) `host:port` for scanning attachments, e.g. `192.168.1.10:3310`. LAN only – clamd has no password. Users switch it on under Settings → Security. |
+| `SELFMAILER_RSPAMD_URL` | – | – | rspamd scanner (port 11333) for the spam filter. Users switch it on under Settings → Security. |
+| `SELFMAILER_RSPAMD_CONTROLLER_URL` / `SELFMAILER_RSPAMD_PASSWORD` | – | – | Optional: rspamd controller (port 11334) + password so the "Spam" button teaches rspamd. |
 | `SELFMAILER_DAV_SYNC_INTERVAL` | – | `120` | Seconds between calendar/contact (DAV) syncs — separate from mail, min 30 |
 | `SELFMAILER_SYNC_DISABLE` | – | `0` | Turn off the background sync |
 | `SELFMAILER_IMAP_TIMEOUT` | – | `15` | IMAP socket timeout (seconds) |
@@ -506,6 +509,9 @@ Umgebungsvariablen, alle mit dem Präfix `SELFMAILER_`.
 | `SELFMAILER_SYNC_INTERVAL` | – | `120` | Sekunden zwischen Mail-Syncs im Hintergrund (kleiner = schnellerer Push & Sync) |
 | `SELFMAILER_IDLE` | – | `1` | IMAP IDLE auf dem Posteingang: der Server meldet neue Mails sofort (eine zusätzliche Verbindung je Konto); `0` = aus |
 | `SELFMAILER_PREFETCH_NEW` | – | `20` | Volltext von bis zu N neuen Posteingangs-Mails je Lauf vorladen (je ≤ 1 MB, ohne Gelesen-Markierung); `0` = aus |
+| `SELFMAILER_CLAMAV` | – | – | ClamAV (clamd) `host:port` für den Virenscan der Anhänge, z. B. `192.168.1.10:3310`. Nur im Heimnetz – clamd hat kein Passwort. Einschalten unter Einstellungen → Sicherheit. |
+| `SELFMAILER_RSPAMD_URL` | – | – | rspamd-Scanner (Port 11333) für den Spamfilter. Einschalten unter Einstellungen → Sicherheit. |
+| `SELFMAILER_RSPAMD_CONTROLLER_URL` / `SELFMAILER_RSPAMD_PASSWORD` | – | – | Optional: rspamd-Controller (Port 11334) + Passwort, damit der „Spam"-Knopf rspamd anlernt. |
 | `SELFMAILER_DAV_SYNC_INTERVAL` | – | `120` | Sekunden zwischen Kalender-/Kontakt-Syncs (DAV) — getrennt vom Mail-Sync, min. 30 |
 | `SELFMAILER_SYNC_DISABLE` | – | `0` | Hintergrund-Sync abschalten |
 | `SELFMAILER_IMAP_TIMEOUT` | – | `15` | IMAP-Socket-Timeout (Sekunden) |

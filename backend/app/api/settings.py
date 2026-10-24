@@ -37,7 +37,22 @@ _ALLOWED: dict[str, tuple[type, Any]] = {
     "conversation_view": (bool, False),
     # Reihenfolge der Postfächer (Liste von Konto-IDs) — geräteübergreifend gleich.
     "account_order": (list, []),
+    # Einstellungen → Sicherheit → Spam- & Virenschutz (seit 1.97.3). Alles AUS,
+    # bis der Nutzer es einschaltet; jeder Schalter ist jederzeit wieder abschaltbar.
+    # Gesperrte Absender gelten für ALLE Konten des Nutzers, nicht nur das eine.
+    "sec_block_all_accounts": (bool, False),
+    # "Abmelden"-Knopf für Newsletter mit Ein-Klick-Abmeldung (RFC 8058).
+    "sec_unsubscribe": (bool, False),
+    # Anhänge mit ClamAV prüfen (beim Eintreffen und vor dem Download).
+    "sec_virus_scan": (bool, False),
+    # Neue Mails mit rspamd bewerten, Spam in den Spam-Ordner; lernt am Spam-Knopf.
+    "sec_spam_filter": (bool, False),
 }
+
+
+def user_settings(user: User) -> dict:
+    """Einstellungen eines Nutzers für serverseitige Funktionen (z. B. Scheduler)."""
+    return _read(user)
 
 
 def _read(user: User) -> dict:
@@ -65,6 +80,15 @@ def _read(user: User) -> dict:
 @router.get("/settings/ui")
 def get_ui_settings(user: User = Depends(get_current_user)) -> dict:
     return _read(user)
+
+
+@router.get("/security/status")
+def security_status(user: User = Depends(get_current_user)) -> dict:
+    """Einstellungen -> Sicherheit: sind Virenscanner/Spamfilter eingerichtet und
+    erreichbar? Nur Ja/Nein und die ClamAV-Version - keine Adressen/Passwoerter."""
+    from ..mail import scan  # lazy: kein Import-Zyklus
+
+    return scan.status()
 
 
 @router.put("/settings/ui")

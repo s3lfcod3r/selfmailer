@@ -371,6 +371,29 @@ class MailRule(SQLModel, table=True):
     enabled: bool = True
     position: int = 0                   # Reihenfolge (kleiner = früher geprüft)
     created_at: dt.datetime = Field(default_factory=_now)
+    # Wie oft hat die Regel zugeschlagen (seit 1.97.3)? Zeigt, ob eine Sperre wirkt
+    # oder der Spammer längst eine andere Adresse benutzt.
+    hits: int = 0
+    last_hit_at: dt.datetime | None = None
+
+
+class AttachmentScan(SQLModel, table=True):
+    """Virenscan-Befund je Anhang (seit 1.97.3, ClamAV).
+
+    Schlüssel ist die Message-ID (über Ordner hinweg stabil: eine Mail mit Virus
+    wird in den Spam-Ordner verschoben und soll dort weiter als infiziert gelten),
+    ersatzweise "uid:<ordner>:<uidvalidity>:<uid>". Gespeichert wird nur der
+    Befund, nie der Anhang selbst.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    account_id: int = Field(index=True, foreign_key="mailaccount.id")
+    mail_key: str = Field(index=True)
+    part_index: int = 0
+    filename: str = ""
+    status: str = ""                      # clean | infected | error | skipped
+    signature: str = ""                   # Name des Schädlings bei infected
+    scanned_at: dt.datetime = Field(default_factory=_now)
 
 
 class CachedMessage(SQLModel, table=True):
