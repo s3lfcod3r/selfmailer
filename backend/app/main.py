@@ -11,8 +11,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .core import csrf
 from .core.config import get_settings
 from .core.db import init_db
 from .core.logfilter import install_secret_log_filter
@@ -184,6 +186,29 @@ async def limit_request_size(request: Request, call_next):
             return message
 
         request._receive = _capped_receive
+    return await call_next(request)
+
+
+# CSRF-Schutz fuer Cookie-Sitzungen (Durchsicht 2026-10-24), Regeln in
+# core/csrf.py. Vertraut wird dem eigenen Host, der BASE_URL und den bereits
+# gefilterten CORS-Origins - dieselbe Liste, die auch Credentials lesen darf.
+_csrf_trusted = csrf.trusted_origins(_cors_origins, settings.base_url)
+_csrf_logger = logging.getLogger("selfmailer.csrf")
+
+
+@app.middleware("http")
+async def csrf_guard(request: Request, call_next):
+    grund = csrf.check_request(
+        request.method, request.headers, request.cookies,
+        cookie_name=settings.cookie_name, trusted=_csrf_trusted,
+    )
+    if grund is not None:
+        _csrf_logger.warning("Schreibende Anfrage fremder Herkunft abgelehnt: %s %s (%s)",
+                             request.method, request.url.path, grund)
+        return JSONResponse(
+            {"detail": "Anfrage von fremder Herkunft abgelehnt"},
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     return await call_next(request)
 
 
