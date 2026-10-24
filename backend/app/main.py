@@ -251,6 +251,11 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     response.headers.setdefault("Content-Security-Policy", _APP_CSP)
+    # API-Antworten (Mails, Anhaenge, Konten) nie im Browser- oder Proxy-Cache
+    # ablegen (Durchsicht 2026-10-24). Die App-Shell (JS/CSS mit Hash im Namen)
+    # bleibt cachebar; eigene Werte einzelner Endpunkte (SSE: no-cache) gewinnen.
+    if request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-store")
     if settings.hsts_max_age > 0 and request.url.scheme == "https":
         response.headers.setdefault("Strict-Transport-Security", f"max-age={settings.hsts_max_age}")
     return response

@@ -59,6 +59,17 @@ def test_push_ordner_mit_steuerzeichen_abgelehnt(client, admin, account):
     assert client.get(f"/api/v1/push/folders?account_id={account}", headers=admin).json() == []
 
 
+def test_api_antworten_werden_nicht_gecacht(client, admin, account):
+    for pfad in ("/api/health", "/api/v1/accounts", f"/api/v1/mail/{account}/messages?folder=INBOX"):
+        r = client.get(pfad, headers=admin)
+        assert r.headers.get("cache-control") == "no-store", pfad
+    # Die App-Shell (index.html/Assets) bleibt unberuehrt.
+    assert client.get("/").headers.get("cache-control") != "no-store"
+    # Sicherheits-Header bleiben auf jeder Antwort.
+    h = client.get("/api/health").headers
+    assert h["x-frame-options"] == "DENY" and h["x-content-type-options"] == "nosniff"
+
+
 def test_push_ordner_normal_gespeichert(client, admin, account):
     r = client.put("/api/v1/push/folders", headers=admin,
                    json={"account_id": account, "folders": ["INBOX", "Arbeit/Rechnungen", "Entw&APw-rfe"]})
