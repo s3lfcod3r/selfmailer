@@ -18,7 +18,6 @@ auftauchen, ohne dafür jeden IMAP-Provider öfter pollen zu müssen.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import threading
@@ -30,7 +29,7 @@ from datetime import date, datetime, timezone
 from sqlmodel import Session, select
 from sqlalchemy import update
 
-from ..core.crypto import decrypt
+from ..core.crypto import decrypt, open_json
 from ..core.db import engine
 from ..events import bus
 from ..models import DavAccount, FolderNotify, MailAccount, MailRule, ScheduledMail, User
@@ -345,7 +344,7 @@ def _send_due_scheduled() -> None:
                 attempted = False
                 try:
                     pw = decrypt(acc.secret_enc)
-                    p = json.loads(row.payload_json or "{}")
+                    p = open_json(row.payload_json)
                     claimed = s.execute(update(ScheduledMail).where(
                         ScheduledMail.id == row_id, ScheduledMail.status == "pending",
                     ).values(status="sending"))
@@ -388,9 +387,13 @@ def _send_due_scheduled() -> None:
                     s.rollback()
                     # Sobald SMTP lief, kann der Server die Mail schon angenommen
                     # haben. Kein automatischer Retry bei unklarem Ergebnis.
+                    # Inhalt leeren: einen erneuten Versand aus failed/uncertain
+                    # gibt es nicht - Body und Anhaenge lagen sonst fuer immer
+                    # in DB und Backups. Betreff/Empfaenger bleiben fuer die Liste.
                     s.execute(update(ScheduledMail).where(ScheduledMail.id == row_id).values(
                         status="uncertain" if attempted else "failed",
                         error="Versandergebnis unklar; Gesendet-Ordner prüfen" if attempted else "Versand nicht gestartet",
+                        payload_json="",
                     ))
                     s.commit()
     except Exception:  # noqa: BLE001 - der Scheduler darf nie sterben
@@ -402,6 +405,7 @@ def recover_interrupted_sends() -> None:
     with Session(engine) as session:
         session.execute(update(ScheduledMail).where(ScheduledMail.status == "sending").values(
             status="uncertain", error="Serverneustart während Versand; Gesendet-Ordner prüfen",
+            payload_json="",
         ))
         session.commit()
 
