@@ -18,7 +18,12 @@ FROM python:3.13-slim@sha256:d98cc29d3266e535dd9da1099688d9cb3ca4753813571e07176
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 SELFMAILER_DB_PATH=/data/selfmailer.db
 COPY backend/requirements.lock ./
-RUN pip install --no-cache-dir --require-hashes -r requirements.lock
+# pip danach wieder entfernen (seit 1.97.2): der laufende Container braucht
+# keinen Paketmanager, und pip bringt eigene, mitgelieferte Bibliotheken mit
+# (u. a. urllib3), die der Image-Scan als Luecken meldet, obwohl die App sie
+# nie laedt.
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
+    && python -m pip uninstall -y pip
 COPY backend/ ./
 COPY --from=frontend /fe/dist ./frontend/dist
 

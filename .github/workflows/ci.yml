@@ -287,5 +287,14 @@ jobs:
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
               aquasec/trivy:0.75.0 image --quiet --scanners vuln --ignore-unfixed "$@" "$image"
           }
-          trivy --severity HIGH,CRITICAL --exit-code 0
+          trivy --severity HIGH,CRITICAL --exit-code 0 --format json > trivy.json
+          # Fundstellen lesbar ausgeben (Paket, Version, Pfad im Image, Fix-Version).
+          python3 - <<'PY'
+          import json
+          funde = [(v["Severity"], v["PkgName"], v["InstalledVersion"], v.get("FixedVersion", ""), v.get("PkgPath", r.get("Target", "")), v["VulnerabilityID"])
+                   for r in json.load(open("trivy.json")).get("Results", []) for v in r.get("Vulnerabilities") or []]
+          for f in sorted(funde):
+              print("%-8s %-14s %-10s -> %-10s %s (%s)" % f)
+          print("Funde HIGH/CRITICAL mit Fix:", len(funde))
+          PY
           trivy --severity CRITICAL --exit-code 1
