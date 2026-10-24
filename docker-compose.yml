@@ -22,6 +22,9 @@ services:
     restart: unless-stopped
     ports:
       - "8090:8090"
+      # Optional HTTPS direkt im Container (siehe .env.example: SELFMAILER_TLS_*,
+      # docs/HTTPS.md). Zertifikate z. B. nach ./data/certs legen.
+      # - "8443:8443"
     env_file:
       - .env
     volumes:
@@ -31,4 +34,11 @@ services:
       # einmalig `sudo chown -R 99:100 ./data` (auf Unraid: Tools -> Docker Safe
       # New Permissions).
       - ./data:/data
+      # Optional (seit 1.97.0): Backups auf einen ANDEREN Datenträger legen, damit
+      # ein Plattenschaden nicht DB und Backups zugleich trifft. Dazu einkommentieren
+      # und in .env SELFMAILER_BACKUP_DIR=/backups setzen. Auch hier gilt:
+      # `sudo chown -R 99:100 ./backups` auf dem Host.
+      # - /pfad/zum/anderen/datentraeger/selfmailer-backups:/backups
+    # Wichtig: ./data enthält Datenbank und Backups. Den Ordner NICHT per SMB/NFS
+    # freigeben - Dateirechte (600) schützen nicht gegen Zugriff als derselbe User.
     # Der Healthcheck steckt bereits im Image (GET /api/health, alle 30 s).

@@ -8,7 +8,7 @@ from typing import Any
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
-from fastapi import Response
+from fastapi import Request, Response
 
 from .config import get_settings
 from .crypto import jwt_key
@@ -108,21 +108,40 @@ def decode_token(token: str) -> dict[str, Any] | None:
     return payload
 
 
-def set_session_cookie(response: Response, token: str) -> None:
+def cookie_secure_for(mode: str, scheme: str) -> bool:
+    """Secure-Flag je nach SELFMAILER_COOKIE_SECURE und Schema der Anfrage.
+
+    "auto": Secure nur bei HTTPS - so funktionieren http://LAN und https://
+    (direkt oder per vertrautem Proxy) nebeneinander. Ein Secure-Cookie ueber
+    http wuerde der Browser nicht zuruecksenden -> Login-Schleife.
+    """
+    if mode == "true":
+        return True
+    if mode == "false":
+        return False
+    return scheme == "https"
+
+
+def set_session_cookie(response: Response, token: str, request: Request | None = None) -> None:
     """Setzt das Login-Token als httpOnly-Cookie (Web). SameSite=Lax begrenzt
     CSRF: der Browser sendet das Cookie NICHT bei cross-site fetch/POST."""
     settings = get_settings()
+    scheme = request.url.scheme if request is not None else "http"
     response.set_cookie(
         key=settings.cookie_name,
         value=token,
         max_age=settings.jwt_expire_minutes * 60,
         httponly=True,
-        secure=settings.cookie_secure,
+        secure=cookie_secure_for(settings.cookie_secure, scheme),
         samesite="lax",
         path="/",
     )
 
 
-def clear_session_cookie(response: Response) -> None:
+def clear_session_cookie(response: Response, request: Request | None = None) -> None:
     settings = get_settings()
-    response.delete_cookie(key=settings.cookie_name, path="/")
+    scheme = request.url.scheme if request is not None else "http"
+    response.delete_cookie(
+        key=settings.cookie_name, path="/", httponly=True, samesite="lax",
+        secure=cookie_secure_for(settings.cookie_secure, scheme),
+    )
