@@ -8,6 +8,16 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.97.2 · Build 128
+- 🇬🇧 **New mail right away: IMAP IDLE on the inbox.** The server reports new mail itself instead of SelfMailer polling every 2 minutes; the text of new mails is prefetched (not marked as read). Measured on a Gmail account: new mail in the list after 17–50 s instead of 136 s (the rest is Gmail's own IMAP delay), first open 15 ms instead of 3.9 s. Switch off with `SELFMAILER_IDLE=0` / `SELFMAILER_PREFETCH_NEW=0`.
+- 🇬🇧 **Mail cache encrypted at rest** (subject, sender, preview, full text). Hardening: API responses `no-store`, container without Linux privileges (`no-new-privileges`, `cap-drop=ALL`), base images pinned by digest, Trivy image scan, translation with IP pinning.
+- 🇬🇧 **APK:** forms in mails can no longer be submitted (phishing), attachments are deleted on logout, `FLAG_SECURE` while the app lock is on, release builds require the release key.
+- 🇩🇪 **Neue Mails sofort: IMAP IDLE für den Posteingang.** Der Server meldet neue Mails selbst, statt dass SelfMailer alle 2 Minuten fragt; der Text neuer Mails wird vorgeladen (ohne Gelesen-Markierung). Gemessen an einem Gmail-Konto: neue Mail nach 17–50 s statt 136 s in der Liste (der Rest ist Gmails eigene IMAP-Verzögerung), erstes Öffnen 15 ms statt 3,9 s. Abschaltbar mit `SELFMAILER_IDLE=0` / `SELFMAILER_PREFETCH_NEW=0`.
+- 🇩🇪 **Mail-Cache verschlüsselt** (Betreff, Absender, Vorschau, Volltext). Härtung: API-Antworten `no-store`, Container ohne Linux-Sonderrechte (`no-new-privileges`, `cap-drop=ALL`), Basis-Images per Digest, Trivy-Image-Scan, Übersetzung mit IP-Pinning.
+- 🇩🇪 **APK:** Formulare in Mails lassen sich nicht mehr abschicken (Phishing), Anhänge werden beim Abmelden gelöscht, `FLAG_SECURE` bei aktiver App-Sperre, Release-Builds nur noch mit Release-Schlüssel.
+- 🇩🇪 Unraid: für die neuen Rechte-Optionen `--security-opt=no-new-privileges --cap-drop=ALL` unter "Extra Parameters" ergänzen.
+- 📄 [RELEASE-1.97.2.txt](docs/RELEASE-1.97.2.txt)
+
 ## 1.97.1 · Build 127
 - 🇬🇧 **APK: new encrypted storage.** Login token, drafts and personal data now live in an own Android-Keystore store (AES-256-GCM, names hidden via HMAC) instead of the no-longer-maintained `EncryptedSharedPreferences`. Existing data is migrated automatically on first start; the old store is deleted only after a successful write.
 - 🇬🇧 Web foundations updated: React 19, Vite 8, TypeScript 7 (no visible changes). Android source patches removed from the public repository.
