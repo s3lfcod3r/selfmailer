@@ -30,6 +30,9 @@ Thumbs.db
 
 # Release-Artefakt (per Gradle gebaut, gehoert ins GitHub-Release)
 android/*.apk
+# Android-Quellcode bleibt privat - auch nicht als Patch (bis 1.96.9 lagen
+# hier .patch-Dateien mit Android-Quelltext im oeffentlichen Repo).
+android/*.patch
 
 # Generierter lokaler Projekt-/Prüfindex.
 _Projektuebersicht/
