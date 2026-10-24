@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
 
+from .core.fingerprint import normalize_fingerprint
 from .models import DavKind, Protocol, Role
 
 
@@ -107,6 +108,8 @@ class AccountCreate(BaseModel):
     imap_host: str = ""
     imap_port: int = 993
     imap_ssl: bool = True
+    # Leer = normale Zertifikatspruefung; sonst SHA-256 des Server-Zertifikats.
+    imap_tls_fingerprint: str = ""
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_starttls: bool = True
@@ -120,6 +123,11 @@ class AccountCreate(BaseModel):
             raise ValueError("POP3 wird derzeit nicht unterstützt; bitte ein IMAP-Konto verwenden")
         return value
 
+    @field_validator("imap_tls_fingerprint")
+    @classmethod
+    def valid_fingerprint(cls, value: str) -> str:
+        return normalize_fingerprint(value)
+
 
 class AccountOut(BaseModel):
     id: int
@@ -129,6 +137,7 @@ class AccountOut(BaseModel):
     imap_host: str
     imap_port: int
     imap_ssl: bool = True
+    imap_tls_fingerprint: str = ""
     smtp_host: str
     smtp_port: int
     smtp_starttls: bool = True
@@ -136,6 +145,16 @@ class AccountOut(BaseModel):
     signature: str = ""
     spam_purge_days: int = -1
     trash_purge_days: int = -1
+
+
+class TlsCertificateOut(BaseModel):
+    """Vom IMAP-Server gelieferte Zertifikatsdaten (ohne dass ein Login lief)."""
+    fingerprint: str      # SHA-256, 64 hex, klein
+    subject: str
+    issuer: str
+    not_after: str        # ISO-8601, UTC
+    ca_valid: bool        # wuerde die normale CA-/Hostname-Pruefung bestehen?
+    ca_error: str = ""
 
 
 class AccountUpdate(BaseModel):
@@ -150,6 +169,8 @@ class AccountUpdate(BaseModel):
     imap_host: str | None = None
     imap_port: int | None = None
     imap_ssl: bool | None = None
+    # "" = Pinning entfernen (zurueck zur normalen Pruefung).
+    imap_tls_fingerprint: str | None = None
     smtp_host: str | None = None
     smtp_port: int | None = None
     smtp_starttls: bool | None = None
@@ -166,6 +187,11 @@ class AccountUpdate(BaseModel):
         if value != Protocol.imap:
             raise ValueError("Nur IMAP wird unterstützt")
         return value
+
+    @field_validator("imap_tls_fingerprint")
+    @classmethod
+    def valid_fingerprint(cls, value: str | None) -> str | None:
+        return None if value is None else normalize_fingerprint(value)
 
 
 # ---- Mail ----------------------------------------------------------------

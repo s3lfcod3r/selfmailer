@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Account } from "../lib/api";
+import { api, type Account, type TlsCertificate } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { Fold } from "../components/Fold";
 import { confirmDialog } from "../lib/dialog";
@@ -9,7 +9,7 @@ import { VacationManager } from "../components/VacationManager";
 
 type Form = {
   label: string; email: string; password: string;
-  imap_host: string; imap_port: number; imap_ssl: boolean;
+  imap_host: string; imap_port: number; imap_ssl: boolean; imap_tls_fingerprint: string;
   smtp_host: string; smtp_port: number; smtp_starttls: boolean;
   auth_user: string; protocol: string; signature: string;
   spam_purge_days: number;
@@ -18,7 +18,7 @@ type Form = {
 
 const EMPTY: Form = {
   label: "", email: "", password: "",
-  imap_host: "", imap_port: 993, imap_ssl: true,
+  imap_host: "", imap_port: 993, imap_ssl: true, imap_tls_fingerprint: "",
   smtp_host: "", smtp_port: 587, smtp_starttls: true,
   auth_user: "", protocol: "imap", signature: "", spam_purge_days: -1, trash_purge_days: -1,
 };
@@ -27,6 +27,7 @@ function formFrom(a: Account): Form {
   return {
     label: a.label, email: a.email, password: "",
     imap_host: a.imap_host, imap_port: a.imap_port, imap_ssl: a.imap_ssl,
+    imap_tls_fingerprint: a.imap_tls_fingerprint ?? "",
     smtp_host: a.smtp_host, smtp_port: a.smtp_port, smtp_starttls: a.smtp_starttls,
     auth_user: a.auth_user, protocol: a.protocol, signature: a.signature ?? "",
     spam_purge_days: a.spam_purge_days ?? -1,
@@ -43,6 +44,9 @@ export function Accounts() {
   const [editForm, setEditForm] = useState<Form>({ ...EMPTY });
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  // Abgerufenes Server-Zertifikat (nur im Bearbeiten-Modus, je Konto).
+  const [cert, setCert] = useState<{ id: number; info: TlsCertificate } | null>(null);
+  const [certBusy, setCertBusy] = useState(false);
 
   async function load() {
     try { setAccounts(await api.get<Account[]>("/accounts")); }
@@ -58,7 +62,13 @@ export function Accounts() {
       setMsg(t("accounts.added")); load();
     } catch (e) { setErr((e as Error).message); }
   }
-  function startEdit(a: Account) { setEditId(a.id); setEditForm(formFrom(a)); setErr(""); setMsg(""); }
+  function startEdit(a: Account) { setEditId(a.id); setEditForm(formFrom(a)); setCert(null); setErr(""); setMsg(""); }
+  async function fetchCert(id: number) {
+    setErr(""); setMsg(""); setCert(null); setCertBusy(true);
+    try { setCert({ id, info: await api.post<TlsCertificate>(`/accounts/${id}/tls-certificate`) }); }
+    catch (e) { setErr((e as Error).message); }
+    finally { setCertBusy(false); }
+  }
   async function saveEdit(id: number) {
     setErr(""); setMsg("");
     try {
@@ -100,7 +110,8 @@ export function Accounts() {
   }
 
   // Gemeinsames Feld-Formular für Anlegen + Bearbeiten.
-  function fields(f: Form, upd: (patch: Partial<Form>) => void, isEdit: boolean) {
+  function fields(f: Form, upd: (patch: Partial<Form>) => void, isEdit: boolean, accId?: number) {
+    const shown = cert && cert.id === accId ? cert.info : null;
     return (
       <div className="stack" style={{ gap: "0.7rem" }}>
         <div className="acc-grid">
@@ -124,6 +135,40 @@ export function Accounts() {
               <input type="number" value={f.imap_port} onChange={(e) => upd({ imap_port: Number(e.target.value) })} /></label>
           </div>
           <label className="acc-check"><input type="checkbox" checked={f.imap_ssl} onChange={(e) => upd({ imap_ssl: e.target.checked })} /> SSL/TLS</label>
+          <label className="stack" style={{ marginTop: "0.6rem" }}>
+            <span className="label">{t("accounts.tlsFingerprint")}</span>
+            <input value={f.imap_tls_fingerprint} spellCheck={false} autoComplete="off"
+              placeholder="SHA-256" style={{ fontFamily: "var(--font-mono, monospace)" }}
+              onChange={(e) => upd({ imap_tls_fingerprint: e.target.value })} />
+          </label>
+          <p className="mail-from" style={{ margin: "0.3rem 0 0" }}>{t("accounts.tlsFingerprintHint")}</p>
+          {isEdit && accId !== undefined && (
+            <div className="stack" style={{ gap: "0.4rem", marginTop: "0.5rem" }}>
+              <div className="row">
+                <button type="button" className="ghost" disabled={certBusy} onClick={() => fetchCert(accId)}>
+                  {certBusy ? t("accounts.tlsFetching") : t("accounts.tlsFetch")}
+                </button>
+              </div>
+              {shown && (
+                <div className="card" style={{ padding: "0.6rem", fontSize: "0.85em" }}>
+                  <div><span className="label">{t("accounts.tlsSubject")}:</span> {shown.subject}</div>
+                  <div><span className="label">{t("accounts.tlsIssuer")}:</span> {shown.issuer}</div>
+                  <div><span className="label">{t("accounts.tlsExpires")}:</span> {new Date(shown.not_after).toLocaleString()}</div>
+                  <div style={{ fontFamily: "var(--font-mono, monospace)", wordBreak: "break-all", margin: "0.4rem 0" }}>
+                    {shown.fingerprint.match(/.{2}/g)?.join(":")}
+                  </div>
+                  {shown.ca_valid
+                    ? <p className="mail-from" style={{ margin: 0 }}>{t("accounts.tlsCaValid")}</p>
+                    : <>
+                        <p className="err" style={{ margin: "0 0 0.4rem" }}>{t("accounts.tlsCaInvalid", { error: shown.ca_error })}</p>
+                        <button type="button" className="ghost" onClick={() => upd({ imap_tls_fingerprint: shown.fingerprint })}>
+                          {t("accounts.tlsUse")}
+                        </button>
+                      </>}
+                </div>
+              )}
+            </div>
+          )}
         </fieldset>
         <fieldset className="acc-fieldset">
           <legend>SMTP</legend>
@@ -178,7 +223,7 @@ export function Accounts() {
 
             {editId === a.id && (
               <div className="stack" style={{ gap: "0.9rem", marginTop: "0.8rem" }}>
-                {fields(editForm, (p) => setEditForm((f) => ({ ...f, ...p })), true)}
+                {fields(editForm, (p) => setEditForm((f) => ({ ...f, ...p })), true, a.id)}
                 {/* Signatur, Aliase, Abwesenheit, Spam und Papierkorb standen
                     alle gleichzeitig offen, sobald man auf "Bearbeiten" klickte.
                     Jeder Block ist fuer sich selten — jetzt zeigt der Bereich

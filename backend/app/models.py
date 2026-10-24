@@ -115,6 +115,10 @@ class MailAccount(SQLModel, table=True):
     imap_host: str = ""
     imap_port: int = 993
     imap_ssl: bool = True
+    # Optional: SHA-256 (64 hex, klein) des IMAP-Server-Zertifikats. Leer =
+    # normale CA-/Hostname-Pruefung. Gesetzt = NUR genau dieses Zertifikat wird
+    # akzeptiert (fuer LAN-Server mit selbstsigniertem Zertifikat). Kein Geheimnis.
+    imap_tls_fingerprint: str = ""
 
     smtp_host: str = ""
     smtp_port: int = 587

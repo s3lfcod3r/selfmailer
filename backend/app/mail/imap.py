@@ -1,6 +1,8 @@
 """Synchroner IMAP-Zugriff mit wiederverwendeten, einzeln gesperrten Verbindungen."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import imaplib
 import logging
 import socket
@@ -22,6 +24,7 @@ from imap_tools.utils import encode_folder
 
 from ..models import MailAccount
 from ..core.config import get_settings
+from ..core.fingerprint import normalize_fingerprint
 from ..dav.client import DavUrlError, resolve_pinned_host
 from . import timing
 
@@ -42,6 +45,10 @@ _ERWARTBARE_NETZFEHLER: tuple[type[BaseException], ...] = (
     ssl.SSLZeroReturnError,
     imaplib.IMAP4.abort,      # Server hat die Sitzung einseitig beendet
     EOFError,
+    # Falsches/abgelaufenes Zertifikat: der Hintergrund-Sync trifft das alle
+    # paar Minuten erneut - der Grund steht in der Logzeile, ein Traceback
+    # je Lauf hilft niemandem.
+    ssl.SSLCertVerificationError,
 )
 
 # Textmuster fuer Faelle, die als generisches imaplib.IMAP4.error oder OSError
@@ -313,16 +320,90 @@ def _refresh_capabilities(box: MailBox) -> None:
 # False = Klartext-Verbindung mit STARTTLS (MailBoxStartTls, z. B. Port 143).
 
 
+# --- Zertifikatspruefung (Durchsicht 2026-10-24) ------------------------------
+# Bis 1.96.9 bekam imaplib nie einen ssl_context. imaplib nimmt dann
+# ssl._create_stdlib_context() - das ist in CPython der UNGEPRUEFTE Kontext
+# (kein Zertifikat, kein Hostname). Jeder, der sich zwischen SelfMailer und den
+# Mailserver setzen konnte, haette sich als Server ausgeben und das Postfach-
+# Passwort beim LOGIN mitlesen koennen. Das galt fuer implizites TLS UND STARTTLS.
+#
+# Jetzt gibt es genau zwei Modi:
+#  - Standard: Zertifikatskette gegen die System-CAs, Hostname muss passen.
+#  - Fingerprint gesetzt (MailAccount.imap_tls_fingerprint): fuer LAN-Server mit
+#    selbstsigniertem Zertifikat. Akzeptiert wird dann GENAU dieses Zertifikat
+#    (SHA-256 ueber das DER des Server-Zertifikats) und kein anderes - auch kein
+#    CA-signiertes. Die Pruefung laeuft direkt nach dem Handshake, also bevor
+#    LOGIN das Passwort sendet.
+# Einen Schalter "Pruefung aus" gibt es bewusst nicht.
+
+class TlsZertifikatFehler(ssl.SSLCertVerificationError):
+    """Server-Zertifikat passt nicht zum hinterlegten Fingerprint."""
+
+
+def zertifikat_fingerprint(sock: ssl.SSLSocket) -> str:
+    """SHA-256 (hex, klein) des Server-Zertifikats einer TLS-Verbindung."""
+    der = sock.getpeercert(binary_form=True)
+    if not der:
+        raise TlsZertifikatFehler("Server hat kein Zertifikat geliefert")
+    return hashlib.sha256(der).hexdigest()
+
+
+def _standard_kontext() -> ssl.SSLContext:
+    """Strikte Pruefung: System-CAs, Hostname, mindestens TLS 1.2."""
+    ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
+
+
+def _pin_kontext() -> ssl.SSLContext:
+    """Kontext fuer Fingerprint-Pinning. Die Kette wird hier NICHT geprueft -
+    das uebernimmt _pruefe_pin direkt nach dem Handshake. Nur zusammen mit
+    _pruefe_pin verwenden (oder fuer den reinen Abruf in zertifikat_abrufen)."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def _tls_kontext(fingerprint: str) -> ssl.SSLContext:
+    return _pin_kontext() if fingerprint else _standard_kontext()
+
+
+def _pruefe_pin(sock: ssl.SSLSocket, fingerprint: str, host: str) -> None:
+    """Bei gesetztem Fingerprint: Zertifikat muss exakt passen, sonst Abbruch."""
+    if not fingerprint:
+        return
+    ist = zertifikat_fingerprint(sock)
+    if not hmac.compare_digest(ist, fingerprint):
+        raise TlsZertifikatFehler(
+            f"Zertifikat von {host} passt nicht zum hinterlegten Fingerprint "
+            f"(Server liefert {ist[:16]}…)"
+        )
+
+
 class _GepinntesIMAP4SSL(imaplib.IMAP4_SSL):
     """IMAP4_SSL, das zur vorab geprueften IP verbindet (Zertifikat: Hostname)."""
 
-    def __init__(self, host: str, port: int, *, pinned_ip: str, timeout: float | None = None) -> None:
+    def __init__(self, host: str, port: int, *, pinned_ip: str, timeout: float | None = None,
+                 fingerprint: str = "") -> None:
         self._pinned_ip = pinned_ip
-        super().__init__(host, port, timeout=timeout)
+        self._fingerprint = fingerprint
+        super().__init__(host, port, ssl_context=_tls_kontext(fingerprint), timeout=timeout)
 
     def _create_socket(self, timeout: float | None = None) -> "ssl.SSLSocket":  # type: ignore[override]
         sock = socket.create_connection((self._pinned_ip, self.port), timeout)
-        return self.ssl_context.wrap_socket(sock, server_hostname=self.host)
+        try:
+            tls = self.ssl_context.wrap_socket(sock, server_hostname=self.host)
+        except BaseException:
+            sock.close()
+            raise
+        try:
+            _pruefe_pin(tls, self._fingerprint, self.host)
+        except BaseException:
+            tls.close()
+            raise
+        return tls
 
 
 class _GepinntesIMAP4(imaplib.IMAP4):
@@ -336,28 +417,56 @@ class _GepinntesIMAP4(imaplib.IMAP4):
         return socket.create_connection((self._pinned_ip, self.port), timeout)
 
 
+def _starttls(client: imaplib.IMAP4, fingerprint: str, host: str) -> None:
+    """STARTTLS mit Pruefung. Ohne STARTTLS-Faehigkeit wirft imaplib selbst -
+    ein Rueckfall auf Klartext findet nicht statt."""
+    try:
+        client.starttls(ssl_context=_tls_kontext(fingerprint))
+        _pruefe_pin(client.sock, fingerprint, host)
+    except BaseException:
+        try:
+            client.shutdown()
+        except Exception:  # noqa: BLE001 - urspruenglichen Fehler behalten
+            pass
+        raise
+
+
 class _GepinnteMailBox(MailBox):
     """imap_tools-MailBox mit implizitem TLS auf die gepinnte IP."""
 
-    def __init__(self, host: str, port: int, *, pinned_ip: str, timeout: float | None = None) -> None:
+    def __init__(self, host: str, port: int, *, pinned_ip: str, timeout: float | None = None,
+                 fingerprint: str = "") -> None:
         self._pinned_ip = pinned_ip
+        self._fingerprint = fingerprint
         super().__init__(host=host, port=port, timeout=timeout)
 
     def _get_mailbox_client(self) -> imaplib.IMAP4:
-        return _GepinntesIMAP4SSL(self._host, self._port, pinned_ip=self._pinned_ip, timeout=self._timeout)
+        return _GepinntesIMAP4SSL(self._host, self._port, pinned_ip=self._pinned_ip, timeout=self._timeout,
+                                  fingerprint=self._fingerprint)
 
 
 class _GepinnteMailBoxStartTls(MailBoxStartTls):
     """imap_tools-MailBox mit STARTTLS auf die gepinnte IP (imap_ssl=False)."""
 
-    def __init__(self, host: str, port: int, *, pinned_ip: str, timeout: float | None = None) -> None:
+    def __init__(self, host: str, port: int, *, pinned_ip: str, timeout: float | None = None,
+                 fingerprint: str = "") -> None:
         self._pinned_ip = pinned_ip
+        self._fingerprint = fingerprint
         super().__init__(host=host, port=port, timeout=timeout)
 
     def _get_mailbox_client(self) -> imaplib.IMAP4:
         client = _GepinntesIMAP4(self._host, self._port, pinned_ip=self._pinned_ip, timeout=self._timeout)
-        client.starttls(ssl_context=self._ssl_context)
+        _starttls(client, self._fingerprint, self._host)
         return client
+
+
+def _konto_fingerprint(account: MailAccount) -> str:
+    """Gespeicherten Fingerprint lesen. Ein kaputter Wert (sollte die API nie
+    durchlassen) faellt NICHT auf "alles erlauben" zurueck, sondern bricht ab."""
+    try:
+        return normalize_fingerprint(getattr(account, "imap_tls_fingerprint", "") or "")
+    except ValueError as exc:
+        raise TlsZertifikatFehler(f"Hinterlegter Fingerprint ungueltig: {exc}") from exc
 
 
 def _pinned_ip_fuer(account: MailAccount) -> str:
@@ -388,11 +497,81 @@ def _implizites_tls(account: MailAccount) -> bool:
 def _neue_mailbox(account: MailAccount) -> MailBox:
     """MailBox passend zu imap_ssl bauen - immer zur gepinnten IP (Befund 10/11)."""
     ip = _pinned_ip_fuer(account)
+    fingerprint = _konto_fingerprint(account)
     klasse = _GepinnteMailBox if _implizites_tls(account) else _GepinnteMailBoxStartTls
     try:
-        return klasse(account.imap_host, account.imap_port, pinned_ip=ip, timeout=_IMAP_TIMEOUT)
+        return klasse(account.imap_host, account.imap_port, pinned_ip=ip, timeout=_IMAP_TIMEOUT,
+                      fingerprint=fingerprint)
     except TypeError:  # pragma: no cover - imap_tools ohne timeout-Param
-        return klasse(account.imap_host, account.imap_port, pinned_ip=ip)
+        return klasse(account.imap_host, account.imap_port, pinned_ip=ip, fingerprint=fingerprint)
+
+
+def zertifikat_abrufen(account: MailAccount) -> dict:
+    """Server-Zertifikat holen, OHNE Zugangsdaten zu senden.
+
+    Fuer die Konto-Einstellungen: zeigt Fingerprint, Inhaber, Aussteller,
+    Ablauf und ob die normale (CA-)Pruefung bestehen wuerde. Der Nutzer
+    vergleicht den Fingerprint und uebernimmt ihn bewusst - automatisch
+    gespeichert wird hier nichts (kein "trust on first use" im Hintergrund).
+    Gleiche gepinnte IP und gleicher TLS-Modus wie beim echten Verbinden.
+    """
+    from cryptography import x509
+
+    ip = _pinned_ip_fuer(account)
+    host, port = account.imap_host, account.imap_port
+
+    def _handshake(ctx: ssl.SSLContext) -> tuple[ssl.SSLSocket, imaplib.IMAP4 | None]:
+        if _implizites_tls(account):
+            sock = socket.create_connection((ip, port), _IMAP_TIMEOUT)
+            try:
+                return ctx.wrap_socket(sock, server_hostname=host), None
+            except BaseException:
+                sock.close()
+                raise
+        client = _GepinntesIMAP4(host, port, pinned_ip=ip, timeout=_IMAP_TIMEOUT)
+        try:
+            client.starttls(ssl_context=ctx)
+        except BaseException:
+            try:
+                client.shutdown()
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+        return client.sock, client
+
+    def _schliessen(tls: ssl.SSLSocket, client: imaplib.IMAP4 | None) -> None:
+        try:
+            if client is not None:
+                client.shutdown()
+            else:
+                tls.close()
+        except Exception:  # noqa: BLE001 - nur Aufraeumen
+            pass
+
+    tls, client = _handshake(_pin_kontext())
+    try:
+        der = tls.getpeercert(binary_form=True) or b""
+    finally:
+        _schliessen(tls, client)
+    if not der:
+        raise TlsZertifikatFehler("Server hat kein Zertifikat geliefert")
+
+    ca_gueltig, ca_fehler = True, ""
+    try:
+        tls, client = _handshake(_standard_kontext())
+        _schliessen(tls, client)
+    except ssl.SSLCertVerificationError as exc:
+        ca_gueltig, ca_fehler = False, (getattr(exc, "verify_message", "") or str(exc))[:200]
+
+    cert = x509.load_der_x509_certificate(der)
+    return {
+        "fingerprint": hashlib.sha256(der).hexdigest(),
+        "subject": cert.subject.rfc4514_string(),
+        "issuer": cert.issuer.rfc4514_string(),
+        "not_after": cert.not_valid_after_utc.isoformat(),
+        "ca_valid": ca_gueltig,
+        "ca_error": ca_fehler,
+    }
 
 
 def _connect(account: MailAccount, login: str, password: str, folder: str) -> MailBox:
@@ -557,7 +736,8 @@ def _ensure_box(conn: _Conn, account: MailAccount, login: str, password: str, fo
     der Aufrufer merkt nichts.
     """
     box = conn.box
-    binding = (getattr(account, "secret_enc", None), getattr(account, "imap_ssl", True))
+    binding = (getattr(account, "secret_enc", None), getattr(account, "imap_ssl", True),
+               getattr(account, "imap_tls_fingerprint", ""))
     if box is not None:
         setattr(box, "_sm_selected_generation", None)
     if box is not None and (time.monotonic() - conn.last_used > _IDLE_TTL or

@@ -432,13 +432,13 @@ def test_pool_reauthenticates_after_credential_change(monkeypatch):
     conn.box = old_box
     conn.last_used = time.monotonic()
     conn.folder = "INBOX"
-    conn.binding = ("old-encrypted-secret", True)
+    conn.binding = ("old-encrypted-secret", True, "")
     closed = []
     monkeypatch.setattr(imap, "_close", closed.append)
     monkeypatch.setattr(imap, "_connect", lambda *a: new_box)
     assert imap._ensure_box(conn, account, account.email, "synthetic", "INBOX") is new_box
     assert closed == [old_box]
-    assert conn.binding == (account.secret_enc, True)
+    assert conn.binding == (account.secret_enc, True, "")
 
 
 def test_account_ids_are_not_reused_after_delete(client, actor):
