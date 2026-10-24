@@ -94,8 +94,10 @@ Caddy handles HTTPS and SSE automatically — the simplest option if you don't a
 3. Restart. HTTPS now listens on `8443` **in addition to** HTTP on `8090`.
    Want HTTPS only? Simply don't map port `8090`.
 
-The files must be readable by the container user (uid 99). SelfMailer does not renew
-certificates — replace the files and restart the container.
+The files **and the folder containing them** must be readable by the container user (uid 99)
+— e.g. `chmod 755` on the folder, `chmod 644` on the certificate. Inside the data folder this
+is already the case. If not, the container stops with `TLS-Datei nicht gefunden: …`.
+SelfMailer does not renew certificates — replace the files and restart the container.
 
 ### After enabling HTTPS
 
@@ -188,8 +190,10 @@ Caddy macht HTTPS **und** SSE automatisch — die einfachste Variante, wenn du n
 3. Neu starten. HTTPS lauscht jetzt auf `8443` **zusätzlich** zu HTTP auf `8090`.
    Nur HTTPS gewünscht? Port `8090` einfach nicht freigeben.
 
-Die Dateien müssen für den Container-Nutzer (uid 99) lesbar sein. SelfMailer erneuert
-Zertifikate nicht selbst — Dateien austauschen und den Container neu starten.
+Die Dateien **und der Ordner, in dem sie liegen,** müssen für den Container-Nutzer (uid 99)
+lesbar sein — z. B. `chmod 755` auf den Ordner, `chmod 644` auf das Zertifikat. Im Datenordner
+ist das schon der Fall. Sonst bricht der Container mit `TLS-Datei nicht gefunden: …` ab.
+SelfMailer erneuert Zertifikate nicht selbst — Dateien austauschen und den Container neu starten.
 
 ### Nach dem Umstellen auf HTTPS
 

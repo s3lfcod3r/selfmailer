@@ -217,6 +217,9 @@ jobs:
           openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 1 \
             -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" \
             -keyout "$certs/key.pem" -out "$certs/cert.pem"
+          # mktemp -d legt den Ordner mit 700 an - der Container laeuft als uid 99
+          # und koennte ihn dann nicht betreten ("TLS-Datei nicht gefunden").
+          chmod 755 "$certs"
           chmod 644 "$certs/key.pem" "$certs/cert.pem"
           image="$REGISTRY/$IMAGE_NAME@$IMAGE_DIGEST"
           docker run -d --name "$container" -v "$certs:/certs:ro" \
@@ -226,12 +229,17 @@ jobs:
           healthy=false
           for attempt in $(seq 1 30); do
             if [ "$(docker inspect -f '{{.State.Health.Status}}' "$container")" = healthy ]; then healthy=true; break; fi
+            # Bricht der Start ab (z. B. Zertifikat nicht lesbar), nicht 60 s warten.
+            if [ "$(docker inspect -f '{{.State.Running}}' "$container")" != true ]; then break; fi
             sleep 2
           done
           if [ "$healthy" != true ]; then docker logs "$container"; exit 1; fi
           docker exec -i "$container" python - <<'PY'
           import json, ssl, urllib.request
           ctx = ssl.create_default_context(cafile="/certs/cert.pem")
+          # Nur der TEST-Client: das openssl-Testzertifikat hat kein keyUsage, was
+          # Python 3.13 im Strict-Modus ablehnt. Geprueft wird hier der Server.
+          ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
           def call(url, body=None):
               req = urllib.request.Request(url, data=json.dumps(body).encode() if body else None,
                   headers={"Content-Type": "application/json"}, method="POST" if body else "GET")
