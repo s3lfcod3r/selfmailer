@@ -64,8 +64,10 @@ def _leer_anlegen(target: Path) -> None:
     os.close(fd)
 
 
-def _backup_dir(db_path: str) -> Path:
-    """Verzeichnis für Backups neben der DB (``<db-dir>/backups``)."""
+def _backup_dir(db_path: str, configured: str = "") -> Path:
+    """Backup-Ordner: SELFMAILER_BACKUP_DIR, sonst ``<db-dir>/backups``."""
+    if configured.strip():
+        return Path(configured.strip()).resolve()
     parent = Path(db_path).resolve().parent
     return parent / _BACKUP_DIR_NAME
 
@@ -110,7 +112,7 @@ def create_backup() -> Path | None:
         logger.warning("DB-Backup uebersprungen: Quell-DB existiert nicht (%s)", db_path)
         return None
 
-    backup_dir = _backup_dir(db_path)
+    backup_dir = _backup_dir(db_path, getattr(settings, "backup_dir", "") or "")
     backup_dir.mkdir(mode=_DIR_MODE, parents=True, exist_ok=True)
     _haerten(backup_dir)
 

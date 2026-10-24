@@ -31,10 +31,12 @@ _MAX_KEYS = 10_000
 def client_ip(request: Request) -> str:
     """Beste Näherung der Client-IP.
 
-    Bewusst ``request.client.host`` und NICHT ``X-Forwarded-For``: XFF ist vom
-    Client fälschbar und würde das Limit trivial umgehbar machen, solange kein
-    vertrauenswürdiger Proxy davorsteht. Wer hinter einem Reverse-Proxy mit
-    gesetztem, bereinigtem XFF fährt, kann das hier gezielt anpassen.
+    Bewusst ``request.client.host`` und NICHT ``X-Forwarded-For`` selbst
+    auswerten: XFF ist vom Client fälschbar. Hinter einem Reverse-Proxy setzt
+    uvicorn ``client.host`` selbst auf die echte Client-IP - aber NUR fuer
+    Anfragen von SELFMAILER_TRUSTED_PROXIES (siehe app/serve.py). Ohne diese
+    Einstellung saehen alle Nutzer hinter dem Proxy wie EINE IP aus und
+    teilten sich ein Login-Limit.
     """
     return request.client.host if request.client else "unknown"
 

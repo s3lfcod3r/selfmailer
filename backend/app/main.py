@@ -121,7 +121,7 @@ async def lifespan(app: FastAPI):
 # Server-Version: mit README-Badge, Git-Tag und frontend/package*.json abstimmen.
 # Die WebUI zeigt sie über /api/health an. Reine Backend-Releases brauchen keine
 # neue APK; dann die kompatible Android-Version ausdrücklich im Release nennen.
-APP_VERSION = "1.96.9"
+APP_VERSION = "1.97.0"
 
 # Öffentliche API-Docs (Swagger/ReDoc/OpenAPI-Schema) in Produktion abschalten —
 # reduziert die Angriffsfläche/Info-Preisgabe; die WebUI/APK brauchen sie nicht.
@@ -237,16 +237,22 @@ _APP_CSP = (
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
-    """Setzt defensive Response-Header. Bewusst KEIN HSTS (TLS wird extern
-    terminiert; http-Zugriff im LAN soll möglich bleiben). Die App-Shell bekommt
-    eine bewusst nachsichtige CSP (siehe _APP_CSP); die Mail-Vorschau nutzt ein
-    sandboxed srcdoc-iframe mit eigener, strengerer CSP im srcdoc."""
+    """Setzt defensive Response-Header. Die App-Shell bekommt eine bewusst
+    nachsichtige CSP (siehe _APP_CSP); die Mail-Vorschau nutzt ein sandboxed
+    srcdoc-iframe mit eigener, strengerer CSP im srcdoc.
+
+    HSTS nur auf Wunsch (SELFMAILER_HSTS_MAX_AGE > 0) und nur auf HTTPS-
+    Antworten: http-Zugriff im LAN soll moeglich bleiben. Das Schema stimmt
+    hinter einem Proxy nur mit SELFMAILER_TRUSTED_PROXIES (X-Forwarded-Proto).
+    """
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     response.headers.setdefault("Content-Security-Policy", _APP_CSP)
+    if settings.hsts_max_age > 0 and request.url.scheme == "https":
+        response.headers.setdefault("Strict-Transport-Security", f"max-age={settings.hsts_max_age}")
     return response
 
 
@@ -289,7 +295,7 @@ app.include_router(settings_api.router)
 
 # Build-Marker: erlaubt von außen zu prüfen, welche Version wirklich LÄUFT
 # (Image gezogen != Container neu erstellt). Bei jedem relevanten Deploy erhöhen.
-APP_BUILD = "2026-10-13-v1.96.9"
+APP_BUILD = "2026-10-24-v1.97.0"
 
 
 @app.get("/api/health")

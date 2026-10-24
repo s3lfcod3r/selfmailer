@@ -1,0 +1,31 @@
+# Dependabot (seit 1.97.0): schlaegt Updates als Pull Request vor. Nichts wird
+# automatisch gemergt - jeder PR laeuft durch ci.yml (Tests + Audits).
+#
+# Bewusst OHNE "pip": backend/requirements.lock wird mit
+#   uv pip compile --universal --python-version 3.13 --generate-hashes ...
+# erzeugt (siehe Dateikopf). Dependabot kann diese Datei samt Hashes nicht
+# korrekt neu schreiben. Python-Schwachstellen meldet stattdessen pip-audit
+# (blockierend in ci.yml, woechentlich in security-audit.yml).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

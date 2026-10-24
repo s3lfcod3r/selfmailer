@@ -56,11 +56,10 @@ jobs:
         run: pytest -q
 
       - name: Abhaengigkeiten pruefen (pip-audit)
-        # Befund 20: meldet bekannte Schwachstellen in den aufgeloesten
-        # Versionen. Nicht blockierend (continue-on-error), damit ein neues Advisory in
-        # einer Fremdbibliothek nicht ueber Nacht den Deploy stoppt - der
-        # Befund steht im Job-Protokoll.
-        continue-on-error: true
+        # Blockierend seit 1.97.0: als reiner Protokoll-Eintrag blieb die
+        # kompromittierte emSign-CA in certifi (PYSEC-2026-4320) wochenlang
+        # unbemerkt. Ein bekanntes Advisory stoppt jetzt den Deploy. Neue
+        # Advisories ohne Commit meldet security-audit.yml (woechentlich).
         run: |
           pip install pip-audit
           pip-audit -r requirements.lock --desc
@@ -93,9 +92,9 @@ jobs:
 
       - name: Abhaengigkeiten pruefen (npm audit)
         # Befund 20: nur Laufzeit-Pakete, Dev-Werkzeuge landen nicht im Image.
-        # Nicht blockierend, siehe pip-audit oben.
-        continue-on-error: true
-        run: npm audit --omit=dev
+        # Blockierend ab "high" (siehe pip-audit oben); "moderate"/"low" stehen
+        # nur im Protokoll, damit kosmetische Advisories den Deploy nicht stoppen.
+        run: npm audit --omit=dev --audit-level=high
 
   build:
     # Deploy-Gate: läuft NUR, wenn beide Test-Jobs grün sind.
@@ -171,6 +170,8 @@ jobs:
             docker exec -i -e SMOKE_PHASE="$phase" "$container" python - <<'PY'
           import json, os, re, urllib.request, urllib.error
           assert os.getuid() == 99, "Container must run as UID 99"
+          assert not os.access("/app/app/main.py", os.W_OK), "App code must not be writable by the runtime user"
+          assert os.access("/data", os.W_OK), "/data must stay writable"
           base = "http://127.0.0.1:8090"
           with urllib.request.urlopen(base + "/api/health") as response:
               health = json.load(response)
@@ -196,6 +197,61 @@ jobs:
               except urllib.error.HTTPError as error:
                   assert error.code == 409, error.code
           assert os.path.getsize("/data/selfmailer.db") > 0
+          assert os.stat("/data/selfmailer.db").st_mode & 0o077 == 0, "DB must be 600"
           print("PASS", os.environ["SMOKE_PHASE"], health, "UID 99, CSP, assets, persistent setup")
           PY
           done
+
+      - name: Container TLS smoke test (optional HTTPS)
+        # Seit 1.97.0: mit SELFMAILER_TLS_CERT/KEY lauscht der Container
+        # zusaetzlich HTTPS auf 8443, HTTP auf 8090 bleibt. Geprueft wird:
+        # beide Listener antworten, HSTS nur auf HTTPS, Secure-Cookie nur auf
+        # HTTPS, und "docker stop" beendet BEIDE Listener zuegig (SIGTERM).
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          container="selfmailer-tls-${GITHUB_RUN_ID}"
+          certs="$(mktemp -d)"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$certs"' EXIT
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 1 \
+            -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" \
+            -keyout "$certs/key.pem" -out "$certs/cert.pem"
+          chmod 644 "$certs/key.pem" "$certs/cert.pem"
+          image="$REGISTRY/$IMAGE_NAME@$IMAGE_DIGEST"
+          docker run -d --name "$container" -v "$certs:/certs:ro" \
+            -e SELFMAILER_SECRET=ci-container-synthetic-secret-0123456789 \
+            -e SELFMAILER_SYNC_DISABLE=1 -e SELFMAILER_HSTS_MAX_AGE=600 \
+            -e SELFMAILER_TLS_CERT=/certs/cert.pem -e SELFMAILER_TLS_KEY=/certs/key.pem "$image"
+          healthy=false
+          for attempt in $(seq 1 30); do
+            if [ "$(docker inspect -f '{{.State.Health.Status}}' "$container")" = healthy ]; then healthy=true; break; fi
+            sleep 2
+          done
+          if [ "$healthy" != true ]; then docker logs "$container"; exit 1; fi
+          docker exec -i "$container" python - <<'PY'
+          import json, ssl, urllib.request
+          ctx = ssl.create_default_context(cafile="/certs/cert.pem")
+          def call(url, body=None):
+              req = urllib.request.Request(url, data=json.dumps(body).encode() if body else None,
+                  headers={"Content-Type": "application/json"}, method="POST" if body else "GET")
+              return urllib.request.urlopen(req, context=ctx if url.startswith("https") else None, timeout=5)
+          with call("http://127.0.0.1:8090/api/health") as r:
+              assert r.status == 200 and not r.headers.get("Strict-Transport-Security")
+          with call("https://localhost:8443/api/health") as r:
+              assert r.status == 200 and r.headers.get("Strict-Transport-Security") == "max-age=600"
+          admin = {"username": "ci-tls-admin", "password": "synthetic-password-123"}
+          with call("https://localhost:8443/api/v1/auth/setup", admin) as r:
+              assert r.status == 201 and "secure" in r.headers.get("Set-Cookie", "").lower()
+          with call("http://127.0.0.1:8090/api/v1/auth/login", admin) as r:
+              assert r.status == 200 and "secure" not in r.headers.get("Set-Cookie", "").lower()
+          print("PASS TLS: http+https, HSTS only on https, Secure cookie only on https")
+          PY
+          start=$(date +%s)
+          docker stop -t 20 "$container"
+          dauer=$(( $(date +%s) - start ))
+          echo "docker stop took ${dauer}s"
+          if [ "$dauer" -ge 15 ]; then docker logs "$container"; echo "Shutdown too slow - a listener ignored SIGTERM"; exit 1; fi
+          if [ "$(docker logs "$container" 2>&1 | grep -c 'Application startup complete')" -ne 1 ]; then
+            docker logs "$container"; echo "Lifespan must start exactly once"; exit 1
+          fi
