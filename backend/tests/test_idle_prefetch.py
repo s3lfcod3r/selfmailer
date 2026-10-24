@@ -5,8 +5,10 @@ Gemessen am 24.10.2026 (Gmail): neue Mail nach 136 s im Cache, erstes Oeffnen
 """
 from __future__ import annotations
 
+import datetime as dt
 import threading
 import time
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
@@ -18,7 +20,7 @@ from app.mail import cache as cache_mod
 from app.mail import idle_watch
 from app.mail import imap as imap_mod
 from app.mail import scheduler
-from app.models import CachedMessage, FolderNotify
+from app.models import CachedMessage, FolderNotify, FolderSync
 
 
 # --- Hilfen -------------------------------------------------------------------
@@ -378,6 +380,143 @@ def test_normale_runde_laedt_vor_und_pusht_aus_den_zaehlern(account, monkeypatch
         assert ablauf == ["sync:sync-hintergrund", "vorladen:['8', '9']", "push:2"]
     finally:
         _aufraeumen(account)
+
+
+# --- Verkuerzter IDLE-Durchlauf (Regeln nur neu, kein Flag-Abgleich) ---------------
+
+def _msg(uid, subject="Werbung jetzt"):
+    return SimpleNamespace(uid=uid, subject=subject, from_="a@example.com", from_values=None, to=(),
+                           date_str="", date=None, flags=(), text="hi", html="")
+
+
+def test_regeln_nur_ab_uid_und_ohne_die_aeltere_letzte_mail(monkeypatch):
+    gesehen = {}
+
+    class _Box:
+        def fetch(self, kriterium, **kw):
+            gesehen["kriterium"] = str(kriterium)
+            gesehen["reverse"] = kw.get("reverse", False)
+            # Gmail & Co. liefern fuer "10:*" auch die letzte Mail, selbst wenn sie kleiner ist.
+            return [_msg("5"), _msg("12")]
+
+        def move(self, uids, ziel):
+            gesehen.setdefault("move", []).append((list(uids), ziel))
+
+        def flag(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(imap_mod, "_mailbox", lambda *a, **kw: nullcontext(_Box()))
+    regel = SimpleNamespace(enabled=True, value="werbung", field="subject", target_folder="Spam",
+                            mark_read=False, star=False, delete_msg=False)
+    erg = imap_mod.apply_rules(SimpleNamespace(id=1), "pw", [regel], min_uid=10)
+    assert gesehen["kriterium"] == "(UID 10:*)"
+    assert gesehen["move"] == [(["12"], "Spam")]
+    assert erg["matched"] == 1
+
+
+def test_regeln_ohne_min_uid_wie_bisher(monkeypatch):
+    gesehen = {}
+
+    class _Box:
+        def fetch(self, kriterium, **kw):
+            gesehen.update(kriterium=str(kriterium), reverse=kw.get("reverse"), limit=kw.get("limit"))
+            return []
+
+    monkeypatch.setattr(imap_mod, "_mailbox", lambda *a, **kw: nullcontext(_Box()))
+    imap_mod.apply_rules(SimpleNamespace(id=1), "pw", [])
+    assert gesehen == {"kriterium": "(ALL)", "reverse": True, "limit": 500}
+
+
+def test_hoechste_gecachte_uid(account):
+    try:
+        with Session(engine) as s:
+            assert cache_mod.max_cached_uid(s, account, "INBOX") is None
+            s.add(FolderSync(account_id=account, folder="INBOX", uidvalidity=101))
+            for uid, gen in (("9", 101), ("103", 101), ("500", 7)):   # 500 = alte Generation
+                s.add(CachedMessage(account_id=account, folder="INBOX", uid=uid, uidvalidity=gen))
+            s.commit()
+            assert cache_mod.max_cached_uid(s, account, "INBOX") == 103
+    finally:
+        _aufraeumen(account)
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM foldersync WHERE account_id = :a"), {"a": account})
+
+
+def _sync_umgebung(monkeypatch, account):
+    """sync_folder gegen ein Attrappen-Postfach: Cache kennt 7, Server hat 7 und 8."""
+    aufrufe: list[str] = []
+    box = SimpleNamespace(
+        folder=SimpleNamespace(status=lambda *a: {"UIDVALIDITY": 101, "MESSAGES": 2, "UNSEEN": 1}),
+        uids=lambda: ["7", "8"],
+        fetch=lambda *a, **kw: aufrufe.append("kopf-abgleich") or [],
+    )
+    monkeypatch.setattr(cache_mod, "_mailbox", lambda *a, **kw: nullcontext(box))
+    monkeypatch.setattr(imap_mod, "read_modseq", lambda b: 500)
+    monkeypatch.setattr(imap_mod, "fetch_headers", lambda b, uids, **kw: [_msg(u, "Neu") for u in uids])
+    monkeypatch.setattr(imap_mod, "flags_changed_since", lambda b, m: aufrufe.append("condstore") or {})
+    monkeypatch.setattr(imap_mod, "flag_mengen", lambda b: aufrufe.append("suche") or None)
+    monkeypatch.setattr(imap_mod, "has_attachments", lambda m: False)
+    monkeypatch.setattr(cache_mod, "thread_headers", lambda m: {"message_id": "", "in_reply_to": "", "references": ""})
+    monkeypatch.setattr(cache_mod, "keywords_of", lambda m: [])
+    alt = dt.datetime(2026, 1, 1)
+    with Session(engine) as s:
+        s.add(FolderSync(account_id=account, folder="INBOX", uidvalidity=101, highest_modseq=100, last_sync=alt))
+        s.add(CachedMessage(account_id=account, folder="INBOX", uid="7", uidvalidity=101))
+        s.commit()
+    return aufrufe, alt
+
+
+def _fs(account):
+    with Session(engine) as s:
+        return s.exec(select(FolderSync).where(FolderSync.account_id == account, FolderSync.folder == "INBOX")).one()
+
+
+def test_sync_ohne_flags_holt_neue_und_rueckt_nichts_vor(account, monkeypatch):
+    try:
+        aufrufe, alt = _sync_umgebung(monkeypatch, account)
+        with Session(engine) as s:
+            res = cache_mod.sync_folder(s, _konto_obj(account), "pw", "INBOX", flags=False)
+        assert res["new_uids"] == ["8"] and res["ms"]["flags_weg"] == "aus"
+        assert {"status", "uid_suche", "neue_koepfe"} <= res["ms"].keys()
+        assert aufrufe == []                                   # kein CONDSTORE, keine Suche, kein Kopf-Abgleich
+        fs = _fs(account)
+        assert fs.highest_modseq == 100                        # Stand NICHT vorgerueckt
+        assert fs.last_sync.replace(tzinfo=None) == alt        # Flag-Faelligkeit NICHT verschoben
+    finally:
+        _aufraeumen(account)
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM foldersync WHERE account_id = :a"), {"a": account})
+
+
+def test_sync_mit_flags_wie_bisher(account, monkeypatch):
+    try:
+        aufrufe, alt = _sync_umgebung(monkeypatch, account)
+        with Session(engine) as s:
+            cache_mod.sync_folder(s, _konto_obj(account), "pw", "INBOX")
+        assert "condstore" in aufrufe
+        fs = _fs(account)
+        assert fs.highest_modseq == 500 and fs.last_sync.replace(tzinfo=None) != alt
+    finally:
+        _aufraeumen(account)
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM foldersync WHERE account_id = :a"), {"a": account})
+
+
+def test_schnelldurchlauf_regeln_ab_neuer_uid_und_ohne_flags(account, monkeypatch):
+    regel = SimpleNamespace(enabled=True)
+    monkeypatch.setattr(scheduler, "_regeln_und_benachrichtigung", lambda acc: ([regel], []))
+    monkeypatch.setattr(cache_mod, "max_cached_uid", lambda s, aid, folder: 41)
+    gesehen = {}
+    monkeypatch.setattr(imap_mod, "apply_rules", lambda acc, pw, rules, **kw: gesehen.update(regeln=kw) or {})
+    monkeypatch.setattr(cache_mod, "sync_folder", lambda s, acc, pw, folder, **kw: gesehen.update(sync=kw) or {"new": 0, "unseen": 0})
+    scheduler.sync_inbox_now(account)
+    assert gesehen["regeln"] == {"min_uid": 42}
+    assert gesehen["sync"]["flags"] is False and gesehen["sync"]["op"] == "sync-idle"
+
+    # Ohne Cache (None): wie bisher der ganze Posteingang.
+    monkeypatch.setattr(cache_mod, "max_cached_uid", lambda s, aid, folder: None)
+    scheduler.sync_inbox_now(account)
+    assert gesehen["regeln"] == {"min_uid": None}
 
 
 def test_pool_status_zeigt_idle(client, admin):
