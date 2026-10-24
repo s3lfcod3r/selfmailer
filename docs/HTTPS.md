@@ -1,8 +1,8 @@
-# HTTPS for SelfMailer (Reverse Proxy)
+# HTTP or HTTPS for SelfMailer — your choice
 
-SelfMailer serves plain **HTTP** on port `8090` — fine inside a trusted LAN. To reach it
-securely from outside (or to get a green padlock and enable browser features that require a
-secure context), put a **reverse proxy** with a **Let's Encrypt** certificate in front.
+SelfMailer always serves plain **HTTP** on port `8090` — fine inside a trusted LAN or behind a
+VPN. **HTTPS is optional** and can run *alongside* HTTP (since 1.97.0): use a reverse proxy
+(options A–C) or let the container serve HTTPS itself (option D).
 
 [English](#english) · [Deutsch](#deutsch)
 
@@ -11,6 +11,18 @@ secure context), put a **reverse proxy** with a **Let's Encrypt** certificate in
 <a id="english"></a>
 
 ## 🇬🇧 English
+
+### Which way fits?
+
+| Setup | What to configure |
+|---|---|
+| **HTTP only** (LAN / VPN) | Nothing. Defaults work. |
+| **Reverse proxy** with HTTPS (A–C) | `SELFMAILER_TRUSTED_PROXIES=<proxy IP>` (real client IP for the login rate limit, HTTPS detection). Optional `SELFMAILER_HSTS_MAX_AGE`. |
+| **HTTPS in the container** (D) | `SELFMAILER_TLS_CERT` + `SELFMAILER_TLS_KEY`, map port `8443`. |
+
+`SELFMAILER_COOKIE_SECURE=auto` (default) marks the login cookie *Secure* only on HTTPS
+requests — so `http://192.168.x.y:8090` in the LAN and `https://mail.example.com` from outside
+work **at the same time**, without login loops. Old values `true`/`false` keep working.
 
 ### Option A — Nginx Proxy Manager (recommended on Unraid)
 
@@ -68,11 +80,29 @@ mail.example.com {
 
 Caddy handles HTTPS and SSE automatically — the simplest option if you don't already run NPM/Traefik.
 
+> **For A–C:** set `SELFMAILER_TRUSTED_PROXIES` to the proxy's IP as seen by the container
+> (e.g. the NPM container IP or the Docker bridge network `172.17.0.0/16`). Otherwise every
+> user behind the proxy looks like one IP and they share one login rate limit, and SelfMailer
+> can't tell that the request was HTTPS.
+
+### Option D — HTTPS directly in the container (no proxy)
+
+1. Put certificate and key (PEM) into the data folder, e.g. `data/certs/fullchain.pem` and
+   `data/certs/privkey.pem` (any CA; for a LAN a self-signed or internal-CA cert works).
+2. Set `SELFMAILER_TLS_CERT=/data/certs/fullchain.pem` and
+   `SELFMAILER_TLS_KEY=/data/certs/privkey.pem`, map port `8443` (Unraid: *HTTPS Port*).
+3. Restart. HTTPS now listens on `8443` **in addition to** HTTP on `8090`.
+   Want HTTPS only? Simply don't map port `8090`.
+
+The files must be readable by the container user (uid 99). SelfMailer does not renew
+certificates — replace the files and restart the container.
+
 ### After enabling HTTPS
 
-- Change the server URL **in the web bookmark and in the app** (first-run / *Settings → change server*) to `https://mail.example.com`.
-- You can now safely expose it (ideally still behind **WireGuard/Tailscale** for a private setup).
-- HSTS and other strict headers become meaningful once TLS is enforced at the proxy.
+- Change the server URL **in the web bookmark and in the app** (first-run / *Settings → change server*) to the `https://` address.
+- Optional: `SELFMAILER_HSTS_MAX_AGE=31536000` — sent **only** on HTTPS responses, so plain
+  HTTP in the LAN keeps working (as long as you use a different host name, e.g. the IP).
+- You can now expose it more safely (ideally still behind **WireGuard/Tailscale** for a private setup).
 
 ---
 
@@ -80,9 +110,21 @@ Caddy handles HTTPS and SSE automatically — the simplest option if you don't a
 
 ## 🇩🇪 Deutsch
 
-SelfMailer liefert auf Port `8090` nur **HTTP** aus — im vertrauenswürdigen LAN okay. Für
-**sicheren Zugriff von außen** (oder ein „grünes Schloss") setzt du einen **Reverse-Proxy**
-mit **Let's-Encrypt**-Zertifikat davor.
+SelfMailer liefert auf Port `8090` immer **HTTP** aus — im vertrauenswürdigen LAN oder hinter
+einem VPN okay. **HTTPS ist optional** und läuft seit 1.97.0 *zusätzlich* zu HTTP: per
+Reverse-Proxy (Varianten A–C) oder direkt im Container (Variante D).
+
+### Welcher Weg passt?
+
+| Aufbau | Was einstellen |
+|---|---|
+| **Nur HTTP** (LAN / VPN) | Nichts. Die Standardwerte passen. |
+| **Reverse-Proxy** mit HTTPS (A–C) | `SELFMAILER_TRUSTED_PROXIES=<Proxy-IP>` (echte Client-IP für die Login-Bremse, HTTPS-Erkennung). Optional `SELFMAILER_HSTS_MAX_AGE`. |
+| **HTTPS im Container** (D) | `SELFMAILER_TLS_CERT` + `SELFMAILER_TLS_KEY`, Port `8443` freigeben. |
+
+`SELFMAILER_COOKIE_SECURE=auto` (Standard) setzt das *Secure*-Flag des Login-Cookies nur bei
+HTTPS-Anfragen — `http://192.168.x.y:8090` im LAN und `https://mail.example.com` von außen
+funktionieren also **gleichzeitig**, ohne Login-Schleife. Die alten Werte `true`/`false` gelten weiter.
 
 ### Variante A — Nginx Proxy Manager (auf Unraid empfohlen)
 
@@ -130,8 +172,28 @@ mail.example.com {
 
 Caddy macht HTTPS **und** SSE automatisch — die einfachste Variante, wenn du nicht eh NPM/Traefik hast.
 
+> **Für A–C:** `SELFMAILER_TRUSTED_PROXIES` auf die IP des Proxys setzen, so wie der Container
+> sie sieht (z. B. die IP des NPM-Containers oder das Docker-Netz `172.17.0.0/16`). Sonst sehen
+> alle Nutzer hinter dem Proxy wie EINE IP aus und teilen sich eine Login-Bremse, und
+> SelfMailer erkennt nicht, dass die Anfrage per HTTPS kam.
+
+### Variante D — HTTPS direkt im Container (ohne Proxy)
+
+1. Zertifikat und Schlüssel (PEM) in den Datenordner legen, z. B. `data/certs/fullchain.pem`
+   und `data/certs/privkey.pem` (beliebige CA; im LAN geht auch ein selbstsigniertes oder ein
+   Zertifikat einer eigenen CA).
+2. `SELFMAILER_TLS_CERT=/data/certs/fullchain.pem` und
+   `SELFMAILER_TLS_KEY=/data/certs/privkey.pem` setzen, Port `8443` freigeben
+   (Unraid: *HTTPS Port*).
+3. Neu starten. HTTPS lauscht jetzt auf `8443` **zusätzlich** zu HTTP auf `8090`.
+   Nur HTTPS gewünscht? Port `8090` einfach nicht freigeben.
+
+Die Dateien müssen für den Container-Nutzer (uid 99) lesbar sein. SelfMailer erneuert
+Zertifikate nicht selbst — Dateien austauschen und den Container neu starten.
+
 ### Nach dem Umstellen auf HTTPS
 
-- Server-URL **im Browser-Lesezeichen und in der App** (Erststart / *Einstellungen → Server ändern*) auf `https://mail.example.com` ändern.
-- Jetzt kannst du es gefahrlos erreichbar machen (für ein privates Setup am besten weiter **hinter WireGuard/Tailscale**).
-- HSTS und strikte Header ergeben erst mit TLS am Proxy Sinn.
+- Server-URL **im Browser-Lesezeichen und in der App** (Erststart / *Einstellungen → Server ändern*) auf die `https://`-Adresse ändern.
+- Optional: `SELFMAILER_HSTS_MAX_AGE=31536000` — wird **nur** auf HTTPS-Antworten gesendet,
+  HTTP im LAN bleibt also möglich (solange du dort einen anderen Hostnamen, z. B. die IP, nutzt).
+- Jetzt kannst du es sicherer erreichbar machen (für ein privates Setup am besten weiter **hinter WireGuard/Tailscale**).
