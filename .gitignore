@@ -39,3 +39,6 @@ _Projektuebersicht/
 
 # Android-Quellcode: nur lokal, NICHT pushen
 /_android-src/
+
+# Lokaler Index eines Code-Werkzeugs
+.serena/

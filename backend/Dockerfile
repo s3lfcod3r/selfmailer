@@ -1,5 +1,9 @@
+# Basis-Images per Digest festgenagelt (Durchsicht 2026-10-24): ein Tag wie
+# "3.13-slim" zeigt jede Woche auf ein anderes Image - gebaut wurde dann, was
+# gerade da war. Mit Digest baut jeder Lauf dasselbe; Updates schlaegt
+# Dependabot (docker) als PR vor und sie laufen durch CI + Image-Scan.
 # --- Stage 1: Frontend bauen ---
-FROM node:24-alpine AS frontend
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS frontend
 WORKDIR /fe
 COPY frontend/package*.json ./
 # Nur npm ci: der frueher angehaengte "|| npm install"-Fallback hat bei einem
@@ -10,11 +14,16 @@ COPY frontend/ ./
 RUN npm run build
 
 # --- Stage 2: Backend + gebautes Frontend ---
-FROM python:3.13-slim AS runtime
+FROM python:3.13-slim@sha256:d98cc29d3266e535dd9da1099688d9cb3ca4753813571e071763d17725460962 AS runtime
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 SELFMAILER_DB_PATH=/data/selfmailer.db
 COPY backend/requirements.lock ./
-RUN pip install --no-cache-dir --require-hashes -r requirements.lock
+# pip danach wieder entfernen (seit 1.97.2): der laufende Container braucht
+# keinen Paketmanager, und pip bringt eigene, mitgelieferte Bibliotheken mit
+# (u. a. urllib3), die der Image-Scan als Luecken meldet, obwohl die App sie
+# nie laedt.
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
+    && python -m pip uninstall -y pip
 COPY backend/ ./
 COPY --from=frontend /fe/dist ./frontend/dist
 
