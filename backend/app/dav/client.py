@@ -128,7 +128,7 @@ def _pinned_request(
     )
 
 
-def post_pinned(url: str, *, json: object | None = None, timeout: float = 10.0) -> httpx.Response:
+def post_pinned(url: str, *, json: object | None = None, timeout: float | httpx.Timeout = 10.0) -> httpx.Response:
     """Öffentlicher POST mit SSRF-Prüfung + IP-Pinning — für user-konfigurierte Ziele
     (z. B. ntfy). Validiert die URL und verbindet zur geprüften IP; kein DNS-Rebinding
     zwischen Prüfung und Verbindung."""
