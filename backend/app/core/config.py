@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     # z. B. http://192.168.1.10:5050  (eigener LibreTranslate-Container)
     translate_url: str = ""
     translate_api_key: str = ""   # nur falls die Instanz einen Key verlangt
+    # Spam- & Virenschutz (1.97.3). Leer = Funktion nicht verfuegbar; die Nutzer
+    # schalten sie dann unter Einstellungen -> Sicherheit ein und aus.
+    # ClamAV (clamd, TCP), z. B. 192.168.1.10:3310 - NUR im Heimnetz erreichbar
+    # machen: clamd hat weder Passwort noch Verschluesselung.
+    clamav: str = ""
+    # rspamd: Scanner-Adresse (Port 11333) fuer die Bewertung, z. B.
+    # http://192.168.1.10:11333; Controller (Port 11334) + Passwort fuers Lernen.
+    rspamd_url: str = ""
+    rspamd_controller_url: str = ""
+    rspamd_password: str = ""
 
     # JWT
     jwt_algorithm: str = "HS256"

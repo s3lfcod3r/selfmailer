@@ -10,6 +10,7 @@ from ..core import jobs
 from ..core.crypto import decrypt
 from ..core.db import get_session
 from ..mail import imap as imap_mod
+from ..mail import security as security_mod
 from ..models import MailAccount, MailRule, User
 from ..schemas import (
     BlockSenderRequest,
@@ -128,12 +129,16 @@ def apply_rules_endpoint(
     ``GET /mail/jobs/{job_id}``); ohne den Parameter bleibt es synchron."""
     acc = _account(account_id, user, session)
     rules = [r for r in _rules(account_id, session) if r.enabled]
+    # Einstellungen -> Sicherheit: Sperren der anderen Konten mit anwenden (1.97.3).
+    rules = rules + security_mod.global_block_rules(acc, rules)
     if not rules:
         return {"ok": True, "affected": 0}
     pw = decrypt(acc.secret_enc)
 
     def _run() -> dict:
-        return {"ok": True, **imap_mod.apply_rules(acc, pw, rules)}
+        erg = imap_mod.apply_rules(acc, pw, rules)
+        security_mod.record_rule_hits(erg.get("hits"))
+        return {"ok": True, **erg}
 
     if background:
         job_id = jobs.create_job(user.id, "apply_rules")

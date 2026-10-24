@@ -74,7 +74,12 @@ _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # Leer (Backfill '') = strikte Zertifikatspruefung fuer alle Bestandskonten.
         ("imap_tls_fingerprint", "VARCHAR"),
     ],
-    "mailrule": [("delete_msg", "INTEGER DEFAULT 0")],
+    "mailrule": [
+        ("delete_msg", "INTEGER DEFAULT 0"),
+        # Trefferzähler (1.97.3); last_hit_at bleibt NULL bis zum ersten Treffer.
+        ("hits", "INTEGER DEFAULT 0"),
+        ("last_hit_at", "DATETIME"),
+    ],
     # TEXT (nicht VARCHAR) → kein ''-Backfill: write_token bleibt NULL, bis der
     # User ihn erzeugt (leerer Token darf niemals matchen).
     # expires_at/last_used_at bleiben bewusst NULL, bis die v3-Migration bzw.

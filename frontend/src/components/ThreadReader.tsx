@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, download, type MsgHeader, type MsgDetail, type MailLabel } from "../lib/api";
+import { api, downloadAttachment, type MsgHeader, type MsgDetail, type MailLabel } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { parseAddr, prettyDate, listDate, hasRemoteContent, buildSrcDoc, fmtSize, trimQuotedHtml, trimQuotedText, avatarFor, MAIL_SANDBOX_MEASURED } from "../lib/mailview";
 import type { Conversation } from "../lib/threads";
@@ -349,13 +349,19 @@ export function ThreadReader({
                         <div className="thread-atts">
                           <div className="label" style={{ marginBottom: "0.4rem" }}>📎 {t("mail.attachments")}</div>
                           <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
-                            {d.attachments.map((att) => (
+                            {d.attachments.map((att) => {
+                              // Virenscan (Einstellungen → Sicherheit): infizierte Anhänge gesperrt.
+                              const virus = (d.virus ?? []).find((v) => v.index === att.index && v.status === "infected");
+                              return (
                               <button key={att.index} className="ghost" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}
-                                onClick={() => download(`/mail/${accountId}/messages/${m.uid}/attachments/${att.index}?folder=${encodeURIComponent(msgFolder(m))}${messageGeneration(m)}`).catch(() => {})}>
-                                <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220, whiteSpace: "nowrap" }}>⬇ {att.filename}</span>
+                                disabled={!!virus} title={virus ? `${t("mail.virusFound")}: ${virus.signature}` : undefined}
+                                onClick={() => downloadAttachment(`/mail/${accountId}/messages/${m.uid}/attachments/${att.index}?folder=${encodeURIComponent(msgFolder(m))}${messageGeneration(m)}`,
+                                  (reason) => window.confirm(`${reason}\n\n${t("mail.scanUnavailable")}`)).catch((e) => window.alert((e as Error).message))}>
+                                <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220, whiteSpace: "nowrap" }}>{virus ? "🦠" : "⬇"} {att.filename}</span>
                                 <span className="muted" style={{ fontSize: "0.72rem" }}>{fmtSize(att.size)}</span>
                               </button>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       )}
