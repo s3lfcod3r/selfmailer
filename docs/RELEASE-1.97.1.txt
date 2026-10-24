@@ -1,0 +1,34 @@
+SelfMailer 1.97.1 / Build 127 - Wartungsrelease / 24.10.2026
+
+APK
+- Neuer verschluesselter Speicher (SecureStore + KeystoreCipher) statt
+  EncryptedSharedPreferences (androidx.security-crypto, nicht mehr gepflegt).
+  AES-256-GCM mit nicht exportierbarem Keystore-Schluessel, Speichernamen per
+  HMAC-SHA256 verschleiert. Jeder Wert ist an seinen Namen gebunden (AAD + Name
+  im Klartext des Werts); manipulierte oder vertauschte Eintraege werden
+  verworfen.
+- Einmalige Uebernahme aus dem alten Speicher beim ersten Start. Markierung und
+  Loeschen erst nach erfolgreichem Schreiben; bei einem Fehler naechster Versuch
+  beim naechsten Start. Ist der alte Speicher nicht lesbar (Keystore-Schluessel
+  weg), genuegt eine neue Anmeldung. androidx.security-crypto bleibt nur dafuer
+  im Projekt und kann entfallen, sobald keine Installation aelter als 1.97.1
+  mehr im Umlauf ist.
+- Ein Speicher je Prozess (vorher je Prefs-Instanz) mit Zwischenspeicher im
+  Arbeitsspeicher - weniger Keystore-Aufrufe.
+
+Server / Web
+- React 19, Vite 8 (+ @vitejs/plugin-react 6), TypeScript 7 (PRs #28-#30).
+  Fuer TypeScript 7: src/vite-env.d.ts; Frontend-Tests nutzen die JS-API ueber
+  den Alias typescript-api (TypeScript 6), weil TS 7 keine JS-API mehr hat.
+- android/*.patch aus dem Repository entfernt, .gitignore verhindert neue (#27).
+
+Kompatibilitaet
+Server 1.97.0/1.97.1 und APK 1.97.0/1.97.1 sind untereinander kompatibel.
+APK signiert mit bisherigem Zertifikat (CN=SelfMailer, SHA-256 cd05a16c...8e4938).
+
+Pruefung
+128 Android-JVM-Tests (17 fuer den neuen Speicher), 528 Backend-, 56 Web-Tests,
+CI inklusive Container- und TLS-Smoke, Oberflaechentest der Web-App mit React 19
+im Browser. Kein physisches Android-Geraet: Keystore-Zugriff und Uebernahme der
+Altdaten auf einem echten Geraet sind ungetestet. Im schlimmsten Fall ist eine
+neue Anmeldung noetig; lokale, nicht gesendete Entwuerfe koennten verloren gehen.

@@ -8,7 +8,16 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
-## 1.97.0 · Server only (APK 1.96.9 / Build 123 stays compatible)
+## 1.97.1 · Build 127
+- 🇬🇧 **APK: new encrypted storage.** Login token, drafts and personal data now live in an own Android-Keystore store (AES-256-GCM, names hidden via HMAC) instead of the no-longer-maintained `EncryptedSharedPreferences`. Existing data is migrated automatically on first start; the old store is deleted only after a successful write.
+- 🇬🇧 Web foundations updated: React 19, Vite 8, TypeScript 7 (no visible changes). Android source patches removed from the public repository.
+- 🇩🇪 **APK: neuer verschlüsselter Speicher.** Login-Token, Entwürfe und persönliche Daten liegen jetzt in einem eigenen Android-Keystore-Speicher (AES-256-GCM, Namen per HMAC verschleiert) statt im nicht mehr gepflegten `EncryptedSharedPreferences`. Bestehende Daten werden beim ersten Start automatisch übernommen; der alte Speicher wird erst nach erfolgreichem Schreiben gelöscht.
+- 🇩🇪 Web-Grundlagen aktualisiert: React 19, Vite 8, TypeScript 7 (keine sichtbaren Änderungen). Android-Quellpatches aus dem öffentlichen Repository entfernt.
+- 📄 [RELEASE-1.97.1.txt](docs/RELEASE-1.97.1.txt)
+
+## 1.97.0 · Build 125
+- 🇬🇧 **APK:** HTTPS with an own CA (user-installed certificates are trusted), mail view no longer loads external CSS/fonts without permission, printing no longer loads blocked remote images (tracking).
+- 🇩🇪 **APK:** HTTPS mit eigener CA (vom Nutzer installierte Zertifikate), Mail-Ansicht lädt ohne Freigabe kein externes CSS/keine Schriften mehr, Drucken lädt keine blockierten externen Bilder mehr (Tracking).
 - 🇬🇧 **Security release.** IMAP certificates are now verified (before: any certificate was accepted), with an optional per-account fingerprint for self-signed LAN servers · CSRF protection for cookie sessions · scheduled mails encrypted at rest, backups/DB readable by the container user only · certifi without the compromised emSign CA.
 - 🇬🇧 **HTTP stays the default, HTTPS is your choice:** cookie mode `auto` (HTTP in the LAN and HTTPS side by side), reverse-proxy support (`SELFMAILER_TRUSTED_PROXIES`), optional HSTS, optional HTTPS directly in the container (port 8443).
 - 🇬🇧 Operations: configurable backup folder, app code read-only in the container, blocking dependency audits + weekly audit + Dependabot.
