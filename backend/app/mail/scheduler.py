@@ -34,6 +34,7 @@ from ..core.db import engine
 from ..events import bus
 from ..models import DavAccount, FolderNotify, MailAccount, MailRule, ScheduledMail, User
 from . import cache as cache_mod
+from . import idle_watch
 from . import imap as imap_mod
 from . import push as push_mod
 from . import smtp as smtp_mod
@@ -104,6 +105,149 @@ _stop = threading.Event()
 _last_backup_date: date | None = None   # an welchem Tag zuletzt gesichert wurde
 
 
+# Eine Sperre je Konto fuer "Regeln + Posteingang" und fuer die Push-Pruefung.
+# Seit 1.97.2 gibt es zwei Ausloeser: die normale Runde und den IDLE-Waechter
+# (idle_watch). Ohne Sperre koennten beide gleichzeitig Regeln anwenden (doppeltes
+# Verschieben) oder denselben Ungelesen-Sprung zweimal pushen.
+_KONTO_SPERREN: dict[int, threading.Lock] = {}
+_KONTO_SPERREN_LOCK = threading.Lock()
+
+
+def _konto_sperre(account_id: int) -> threading.Lock:
+    with _KONTO_SPERREN_LOCK:
+        sperre = _KONTO_SPERREN.get(account_id)
+        if sperre is None:
+            sperre = _KONTO_SPERREN[account_id] = threading.Lock()
+        return sperre
+
+
+def _regeln_und_benachrichtigung(acc: MailAccount) -> tuple[list[MailRule], list[str]]:
+    """Aktive Filterregeln und die fuer Push ausgewaehlten Ordner des Kontos."""
+    with Session(engine) as s:
+        rules = list(
+            s.exec(
+                select(MailRule)
+                .where(MailRule.account_id == acc.id, MailRule.enabled == True)  # noqa: E712
+                .order_by(MailRule.position, MailRule.id)
+            ).all()
+        )
+        # Für Push ausgewählte Ordner: genau diese lösen sonst eine
+        # Benachrichtigung aus, wenn dort eine geblockte Mail liegt.
+        notify_folders = [
+            r.folder for r in s.exec(
+                select(FolderNotify).where(FolderNotify.account_id == acc.id)
+            ).all()
+        ]
+    return rules, notify_folders
+
+
+def _warm_sync(acc: MailAccount, pw: str, op: str) -> dict | None:
+    """Posteingang abgleichen; bei neuen Mails offene Clients auffrischen lassen.
+
+    Liefert das Ergebnis des INBOX-Syncs (oder None bei Fehler)."""
+    inbox: dict | None = None
+    for folder in _WARM_FOLDERS:
+        if _stop.is_set():
+            return inbox
+        try:
+            with Session(engine) as s:
+                res = cache_mod.sync_folder(s, acc, pw, folder, op=op)
+            if folder == "INBOX":
+                inbox = res
+            if int(res.get("new", 0) or 0) > 0:
+                bus.publish(acc.user_id, {"type": "mail", "account_id": acc.id, "folder": folder})
+        except Exception:  # noqa: BLE001 - ein Ordner/Konto darf den Lauf nie kippen
+            logger.warning(
+                "Hintergrund-Sync fehlgeschlagen (account_id=%s, folder=%s)", acc.id, folder, exc_info=True
+            )
+    return inbox
+
+
+def _vorladen(acc: MailAccount, pw: str, res: dict | None) -> None:
+    """Volltexte der eben entdeckten Posteingangs-Mails vorladen (nie fatal)."""
+    uids = (res or {}).get("new_uids") or []
+    if not uids or _stop.is_set():
+        return
+    try:
+        with Session(engine) as s:
+            cache_mod.prefetch_new(s, acc, pw, "INBOX", uids)
+    except Exception:  # noqa: BLE001 - Vorladen ist reine Beschleunigung
+        logger.info("Vorladen fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+
+
+def _push_check(acc: MailAccount, counts: list[dict]) -> None:
+    """Push bei neuer Mail: je ausgewähltem Ordner die Ungelesen-Zahl mit der
+    zuletzt gemeldeten vergleichen. Erster Lauf (Basis -1) setzt nur die Basis.
+    Ordner, die in ``counts`` fehlen, bleiben unangetastet."""
+    try:
+        with _konto_sperre(acc.id or 0), Session(engine) as s:
+            rows = list(s.exec(select(FolderNotify).where(FolderNotify.account_id == acc.id)).all())
+            if not rows:
+                return
+            by_name = {str(c.get("name", "")): int(c.get("unseen", 0) or 0) for c in counts}
+            changed = False
+            decreased = False
+            for row in rows:
+                unseen = by_name.get(row.folder)
+                if unseen is None:
+                    continue
+                base = row.last_unseen
+                if base >= 0 and unseen > base:
+                    push_mod.push_new_mail(s, acc, row.folder, unseen - base)
+                if base >= 0 and unseen < base:
+                    decreased = True   # woanders gelesen → Geräte aufräumen lassen
+                if unseen != base:
+                    row.last_unseen = unseen
+                    s.add(row)
+                    changed = True
+                    # Live-Sync: offene Clients dieses Users auffrischen lassen.
+                    bus.publish(acc.user_id, {"type": "mail", "account_id": acc.id, "folder": row.folder})
+            if changed:
+                s.commit()
+            if decreased:
+                # Stiller FCM-Refresh → Handy entfernt erledigte Benachrichtigungen.
+                push_mod.push_refresh(s, acc.user_id)
+    except Exception:  # noqa: BLE001 - Push darf den Sync nie kippen
+        logger.warning("Push-Check fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+
+
+def sync_inbox_now(account_id: int) -> None:
+    """Schnelldurchlauf fuer EIN Konto, ausgeloest vom IDLE-Waechter.
+
+    Der Server hat gemeldet, dass sich im Posteingang etwas getan hat. Statt bis
+    zur naechsten Runde (bis zu ~2,5 min) zu warten: Regeln, Posteingang, Push
+    fuer den Posteingang, dann die neuen Volltexte vorladen. Ordnerzaehler,
+    Aufraeumen und Abwesenheitsnotiz bleiben bei der normalen Runde.
+    """
+    if _stop.is_set():
+        return
+    with Session(engine) as s:
+        acc = s.exec(
+            select(MailAccount).join(User, MailAccount.user_id == User.id)
+            .where(MailAccount.id == account_id, User.is_active == True)  # noqa: E712
+        ).first()
+        if acc is not None:
+            s.expunge(acc)
+    if acc is None:
+        return
+    try:
+        pw = decrypt(acc.secret_enc)
+    except Exception:  # noqa: BLE001
+        logger.warning("IDLE-Sync uebersprungen: Entschlüsselung fehlgeschlagen (account_id=%s)", acc.id)
+        return
+    with _konto_sperre(acc.id or 0):
+        try:
+            rules, _notify = _regeln_und_benachrichtigung(acc)
+            if rules and not _stop.is_set():
+                imap_mod.apply_rules(acc, pw, rules)
+        except Exception:  # noqa: BLE001 - Regeln dürfen den Sync nie kippen
+            logger.warning("Auto-Regeln (IDLE) fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+        res = _warm_sync(acc, pw, op="sync-idle")
+    if res is not None and not _stop.is_set():
+        _push_check(acc, [{"name": "INBOX", "unseen": res.get("unseen", 0)}])
+    _vorladen(acc, pw, res)
+
+
 def _sync_account(acc: MailAccount) -> None:
     """Einen Account warmhalten: INBOX-Nachrichten + alle Ordnerzähler."""
     try:
@@ -112,35 +256,35 @@ def _sync_account(acc: MailAccount) -> None:
         logger.warning("Sync uebersprungen: Entschlüsselung fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
         return
 
-    # 0) Filterregeln automatisch anwenden (löschen/verschieben/markieren), BEVOR
-    #    der Cache gefüllt und gepusht wird — so taucht geblockter Spam gar nicht
-    #    erst als „neue Mail" auf. Danach ggf. den Spam-Ordner endgültig leeren.
-    try:
-        with Session(engine) as s:
-            rules = list(
-                s.exec(
-                    select(MailRule)
-                    .where(MailRule.account_id == acc.id, MailRule.enabled == True)  # noqa: E712
-                    .order_by(MailRule.position, MailRule.id)
-                ).all()
-            )
-            # Für Push ausgewählte Ordner: genau diese lösen sonst eine
-            # Benachrichtigung aus, wenn dort eine geblockte Mail liegt.
-            notify_folders = [
-                r.folder for r in s.exec(
-                    select(FolderNotify).where(FolderNotify.account_id == acc.id)
-                ).all()
-            ]
-        if rules and not _stop.is_set():
-            imap_mod.apply_rules(acc, pw, rules)          # Posteingang: alle Regeltypen
-            # Geblockte Absender auch aus Spam + überwachten Ordnern entfernen,
-            # BEVOR unten der Push-Check läuft — sonst pingt eine geblockte Mail,
-            # die serverseitig in einen anderen Ordner sortiert wurde.
-            if not _stop.is_set() and _sweep_faellig(acc.id or 0):
-                imap_mod.sweep_block_folders(acc, pw, rules, notify_folders)
-    except Exception:  # noqa: BLE001 - Regeln dürfen den Sync nie kippen
-        logger.warning("Auto-Regeln fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+    # 0 + 1 unter der Konto-Sperre (siehe _KONTO_SPERREN): Regeln und Posteingang.
+    with _konto_sperre(acc.id or 0):
+        # 0) Filterregeln automatisch anwenden (löschen/verschieben/markieren), BEVOR
+        #    der Cache gefüllt und gepusht wird — so taucht geblockter Spam gar nicht
+        #    erst als „neue Mail" auf.
+        try:
+            rules, notify_folders = _regeln_und_benachrichtigung(acc)
+            if rules and not _stop.is_set():
+                imap_mod.apply_rules(acc, pw, rules)          # Posteingang: alle Regeltypen
+                # Geblockte Absender auch aus Spam + überwachten Ordnern entfernen,
+                # BEVOR unten der Push-Check läuft — sonst pingt eine geblockte Mail,
+                # die serverseitig in einen anderen Ordner sortiert wurde.
+                if not _stop.is_set() and _sweep_faellig(acc.id or 0):
+                    imap_mod.sweep_block_folders(acc, pw, rules, notify_folders)
+        except Exception:  # noqa: BLE001 - Regeln dürfen den Sync nie kippen
+            logger.warning("Auto-Regeln fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
 
+        # 1) Nachrichten der wichtigen Ordner (Delta-Sync füllt CachedMessage + Counts).
+        #    Kamen NEUE Mails an, sofort ein Live-Sync-Event senden, damit offene
+        #    Clients (Web/App) auffrischen — UNABHÄNGIG von Benachrichtigungs-Ordnern.
+        #    (Die eigentliche Push-Notification weiter unten bleibt an FolderNotify
+        #    gebunden; das hier ist nur das „bitte neu laden" für offene Ansichten.)
+        res = _warm_sync(acc, pw, op="sync-hintergrund")
+    if _stop.is_set():
+        return
+    _vorladen(acc, pw, res)
+
+    # Spam/Papierkorb nach Tagen leeren - stuendlich, ausserhalb der Konto-Sperre,
+    # damit ein IDLE-Schnelldurchlauf nicht darauf warten muss.
     _purge_dran = _purge_faellig(acc.id or 0)
     if acc.spam_purge_days >= 0 and _purge_dran and not _stop.is_set():
         try:
@@ -153,24 +297,6 @@ def _sync_account(acc: MailAccount) -> None:
             imap_mod.purge_trash(acc, pw, acc.trash_purge_days)
         except Exception:  # noqa: BLE001 - Papierkorb-Purge darf den Sync nie kippen
             logger.warning("Papierkorb-Auto-Purge fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
-
-    # 1) Nachrichten der wichtigen Ordner (Delta-Sync füllt CachedMessage + Counts).
-    #    Kamen NEUE Mails an, sofort ein Live-Sync-Event senden, damit offene
-    #    Clients (Web/App) auffrischen — UNABHÄNGIG von Benachrichtigungs-Ordnern.
-    #    (Die eigentliche Push-Notification weiter unten bleibt an FolderNotify
-    #    gebunden; das hier ist nur das „bitte neu laden" für offene Ansichten.)
-    for folder in _WARM_FOLDERS:
-        if _stop.is_set():
-            return
-        try:
-            with Session(engine) as s:
-                res = cache_mod.sync_folder(s, acc, pw, folder, op="sync-hintergrund")
-            if int(res.get("new", 0) or 0) > 0:
-                bus.publish(acc.user_id, {"type": "mail", "account_id": acc.id, "folder": folder})
-        except Exception:  # noqa: BLE001 - ein Ordner/Konto darf den Lauf nie kippen
-            logger.warning(
-                "Hintergrund-Sync fehlgeschlagen (account_id=%s, folder=%s)", acc.id, folder, exc_info=True
-            )
 
     # 1b) Abwesenheitsnotiz: neue INBOX-Mails prüfen und ggf. automatisch antworten.
     #     Defensiv (Standard AUS, Schleifenschutz in vacation.py); Fehler kippen nie den Sync.
@@ -194,38 +320,9 @@ def _sync_account(acc: MailAccount) -> None:
         finally:
             counts_gate.finish(acc.id)
 
-    # 3) Push bei neuer Mail: pro ausgewähltem Ordner die Ungelesen-Zahl mit der
-    #    zuletzt gemeldeten vergleichen. Erster Lauf (Basis -1) setzt nur die Basis.
+    # 3) Push bei neuer Mail (alle ausgewählten Ordner, siehe _push_check).
     if counts is not None and not _stop.is_set():
-        try:
-            with Session(engine) as s:
-                rows = list(s.exec(select(FolderNotify).where(FolderNotify.account_id == acc.id)).all())
-                if rows:
-                    by_name = {str(c.get("name", "")): int(c.get("unseen", 0) or 0) for c in counts}
-                    changed = False
-                    decreased = False
-                    for row in rows:
-                        unseen = by_name.get(row.folder)
-                        if unseen is None:
-                            continue
-                        base = row.last_unseen
-                        if base >= 0 and unseen > base:
-                            push_mod.push_new_mail(s, acc, row.folder, unseen - base)
-                        if base >= 0 and unseen < base:
-                            decreased = True   # woanders gelesen → Geräte aufräumen lassen
-                        if unseen != base:
-                            row.last_unseen = unseen
-                            s.add(row)
-                            changed = True
-                            # Live-Sync: offene Clients dieses Users auffrischen lassen.
-                            bus.publish(acc.user_id, {"type": "mail", "account_id": acc.id, "folder": row.folder})
-                    if changed:
-                        s.commit()
-                    if decreased:
-                        # Stiller FCM-Refresh → Handy entfernt erledigte Benachrichtigungen.
-                        push_mod.push_refresh(s, acc.user_id)
-        except Exception:  # noqa: BLE001 - Push darf den Sync nie kippen
-            logger.warning("Push-Check fehlgeschlagen (account_id=%s)", acc.id, exc_info=True)
+        _push_check(acc, counts)
 
 
 def _sync_once() -> None:
@@ -240,7 +337,14 @@ def _sync_once() -> None:
     except Exception:  # noqa: BLE001
         logger.warning("Konten für Hintergrund-Sync laden fehlgeschlagen", exc_info=True)
         return
-    if _stop.is_set() or not accounts:
+    if _stop.is_set():
+        return
+    # IDLE-Waechter an die aktuelle Kontenliste anpassen (neu/geloescht/geaendert).
+    try:
+        idle_watch.abgleichen(accounts)
+    except Exception:  # noqa: BLE001 - IDLE ist Zugabe, die Runde laeuft trotzdem
+        logger.warning("IDLE-Waechter abgleichen fehlgeschlagen", exc_info=True)
+    if not accounts:
         return
     # Parallel absetzen; jedes _sync_account isoliert sich selbst (eigene Session +
     # try/except). Ergebnisse einsammeln, damit ein Fehler geloggt wird statt still zu
@@ -443,11 +547,14 @@ def start_scheduler() -> None:
         return
     _started = True
     _stop.clear()
+    idle_watch.set_handler(sync_inbox_now)
     _thread = threading.Thread(target=_loop, name="selfmailer-sync", daemon=True)
     _thread.start()
 
 
 def stop_scheduler() -> None:
     _stop.set()
+    idle_watch.set_handler(None)
+    idle_watch.stop_all()
     # Laufende Konto-Syncs nicht mehr abwarten (daemon-Threads), aber keine neuen annehmen.
     _SYNC_POOL.shutdown(wait=False, cancel_futures=True)
