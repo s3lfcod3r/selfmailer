@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as _dt
-import json
 import logging
 import os
 import re
@@ -21,7 +20,7 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from sqlmodel import Session, select
 
-from ..core.crypto import decrypt
+from ..core.crypto import decrypt, seal_json
 from ..core.db import engine, get_session
 from ..events import bus
 from ..mail import cache as cache_mod
@@ -1282,8 +1281,8 @@ async def schedule_send(
     session: Session = Depends(get_session),
 ) -> dict:
     """Eine Mail zum SPÄTEREN Versand parken. Der Scheduler sendet sie zur Zeit
-    ``send_at`` (Granularität ~1-2 Min). Body/Anhänge liegen bis dahin verschlüsselt-
-    frei als JSON in der DB und werden nach dem Versand gelöscht."""
+    ``send_at`` (Granularität ~1-2 Min). Body/Empfänger/Anhänge liegen bis dahin
+    Fernet-verschlüsselt in der DB (seal_json) und werden nach dem Versuch gelöscht."""
     _reject_if_too_large(data)
     # Konto-Zugriff prüfen (wirft bei fremdem/fehlendem Konto).
     acc = await run_in_threadpool(_account, account_id, user, session)
@@ -1301,7 +1300,7 @@ async def schedule_send(
     row = ScheduledMail(
         user_id=user.id, account_id=account_id,
         subject=data.subject, to_addrs=", ".join(str(x) for x in data.to),
-        payload_json=json.dumps(payload), send_at=send_at, status="pending",
+        payload_json=seal_json(payload), send_at=send_at, status="pending",
     )
     session.add(row)
     session.commit()

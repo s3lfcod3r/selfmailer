@@ -31,6 +31,38 @@ _FILE_PREFIX = "selfmailer-"
 _FILE_SUFFIX = ".db"
 _TIMESTAMP_FMT = "%Y%m%d-%H%M%S"
 
+# Rechte (Durchsicht 2026-10-24): ein Backup enthaelt alles - Mail-Cache,
+# Kontakte, verschluesselte Zugangsdaten. Mit der Standard-umask (022) lag es
+# fuer jeden Nutzer des Hosts lesbar herum. Jetzt nur noch fuer den Container-
+# User. Unter Windows bildet chmod nur "schreibgeschuetzt" ab - dort wirkt das
+# praktisch nicht, schadet aber auch nicht.
+_DIR_MODE = 0o700
+_FILE_MODE = 0o600
+
+
+def _chmod(path: Path, mode: int) -> None:
+    """Rechte setzen; ein Fehler (fremder Eigentuemer, FS ohne Rechte) darf das
+    Backup nicht verhindern - nur protokollieren."""
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        logger.warning("Rechte fuer %s nicht setzbar", path, exc_info=True)
+
+
+def _haerten(backup_dir: Path) -> None:
+    """Ordner 700, alle vorhandenen Snapshots 600 (zieht Altbestand nach)."""
+    _chmod(backup_dir, _DIR_MODE)
+    for snapshot in backup_dir.glob(f"{_FILE_PREFIX}*{_FILE_SUFFIX}"):
+        _chmod(snapshot, _FILE_MODE)
+
+
+def _leer_anlegen(target: Path) -> None:
+    """Zieldatei VOR dem Schreiben mit 600 anlegen - sonst laege sie waehrend
+    des Kopierens kurz mit umask-Rechten (meist 644) im Ordner. O_EXCL: eine
+    vorhandene Datei wird nie ueberschrieben."""
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, _FILE_MODE)
+    os.close(fd)
+
 
 def _backup_dir(db_path: str) -> Path:
     """Verzeichnis für Backups neben der DB (``<db-dir>/backups``)."""
@@ -79,23 +111,32 @@ def create_backup() -> Path | None:
         return None
 
     backup_dir = _backup_dir(db_path)
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_dir.mkdir(mode=_DIR_MODE, parents=True, exist_ok=True)
+    _haerten(backup_dir)
 
     timestamp = datetime.now().strftime(_TIMESTAMP_FMT)
     target = backup_dir / f"{_FILE_PREFIX}{timestamp}{_FILE_SUFFIX}"
+    _leer_anlegen(target)
 
     # Online-Backup-API: konsistenter Snapshot trotz laufender Schreiber.
     # Read-only auf die Quelle (uri=...mode=ro) — wir verändern die Live-DB nie.
+    # Eine leere Zieldatei behandelt SQLite als leere Datenbank.
     source_uri = f"file:{Path(db_path).as_posix()}?mode=ro"
-    source = sqlite3.connect(source_uri, uri=True, timeout=30)
     try:
-        dest = sqlite3.connect(str(target), timeout=30)
+        source = sqlite3.connect(source_uri, uri=True, timeout=30)
         try:
-            source.backup(dest)
+            dest = sqlite3.connect(str(target), timeout=30)
+            try:
+                source.backup(dest)
+            finally:
+                dest.close()
         finally:
-            dest.close()
-    finally:
-        source.close()
+            source.close()
+    except BaseException:
+        # Halbfertigen Snapshot nicht liegen lassen - er saehe aus wie ein Backup.
+        target.unlink(missing_ok=True)
+        raise
+    _chmod(target, _FILE_MODE)  # falls das FS die Modus-Angabe beim Anlegen ignoriert
 
     logger.info("DB-Backup erstellt: %s", target.name)
     _rotate(backup_dir, settings.backup_keep)
