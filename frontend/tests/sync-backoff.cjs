@@ -3,7 +3,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const ts = require('typescript');
+// TypeScript 7 (nativer Compiler) hat keine JS-API mehr - Tests nutzen die
+// JS-Version unter dem Alias typescript-api (siehe package.json).
+const ts = require('typescript-api');
 const root = path.resolve(__dirname, '..');
 const options = { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS };
 const policyExports = {};
