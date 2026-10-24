@@ -5,7 +5,9 @@ gegeben. Klartext nur transient beim Verbindungsaufbau.
 """
 from __future__ import annotations
 
+import imaplib
 import logging
+import ssl
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
@@ -21,7 +23,7 @@ from ..models import (
     Protocol,
     User,
 )
-from ..schemas import AccountCreate, AccountOut, AccountUpdate
+from ..schemas import AccountCreate, AccountOut, AccountUpdate, TlsCertificateOut
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
@@ -78,6 +80,7 @@ def add_account(
         imap_host=data.imap_host,
         imap_port=data.imap_port,
         imap_ssl=data.imap_ssl,
+        imap_tls_fingerprint=data.imap_tls_fingerprint,
         smtp_host=data.smtp_host,
         smtp_port=data.smtp_port,
         smtp_starttls=data.smtp_starttls,
@@ -138,9 +141,42 @@ def test_account(
     try:
         folders = imap_mod.list_folders(acc, decrypt(acc.secret_enc))
         return {"ok": True, "folders": folders}
+    except ssl.SSLCertVerificationError as exc:
+        # Eigene Meldung: sonst sucht man bei "Login fehlgeschlagen" am Passwort.
+        # Der Grund (z. B. "self-signed certificate", "Hostname mismatch") ist
+        # keine vertrauliche Information.
+        grund = (getattr(exc, "verify_message", "") or str(exc))[:200]
+        logger.warning("IMAP-Zertifikat abgelehnt (account_id=%s): %s", account_id, grund)
+        return {"ok": False, "error": f"TLS-Zertifikat des IMAP-Servers abgelehnt: {grund}",
+                "tls_error": True}
     except Exception:  # noqa: BLE001
         logger.warning("IMAP-Login-Test fehlgeschlagen (account_id=%s)", account_id, exc_info=True)
         return {"ok": False, "error": "Login fehlgeschlagen"}
+
+
+@router.post("/{account_id}/tls-certificate", response_model=TlsCertificateOut)
+def tls_certificate(
+    account_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Zertifikat des IMAP-Servers abrufen, um es per Fingerprint zu vertrauen.
+
+    Sendet KEINE Zugangsdaten und speichert nichts - der Nutzer vergleicht den
+    Fingerprint (z. B. mit der Anzeige im DSM) und uebernimmt ihn selbst ins
+    Konto. Nutzt die gespeicherten Host-/Port-/TLS-Einstellungen; vorher also
+    speichern, falls sie gerade geaendert wurden.
+    """
+    acc = _owned(account_id, user, session)
+    if acc.protocol != Protocol.imap or not acc.imap_host:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Kein IMAP-Server eingetragen")
+    try:
+        return imap_mod.zertifikat_abrufen(acc)
+    except HTTPException:
+        raise
+    except (OSError, imaplib.IMAP4.error) as exc:
+        logger.warning("Zertifikat-Abruf fehlgeschlagen (account_id=%s): %s", account_id, exc)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "IMAP-Server nicht erreichbar oder kein TLS") from exc
 
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
