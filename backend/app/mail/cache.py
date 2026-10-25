@@ -500,6 +500,16 @@ def read_detail(session: Session, account_id: int, folder: str, uid: str) -> dic
     return detail
 
 
+def detail_veraltet(detail: dict) -> bool:
+    """Gecachter Volltext aus der Zeit vor der Header-Dekodierung?
+
+    Bis 1.97.3 fehlte List-Unsubscribe ganz, wurde roh (RFC 2047 "=?...?=")
+    gespeichert oder bei 2000 Zeichen abgeschnitten - dann fehlt der
+    Abmelde-Knopf. Solche Eintraege einmal live neu holen."""
+    lu = detail.get("list_unsubscribe")
+    return lu is None or "=?" in lu or len(lu) == 2000
+
+
 @timing.measured("cache_header")
 def read_header(session: Session, account_id: int, folder: str, uid: str) -> dict | None:
     """Nur den gecachten Kopf (Betreff/Absender/Datum/Vorschau) einer Mail.

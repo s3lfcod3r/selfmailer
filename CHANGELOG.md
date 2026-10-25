@@ -16,12 +16,14 @@ _Already in the `latest` image, but not yet part of a release · Schon im `lates
   - **Virus scan of attachments** with your own **ClamAV** (`SELFMAILER_CLAMAV`): new mail is checked before it appears or pushes, infected mail goes to spam, infected downloads are blocked; never reports “clean” without a real scan.
   - **Spam filter** with **rspamd** (`SELFMAILER_RSPAMD_URL`): rates new mail, moves spam away and learns from the “Spam” button (`SELFMAILER_RSPAMD_CONTROLLER_URL` / `_PASSWORD`).
 - 🇬🇧 Rules: new criteria **reply-to address** and **newsletter ID (List-Id)**, plus a **hit counter** per rule. README updated (features, blocking, security).
+- 🇬🇧 Fix: the unsubscribe button was missing for senders that encode the header (RFC 2047, e.g. OpenAI via SendGrid) or send very long links (over 2000 characters). Mails opened before are fetched from the server once more.
 - 🇩🇪 🔒 **Spam- & Virenschutz** — neuer Reiter **Einstellungen → Sicherheit**, jeder Schalter **aus**, bis du ihn einschaltest, und jederzeit wieder abschaltbar:
   - **Sperren für alle Konten**: ein in einem Konto gesperrter Absender verschwindet aus allen deinen Konten.
   - **Abmelden mit einem Klick** für Newsletter (RFC 8058): nur https, nur öffentliche Adressen, Warnung bei ungeprüftem Absender; nicht im Spam-Ordner.
   - **Virenscan der Anhänge** mit deinem eigenen **ClamAV** (`SELFMAILER_CLAMAV`): neue Mails werden geprüft, bevor sie erscheinen oder pushen, infizierte Mails wandern in den Spam-Ordner, infizierte Downloads werden gesperrt; meldet nie „sauber" ohne echten Scan.
   - **Spamfilter** mit **rspamd** (`SELFMAILER_RSPAMD_URL`): bewertet neue Mails, verschiebt Spam und lernt mit dem „Spam"-Knopf (`SELFMAILER_RSPAMD_CONTROLLER_URL` / `_PASSWORD`).
 - 🇩🇪 Regeln: neue Merkmale **Antwort-Adresse** und **Newsletter-Kennung (List-Id)** sowie ein **Trefferzähler** je Regel. README nachgezogen (Funktionen, Absender blockieren, Sicherheit).
+- 🇩🇪 Fix: Der Abmelde-Knopf fehlte bei Absendern, die den Header kodieren (RFC 2047, z. B. OpenAI über SendGrid) oder sehr lange Links schicken (über 2000 Zeichen). Schon einmal geöffnete Mails werden dafür einmal neu vom Server geholt.
 - 🇩🇪 Unraid: neue Felder für ClamAV/rspamd in der Vorlage — bei einem bestehenden Container die Variable `SELFMAILER_CLAMAV` von Hand ergänzen.
 
 ## 1.97.2 · Build 128
