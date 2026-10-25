@@ -8,6 +8,12 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.97.4 · Build 130
+- 🇬🇧 **APK:** new switch **Settings → Security → Allow screenshots** (only with the app lock on, off by default). The authenticity badge now only appears when something is wrong (“Possibly forged”), as in the web version — “Not verifiable” looked like a warning on genuine mail.
+- 🇩🇪 **APK:** neuer Schalter **Einstellungen → Sicherheit → Screenshots erlauben** (nur bei aktiver App-Sperre, Standard aus). Das Echtheits-Kästchen erscheint nur noch, wenn etwas nicht stimmt („Evtl. gefälscht“), wie in der Web-Version – „Nicht prüfbar“ wirkte bei echten Mails wie eine Warnung.
+- 🇩🇪 Server unverändert gegenüber 1.97.3 (nur Versionsnummer).
+- 📄 [RELEASE-1.97.4.txt](docs/RELEASE-1.97.4.txt)
+
 ## 1.97.3 · Build 129
 - 🇬🇧 🔒 **Spam & virus protection** — new tab **Settings → Security**, every switch **off** until you turn it on, and you can turn it off again at any time:
   - **Blocks for all accounts**: a sender blocked in one account is removed from all your accounts.
