@@ -1,0 +1,25 @@
+SelfMailer 1.97.6 / Build 132 - Kompakte Abmelde-Leiste / 25.10.2026
+
+APK
+- Die Abmelde-Leiste ueber dem Mailtext ist jetzt eine kompakte Zeile:
+  Brief-Symbol, "Newsletter" mit kurzer Info-Zeile ("Ein-Klick-Abmeldung
+  moeglich", bei geprueftem Absender "· ✓ Absender geprueft") und ein kleiner
+  umrandeter Knopf "Abbestellen" rechts. Vorher stand dort ein langer Satz
+  ueber drei Zeilen mit einem grossen Textlink. Nach dem Abbestellen
+  verschwindet der Knopf, die Info-Zeile zeigt "✓ Abmeldung abgeschickt."
+- Rueckfrage vor dem Abbestellen unveraendert.
+- Texte in allen 12 Sprachen.
+
+Server / Web
+- Unveraendert gegenueber 1.97.5, nur die Versionsnummer.
+
+Kompatibilitaet
+Server 1.97.6 entspricht 1.97.3-1.97.5 und funktioniert mit APK 1.97.2 bis
+1.97.6. APK 1.97.6 funktioniert mit Server 1.97.3 bis 1.97.6.
+APK signiert mit bisherigem Zertifikat (CN=SelfMailer, SHA-256 cd05a16c...8e4938).
+Build 132 aktualisiert Build 131.
+
+Pruefung
+130 Android-JVM-Tests; CI inklusive Container-Smoke, TLS-Smoke und Trivy;
+APK-Version und Signatur mit apksigner geprueft. Kein physisches Android-Geraet:
+das neue Aussehen der Leiste ist auf einem echten Geraet ungetestet.

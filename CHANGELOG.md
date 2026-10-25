@@ -8,6 +8,12 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.97.6 · Build 132
+- 🇬🇧 **APK:** the unsubscribe bar is now a compact row — mail icon, “Newsletter” with a short info line, small “Unsubscribe” button on the right (before: a long sentence wrapped over three lines).
+- 🇩🇪 **APK:** die Abmelde-Leiste ist jetzt eine kompakte Zeile – Brief-Symbol, „Newsletter“ mit kurzer Info-Zeile, kleiner Knopf „Abbestellen“ rechts (vorher ein langer Satz über drei Zeilen).
+- 🇩🇪 Server unverändert gegenüber 1.97.5 (nur Versionsnummer).
+- 📄 [RELEASE-1.97.6.txt](docs/RELEASE-1.97.6.txt)
+
 ## 1.97.5 · Build 131
 - 🇬🇧 **APK: screenshots allowed by default again.** Build 128–130 blocked screenshots automatically while the app lock was on. Now there is a separate switch **Settings → Security → Block screenshots** (always visible, off by default); it also hides mail content in the app overview. The app lock itself is unchanged.
 - 🇩🇪 **APK: Screenshots wieder standardmäßig erlaubt.** Build 128–130 sperrten Screenshots automatisch bei aktiver App-Sperre. Jetzt gibt es einen eigenen Schalter **Einstellungen → Sicherheit → Screenshots sperren** (immer sichtbar, Standard aus); er verbirgt auch den Mailinhalt in der App-Übersicht. Die App-Sperre selbst bleibt unverändert.
