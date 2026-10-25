@@ -1,25 +1,102 @@
-SelfMailer — Proprietary License
+SelfMailer — Proprietary License / Proprietäre Lizenz
 
-Copyright (c) 2026 Sven Schmidt / SelfCoder. All rights reserved.
+Copyright (c) 2026 s3lfcod3r / SelfCoder. All rights reserved. / Alle Rechte vorbehalten.
 
-This software and its source code are made available for reference and
-self-hosting on your own infrastructure only ("source-available"). They are
-NOT open source.
+==============================================================================
+ENGLISH
+==============================================================================
 
-Without the prior written permission of the copyright holder you may NOT:
+This software and its source code (the "Software") are the property of the
+copyright holder. They are published for transparency and for private
+self-hosting only. The Software is NOT open source.
 
-  - redistribute, sublicense, sell, rent or lease this software or its source
-    code, in whole or in part, in original or modified form;
-  - use this software or any part of it in a commercial product or service;
-  - publish, host or operate this software for third parties;
-  - create or distribute derivative works based on this software.
+1. PERMITTED
+   You may download, install and run the unmodified Software for private,
+   non-commercial purposes on your own devices or infrastructure (for example
+   in your home lab, via Docker or Unraid).
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. NOT PERMITTED without prior written permission of the copyright holder
+   - any commercial use, including use within a company or to provide
+     services to third parties;
+   - copying the source code, in whole or in part, beyond what is strictly
+     necessary for the permitted private use;
+   - modifying the Software or creating derivative works based on it;
+   - distributing, publishing, sublicensing, renting or lending the Software
+     or any part of it, in original or modified form;
+   - incorporating the Software or any part of it into other projects,
+     including closed-source software;
+   - selling the Software or any part of it.
 
-For permission requests, contact the copyright holder.
+3. GITHUB
+   The public availability of this repository does not grant any license
+   beyond section 1. A fork created on GitHub solely under the GitHub Terms of
+   Service grants no further rights.
+
+4. THIRD-PARTY COMPONENTS
+   Third-party components used by or included in this repository remain
+   under their own licenses. This license does not apply to them.
+
+5. EARLIER VERSIONS
+   Versions published before this license took effect remain available
+   under the license that applied to them at that time. This license applies
+   to all later versions.
+
+6. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+Permission requests: https://github.com/s3lfcod3r
+
+==============================================================================
+DEUTSCH
+==============================================================================
+
+Diese Software und ihr Quellcode (die „Software“) sind Eigentum des
+Rechteinhabers. Sie werden nur zur Transparenz und für privates Self-Hosting
+veröffentlicht. Die Software ist KEINE Open-Source-Software.
+
+1. ERLAUBT
+   Du darfst die unveränderte Software für private, nicht-kommerzielle Zwecke
+   auf deinen eigenen Geräten oder Servern herunterladen, installieren und
+   benutzen (zum Beispiel im Homelab, über Docker oder Unraid).
+
+2. OHNE VORHERIGE SCHRIFTLICHE ERLAUBNIS DES RECHTEINHABERS VERBOTEN
+   - jede kommerzielle Nutzung, auch innerhalb eines Unternehmens oder um
+     Dienste für Dritte anzubieten;
+   - den Quellcode ganz oder teilweise zu kopieren, soweit es nicht für die
+     erlaubte private Nutzung zwingend nötig ist;
+   - die Software zu verändern oder darauf aufbauende Werke zu erstellen;
+   - die Software oder Teile davon, original oder verändert, weiterzugeben,
+     zu veröffentlichen, zu unterlizenzieren, zu vermieten oder zu verleihen;
+   - die Software oder Teile davon in andere Projekte einzubauen, auch in
+     Closed-Source-Software;
+   - die Software oder Teile davon zu verkaufen.
+
+3. GITHUB
+   Dass dieses Repository öffentlich einsehbar ist, gewährt keine Rechte über
+   Abschnitt 1 hinaus. Ein Fork, der allein auf Grundlage der
+   GitHub-Nutzungsbedingungen auf GitHub erstellt wird, gewährt keine
+   weiteren Rechte.
+
+4. KOMPONENTEN DRITTER
+   Komponenten Dritter, die dieses Repository nutzt oder enthält, bleiben
+   unter ihren eigenen Lizenzen. Diese Lizenz gilt nicht für sie.
+
+5. FRÜHERE VERSIONEN
+   Versionen, die vor Inkrafttreten dieser Lizenz veröffentlicht wurden,
+   bleiben unter der Lizenz verfügbar, die damals für sie galt. Diese Lizenz
+   gilt für alle späteren Versionen.
+
+6. KEINE GEWÄHRLEISTUNG
+   DIE SOFTWARE WIRD OHNE MÄNGELGEWÄHR („WIE BESEHEN“) BEREITGESTELLT, OHNE
+   JEGLICHE AUSDRÜCKLICHE ODER STILLSCHWEIGENDE GEWÄHRLEISTUNG. DER
+   RECHTEINHABER HAFTET NICHT FÜR ANSPRÜCHE, SCHÄDEN ODER SONSTIGE
+   VERPFLICHTUNGEN, DIE AUS DER SOFTWARE ODER IHRER NUTZUNG ENTSTEHEN,
+   SOWEIT GESETZLICH ZULÄSSIG.
+
+Anfragen für eine Erlaubnis: https://github.com/s3lfcod3r
+
+Bei Abweichungen zwischen den Sprachfassungen gilt die deutsche Fassung.
