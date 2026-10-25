@@ -8,11 +8,12 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
-## 1.97.8 · not released yet / noch nicht veröffentlicht
+## 1.97.8 · Build 134
 - 🇬🇧 **Dark reading mode, easier to read** (web and app): colored buttons (“View order”) keep a colored area instead of turning into plain link text, tracking pixels (1×1) are hidden, the light plate behind images only appears once images are loaded and is softer. In the app, blocked images show a dark placeholder instead of white boxes. Basis: 103 mails from 8 inboxes (75 had white boxes, 46 lost their buttons).
 - 🇬🇧 APK: the “Message” title in the reading view's top bar is gone (only “N…” was left).
 - 🇩🇪 **Dunkler Lesemodus besser lesbar** (Web und App): farbige Knöpfe („Bestellung ansehen“) behalten eine Fläche statt zu blassem Linktext zu werden, Zählpixel (1×1) werden ausgeblendet, die helle Platte hinter Bildern gibt es nur noch bei geladenen Bildern und dezenter. In der App zeigen blockierte Bilder einen dunklen Platzhalter statt weißer Kästen. Grundlage: 103 Mails aus 8 Posteingängen (75 mit weißen Kästen, 46 mit verlorenen Knöpfen).
 - 🇩🇪 APK: der Titel „Nachricht“ in der oberen Leiste der Lese-Ansicht entfällt (es blieb nur „N…“).
+- 📄 [RELEASE-1.97.8.txt](docs/RELEASE-1.97.8.txt)
 
 ## 1.97.7 · Build 133
 - 🇬🇧 **APK: tidier reading view.** “Similar mails / Clean up”, Print and Block sender moved into a **⋮ menu** in the top bar (also per mail in the conversation view); the newsletter bar is a single slim line with an “Unsubscribe” text button; more compact header (smaller subject and avatar, sender address only when it differs from the name).
