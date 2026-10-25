@@ -1,0 +1,30 @@
+SelfMailer 1.97.4 / Build 130 - Screenshots, Echtheits-Hinweis / 25.10.2026
+
+APK
+- Neuer Schalter Einstellungen -> Sicherheit -> Screenshots erlauben. Er
+  erscheint nur bei aktiver App-Sperre und ist standardmaessig aus (wie
+  bisher: FLAG_SECURE, keine Screenshots, kein Vorschaubild in der
+  App-Uebersicht). Eingeschaltet sind Screenshots wieder moeglich; der
+  Mailinhalt ist dann auch im Vorschaubild der App-Uebersicht sichtbar. Wirkt
+  sofort.
+- Echtheits-Kaestchen wie in der Web-Version: nur noch bei einem Problem
+  ("Evtl. gefaelscht"). "Nicht pruefbar" (kein vertrauter Pruefer eingetragen,
+  SELFMAILER_TRUSTED_AUTHSERV_IDS) und "Domain bestaetigt" werden nicht mehr
+  angezeigt - "Nicht pruefbar" wirkte bei echten Mails wie eine Warnung.
+- Texte in allen 12 Sprachen.
+
+Server / Web
+- Unveraendert gegenueber 1.97.3, nur die Versionsnummer.
+
+Kompatibilitaet
+Server 1.97.4 entspricht 1.97.3 und funktioniert mit APK 1.97.2, 1.97.3 und
+1.97.4. APK 1.97.4 funktioniert mit Server 1.97.3 und 1.97.4 (mit 1.97.2 ohne
+Abmelde-Knopf und Virus-Hinweis).
+APK signiert mit bisherigem Zertifikat (CN=SelfMailer, SHA-256 cd05a16c...8e4938).
+Build 130 aktualisiert Build 129.
+
+Pruefung
+130 Android-JVM-Tests; CI inklusive Container-Smoke, TLS-Smoke und Trivy;
+APK-Version und Signatur mit apksigner geprueft. Kein physisches Android-Geraet:
+der Screenshot-Schalter und die geaenderte Echtheits-Anzeige sind auf einem
+echten Geraet ungetestet.
