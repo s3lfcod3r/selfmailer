@@ -1,0 +1,29 @@
+SelfMailer 1.97.5 / Build 131 - Screenshots wieder erlaubt / 25.10.2026
+
+APK
+- Screenshots sind wieder standardmaessig erlaubt. Build 128-130 setzten bei
+  aktiver App-Sperre automatisch FLAG_SECURE; Android meldete dann "Die App
+  laesst keine Screenshots zu". Der Schalter "Screenshots erlauben" aus Build
+  130 war nur bei aktiver App-Sperre sichtbar und standardmaessig aus.
+- Neuer Schalter Einstellungen -> Sicherheit -> Screenshots sperren: immer
+  sichtbar, Standard aus, unabhaengig von der App-Sperre. Eingeschaltet:
+  keine Screenshots, kein Mailinhalt im Vorschaubild der App-Uebersicht,
+  schwarzes Bild bei Bildschirmfreigabe. Wirkt sofort.
+- Die App-Sperre (Gesicht / Fingerabdruck) bleibt unveraendert. Wer die
+  Vorschau in der App-Uebersicht verbergen will, schaltet "Screenshots
+  sperren" zusaetzlich ein.
+- Texte in allen 12 Sprachen.
+
+Server / Web
+- Unveraendert gegenueber 1.97.4, nur die Versionsnummer.
+
+Kompatibilitaet
+Server 1.97.5 entspricht 1.97.3/1.97.4 und funktioniert mit APK 1.97.2 bis
+1.97.5. APK 1.97.5 funktioniert mit Server 1.97.3 bis 1.97.5.
+APK signiert mit bisherigem Zertifikat (CN=SelfMailer, SHA-256 cd05a16c...8e4938).
+Build 131 aktualisiert Build 130.
+
+Pruefung
+130 Android-JVM-Tests; CI inklusive Container-Smoke, TLS-Smoke und Trivy;
+APK-Version und Signatur mit apksigner geprueft. Kein physisches Android-Geraet:
+Screenshots und der neue Schalter sind auf einem echten Geraet ungetestet.
