@@ -1,0 +1,35 @@
+SelfMailer 1.97.8 / Build 134 - Dunkler Lesemodus besser lesbar / 25.10.2026
+
+Server / Web (#46)
+- Dunkler Lesemodus: farbige Knoepfe ("Bestellung ansehen", "Details
+  anzeigen") behalten eine Flaeche (App-Farbe, weisse Schrift, runde Ecken)
+  statt zu blossem Linktext zu werden. Als Knopf gilt ein Link mit eigenem
+  Hintergrund oder ein Link direkt in einer farbigen (nicht weissen)
+  Tabellenzelle, jeweils ohne Bild.
+- Zaehlpixel (1x1-Bilder) werden ausgeblendet.
+- Die helle Platte hinter Bildern (damit dunkle Logos erkennbar bleiben) gibt
+  es nur noch bei geladenen Bildern, dezenter (#f0f3f6, abgerundet).
+- Grundlage: Stichprobe vom 25.10.2026, 103 Mails aus 8 Posteingaengen, 92
+  davon HTML. 75 zeigten weisse Flaechen, 46 verloren ihre farbigen Knoepfe,
+  60 enthielten Zaehlpixel (127 insgesamt), nur 9 brachten ein eigenes
+  Dunkel-Design mit.
+
+APK
+- Dieselben Regeln wie im Web. Zusaetzlich: blockierte Bilder zeigen einen
+  dunklen, abgerundeten Platzhalter (mit Beschreibungstext) statt einer
+  weissen Flaeche - die App behaelt blockierte Bilder im Dokument.
+- Titel "Nachricht" in der oberen Leiste der Lese-Ansicht entfaellt (bei
+  vollen Symbolen blieb nur "N...").
+
+Kompatibilitaet
+Server 1.97.8 funktioniert mit APK 1.97.2 bis 1.97.8, APK 1.97.8 mit Server
+1.97.3 bis 1.97.8 (die Dunkel-Regeln wirken in der App unabhaengig vom Server).
+APK signiert mit bisherigem Zertifikat (CN=SelfMailer, SHA-256 cd05a16c...8e4938).
+Build 134 aktualisiert Build 133.
+
+Pruefung
+Backend-Tests, 57 Web-Tests (neu: Regeln des Dunkel-Stils) und 130
+Android-JVM-Tests; CI inklusive Container-Smoke, TLS-Smoke und Trivy; alter und
+neuer Stil an der Doctolib-Erinnerung im Browser nebeneinander verglichen;
+APK-Version und Signatur mit apksigner geprueft. Kein physisches Android-Geraet:
+das Aussehen in der App ist auf einem echten Geraet ungetestet.
