@@ -8,6 +8,12 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.97.5 · Build 131
+- 🇬🇧 **APK: screenshots allowed by default again.** Build 128–130 blocked screenshots automatically while the app lock was on. Now there is a separate switch **Settings → Security → Block screenshots** (always visible, off by default); it also hides mail content in the app overview. The app lock itself is unchanged.
+- 🇩🇪 **APK: Screenshots wieder standardmäßig erlaubt.** Build 128–130 sperrten Screenshots automatisch bei aktiver App-Sperre. Jetzt gibt es einen eigenen Schalter **Einstellungen → Sicherheit → Screenshots sperren** (immer sichtbar, Standard aus); er verbirgt auch den Mailinhalt in der App-Übersicht. Die App-Sperre selbst bleibt unverändert.
+- 🇩🇪 Server unverändert gegenüber 1.97.4 (nur Versionsnummer).
+- 📄 [RELEASE-1.97.5.txt](docs/RELEASE-1.97.5.txt)
+
 ## 1.97.4 · Build 130
 - 🇬🇧 **APK:** new switch **Settings → Security → Allow screenshots** (only with the app lock on, off by default). The authenticity badge now only appears when something is wrong (“Possibly forged”), as in the web version — “Not verifiable” looked like a warning on genuine mail.
 - 🇩🇪 **APK:** neuer Schalter **Einstellungen → Sicherheit → Screenshots erlauben** (nur bei aktiver App-Sperre, Standard aus). Das Echtheits-Kästchen erscheint nur noch, wenn etwas nicht stimmt („Evtl. gefälscht“), wie in der Web-Version – „Nicht prüfbar“ wirkte bei echten Mails wie eine Warnung.
