@@ -89,6 +89,22 @@ test('hasRemoteContent fragt den DOM, nicht den Rohtext', () => {
   assert.equal(mv.hasRemoteContent('<!-- <img src="https://example.com/a.png"> -->text'), false);
 });
 
+test('Dunkelmodus: helle Bildplatte nur bei geladenen Bildern, Zaehlpixel und Knoepfe geregelt', () => {
+  const html = '<p>x</p><img src="https://x.example/logo.png">';
+  const blockiert = mv.buildSrcDoc(html, true, true);
+  const geladen = mv.buildSrcDoc(html, false, true);
+  // Blockiert: keine helle Platte (sonst bleibt eine weisse Flaeche stehen).
+  assert.doesNotMatch(blockiert, /img\{background:#f0f3f6/);
+  assert.match(geladen, /img\{background:#f0f3f6/);
+  for (const doc of [blockiert, geladen]) {
+    assert.doesNotMatch(doc, /background:#ffffff !important/);
+    assert.match(doc, /img\[height="1"\][^{]*\{display:none !important;\}/);   // Zaehlpixel
+    assert.match(doc, /a\[style\*="background"\][^{]*\{background-color:#1f8f78/); // Knoepfe
+  }
+  // Ohne Dunkelmodus kein Dunkel-Stil.
+  assert.doesNotMatch(mv.buildSrcDoc(html, false, false), /color-scheme:dark/);
+});
+
 test("protokollrelative Bild-URLs (//host/x) gelten als extern und werden blockiert", () => {
   assert.equal(mv.hasRemoteContent('<img src="//t.example/p.gif">'), true);
   assert.equal(mv.hasRemoteContent('<div style="background:url(//t.example/b.png)">a</div>'), true);
