@@ -6,7 +6,7 @@
 *Selbstgehosteter Mehrbenutzer-Mailclient — mit Kalender, Kontakten, Notizen, nativer Android-App und Echtzeit-Sync.*
 
 [![Build](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml/badge.svg)](https://github.com/s3lfcod3r/selfmailer/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-1.97.5-33A78C)
+![Version](https://img.shields.io/badge/version-1.97.6-33A78C)
 ![License](https://img.shields.io/badge/license-private-8A9CAA)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-1F7763)
 ![Web](https://img.shields.io/badge/web-React%20%2B%20Vite-43D3AD)
