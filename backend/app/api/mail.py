@@ -826,8 +826,9 @@ def _message_detail(account_id: int, uid: str, folder: str, uidvalidity: int | N
     # Cache-first: schon einmal geöffnet → Body kommt SOFORT aus der DB (kein IMAP).
     try:
         cached = cache_mod.read_detail(session, account_id, folder, uid)
-        # Alten Cache OHNE Echtheits-Analyse verwerfen -> live neu holen (mit auth).
-        if cached is not None and cached.get("auth"):
+        # Alten Cache OHNE Echtheits-Analyse oder mit rohem Abmelde-Header
+        # verwerfen -> live neu holen (und neu cachen).
+        if cached is not None and cached.get("auth") and not cache_mod.detail_veraltet(cached):
             if generation and cached.get("uidvalidity") != generation["uidvalidity"]:
                 raise HTTPException(409, "Ordner wurde neu aufgebaut. Bitte Nachrichtenliste neu laden.")
             timing.mark("source", "cache")

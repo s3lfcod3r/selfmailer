@@ -16,6 +16,7 @@ import time
 from contextlib import contextmanager
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone
+from email.header import decode_header, make_header
 from email.message import EmailMessage
 
 from fastapi import HTTPException, status
@@ -1561,11 +1562,27 @@ def _detail_dict(msg, account: MailAccount) -> dict:
         # Bittet der Absender um eine Lesebestätigung? Adresse aus dem Header,
         # sonst leer. Das Frontend zeigt daraufhin den Bestätigungs-Hinweis.
         "mdn_request": msg.obj.get("Disposition-Notification-To", "") or "",
-        # Ein-Klick-Abmeldung (RFC 8058, seit 1.97.3). Roh gespeichert; was davon
-        # angeboten wird, entscheidet mail/security.unsubscribe_info.
-        "list_unsubscribe": str(msg.obj.get("List-Unsubscribe", "") or "")[:2000],
-        "list_unsubscribe_post": str(msg.obj.get("List-Unsubscribe-Post", "") or "")[:200],
+        # Ein-Klick-Abmeldung (RFC 8058, seit 1.97.3). Dekodiert gespeichert; was
+        # davon angeboten wird, entscheidet mail/security.unsubscribe_info.
+        "list_unsubscribe": header_text(msg.obj.get("List-Unsubscribe", ""))[:UNSUB_MAX],
+        "list_unsubscribe_post": header_text(msg.obj.get("List-Unsubscribe-Post", ""))[:200],
     }
+
+
+# Versender wie SendGrid (OpenAI u. a.) schicken Abmelde-Links mit ueber 2700 Zeichen.
+UNSUB_MAX = 8000
+
+
+def header_text(value: object) -> str:
+    """Header-Wert als Klartext: RFC 2047 ("=?us-ascii?Q?=3Chttps...?=") dekodiert,
+    Faltungen entfernt. Kaputte Kodierung -> der Rohwert, nie eine Ausnahme."""
+    raw = str(value or "")
+    if "=?" in raw:
+        try:
+            raw = str(make_header(decode_header(raw)))
+        except Exception:  # noqa: BLE001 - fremder Header, lieber roh als gar nicht
+            pass
+    return re.sub(r"\r?\n[ \t]+", " ", raw).strip()
 
 
 def get_raw(account: MailAccount, password: str, uid: str, folder: str = "INBOX", *, uidvalidity: int | None = None) -> str | None:

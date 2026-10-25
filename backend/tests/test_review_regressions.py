@@ -177,7 +177,7 @@ def test_cache_read_rechecks_generation_after_folder_state_read(db, monkeypatch)
     with Session(db) as s:
         s.add(FolderSync(account_id=1, folder="INBOX", uidvalidity=100))
         s.commit()
-        monkeypatch.setattr(cache, "read_detail", lambda *a: {"uidvalidity": 101, "auth": {"verdict": "unknown"}})
+        monkeypatch.setattr(cache, "read_detail", lambda *a: {"uidvalidity": 101, "auth": {"verdict": "unknown"}, "list_unsubscribe": ""})
         with pytest.raises(HTTPException) as error:
             mail_api.message(1, "7", folder="INBOX", uidvalidity=100, user=s.get(User, 1), session=s)
         assert error.value.status_code == 409
