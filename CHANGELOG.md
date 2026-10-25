@@ -8,6 +8,12 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.97.7 · Build 133
+- 🇬🇧 **APK: tidier reading view.** “Similar mails / Clean up”, Print and Block sender moved into a **⋮ menu** in the top bar (also per mail in the conversation view); the newsletter bar is a single slim line with an “Unsubscribe” text button; more compact header (smaller subject and avatar, sender address only when it differs from the name).
+- 🇩🇪 **APK: aufgeräumte Lese-Ansicht.** „Ähnliche Mails / Aufräumen“, Drucken und Absender blockieren stehen im **⋮-Menü** der oberen Leiste (in der Unterhaltungsansicht je Mail); die Newsletter-Leiste ist eine schmale Zeile mit Textknopf „Abbestellen“; kompakterer Kopf (kleinerer Betreff und Avatar, Absenderadresse nur, wenn sie sich vom Namen unterscheidet).
+- 🇩🇪 Server unverändert gegenüber 1.97.6 (nur Versionsnummer).
+- 📄 [RELEASE-1.97.7.txt](docs/RELEASE-1.97.7.txt)
+
 ## 1.97.6 · Build 132
 - 🇬🇧 **APK:** the unsubscribe bar is now a compact row — mail icon, “Newsletter” with a short info line, small “Unsubscribe” button on the right (before: a long sentence wrapped over three lines).
 - 🇩🇪 **APK:** die Abmelde-Leiste ist jetzt eine kompakte Zeile – Brief-Symbol, „Newsletter“ mit kurzer Info-Zeile, kleiner Knopf „Abbestellen“ rechts (vorher ein langer Satz über drei Zeilen).

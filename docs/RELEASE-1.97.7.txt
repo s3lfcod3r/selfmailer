@@ -1,0 +1,31 @@
+SelfMailer 1.97.7 / Build 133 - Aufgeraeumte Lese-Ansicht / 25.10.2026
+
+APK
+- Neues ⋮-Menue rechts in der oberen Leiste der Einzelansicht mit
+  "Aehnliche Mails / Aufraeumen", "Drucken" und "Absender blockieren".
+  Die Textzeile "Aehnliche Mails anzeigen / Aufraeumen" ueber der Mail
+  entfaellt, die Leiste hat zwei Symbole weniger.
+- Unterhaltungsansicht: "Aehnliche Mails / Aufraeumen" im ⋮-Menue der
+  jeweiligen Mail statt als eigene Zeile ueber dem Verlauf.
+- Newsletter-Leiste als schmale Zeile: kleines Brief-Symbol, "Newsletter"
+  (bei geprueftem Absender "· ✓") und rechts der Textknopf "Abbestellen".
+  Etwa halb so hoch wie in Build 132. Rueckfrage unveraendert.
+- Kompakterer Kopf: weniger Rand, Betreff 17 statt 19 sp, kleinerer Avatar;
+  die Absenderadresse steht nur noch da, wenn sie sich vom angezeigten Namen
+  unterscheidet (vorher z. B. no-reply@doctolib.de doppelt).
+- "Drucken", "Mehr" und "Aehnliche Mails / Aufraeumen" jetzt in allen 12
+  Sprachen.
+
+Server / Web
+- Unveraendert gegenueber 1.97.6, nur die Versionsnummer.
+
+Kompatibilitaet
+Server 1.97.7 entspricht 1.97.3-1.97.6 und funktioniert mit APK 1.97.2 bis
+1.97.7. APK 1.97.7 funktioniert mit Server 1.97.3 bis 1.97.7.
+APK signiert mit bisherigem Zertifikat (CN=SelfMailer, SHA-256 cd05a16c...8e4938).
+Build 133 aktualisiert Build 132.
+
+Pruefung
+130 Android-JVM-Tests; CI inklusive Container-Smoke, TLS-Smoke und Trivy;
+APK-Version und Signatur mit apksigner geprueft. Kein physisches Android-Geraet:
+das neue Aussehen ist auf einem echten Geraet ungetestet.
