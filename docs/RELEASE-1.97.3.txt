@@ -1,0 +1,57 @@
+SelfMailer 1.97.3 / Build 129 - Spam- und Virenschutz / 25.10.2026
+
+Server / Web
+- Neuer Reiter Einstellungen -> Sicherheit (#38). Jeder Schalter ist aus, bis man
+  ihn einschaltet, und laesst sich jederzeit wieder abschalten:
+  - Sperren fuer alle Konten: ein in einem Konto gesperrter Absender wird aus
+    allen Konten des Nutzers entfernt.
+  - Abmelden mit einem Klick (RFC 8058): nur wenn die Mail List-Unsubscribe mit
+    https UND List-Unsubscribe-Post anbietet; Aufruf nur an oeffentliche
+    Adressen, mit IP-Pinning, ohne Weiterleitungen; Warnung bei ungeprueftem
+    Absender; nicht im Spam-Ordner. Links im Mailtext zaehlen bewusst nicht.
+  - Virenscan der Anhaenge mit eigenem ClamAV (SELFMAILER_CLAMAV=host:3310):
+    neue Mails werden vor Anzeige und Push geprueft, infizierte wandern in den
+    Spam-Ordner, infizierte Downloads sind gesperrt. Ist ClamAV nicht
+    erreichbar, wird nie "sauber" gemeldet - der Download geht dann nur nach
+    Rueckfrage ungeprueft.
+  - Spamfilter mit rspamd (SELFMAILER_RSPAMD_URL): bewertet neue Mails und
+    verschiebt Spam. Mit SELFMAILER_RSPAMD_CONTROLLER_URL und _PASSWORD lernt er
+    aus dem Verschieben in den Spam-Ordner und zurueck.
+- Regeln: neue Merkmale Antwort-Adresse und Newsletter-Kennung (List-Id),
+  Trefferzaehler je Regel.
+- Fix (#40): Der Abmelde-Knopf fehlte, wenn der Versender den Header RFC-2047-
+  kodiert schickt (z. B. OpenAI ueber SendGrid) oder der Link laenger als 2000
+  Zeichen ist. Schon gecachte Mails werden dafuer einmal neu geholt.
+- README (de/en) und CHANGELOG nachgezogen (#39).
+
+APK
+- Spam- und Virenschutz jetzt auch in der App: Abmelde-Leiste mit Rueckfrage,
+  roter Virus-Hinweis mit Dateiname und Fundname, Hinweis auf ungepruefte
+  Anhaenge, "Ungeprueft laden?", wenn ClamAV nicht erreichbar ist, klare Meldung
+  bei gesperrtem Anhang. Texte in allen 12 Sprachen wie in der Web-Version.
+- Fix: Anhaenge in der Unterhaltungsansicht liessen sich nicht oeffnen (der
+  Tipp tat nichts).
+
+Hinweise
+- Unraid: die neuen Felder (ClamAV, rspamd) uebernimmt ein bestehender
+  Container nicht von selbst - die Variablen SELFMAILER_CLAMAV,
+  SELFMAILER_RSPAMD_URL, SELFMAILER_RSPAMD_CONTROLLER_URL und
+  SELFMAILER_RSPAMD_PASSWORD bei Bedarf von Hand ergaenzen.
+- ClamAV und rspamd laufen als eigene Container; ohne sie bleiben die
+  zugehoerigen Schalter wirkungslos und SelfMailer verhaelt sich wie bisher.
+
+Kompatibilitaet
+Server 1.97.3 funktioniert mit APK 1.97.2 (ohne Abmelde-Knopf und Virus-Hinweis;
+ist ClamAV nicht erreichbar, laedt die alte App keine Anhaenge) und 1.97.3.
+APK 1.97.3 funktioniert mit Server 1.97.2 (die neuen Anzeigen bleiben dann leer)
+und 1.97.3.
+APK signiert mit bisherigem Zertifikat (CN=SelfMailer, SHA-256 cd05a16c...8e4938).
+Build 129 aktualisiert Build 128.
+
+Pruefung
+588 Backend-Tests, Web-Tests und 130 Android-JVM-Tests; CI inklusive
+Container-Smoke, TLS-Smoke und Trivy; Spamfilter, Lernen und Abmelde-Angebot live
+am eigenen Server geprueft (GTUBE-Mail in den Spam-Ordner, Bayes-Daten in Redis,
+OpenAI-Newsletter mit Ein-Klick-Abmeldung); APK-Version und Signatur mit apksigner
+geprueft. Kein physisches Android-Geraet: die neuen Anzeigen der App sind auf
+einem echten Geraet ungetestet; eine Abmeldung wurde nicht wirklich abgeschickt.
