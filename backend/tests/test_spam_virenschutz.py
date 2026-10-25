@@ -162,6 +162,52 @@ def test_abmelde_adresse_nur_mit_rfc8058():
     assert security_mod.unsubscribe_info({**DETAIL_NEWSLETTER, "auth": {"verdict": "unknown"}})["verified"] is False
 
 
+def _rfc2047_header(link: str) -> bytes:
+    """List-Unsubscribe so, wie SendGrid (OpenAI) es schickt: Q-kodiert, gefaltet."""
+    q = "".join(c if c.isalnum() or c in "-." else "=%02X" % ord(c) for c in f"<{link}>")
+    teile = [q[i:i + 60] for i in range(0, len(q), 60)]
+    return ("List-Unsubscribe: " + "\r\n ".join(f"=?us-ascii?Q?{t}?=" for t in teile)).encode()
+
+
+def test_abmelde_header_rfc2047_und_lang():
+    from email import message_from_bytes
+    link = "https://r.openai.example/lu/unsubscribe?oc=" + "u001.8q2sHFrPFFdQx9IO_" * 120   # > 2700 Zeichen
+    raw = (b"From: noreply@email.openai.example\r\n" + _rfc2047_header(link)
+           + b"\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nHallo\r\n")
+    obj = message_from_bytes(raw)
+    wert = imap_mod.header_text(obj.get("List-Unsubscribe"))
+    assert wert == f"<{link}>"
+    detail = {"list_unsubscribe": wert[:imap_mod.UNSUB_MAX],
+              "list_unsubscribe_post": imap_mod.header_text(obj.get("List-Unsubscribe-Post"))}
+    assert security_mod.unsubscribe_url(detail) == link
+    # Kaputte Kodierung: Rohwert statt Ausnahme.
+    assert imap_mod.header_text("=?x-kaputt?Q?abc?=") == "=?x-kaputt?Q?abc?="
+    assert imap_mod.header_text(None) == ""
+
+
+def test_alter_cache_mit_rohem_abmelde_header_wird_neu_geholt(client, admin, account, schalter, monkeypatch):
+    from app.mail import cache as cache_mod
+    assert cache_mod.detail_veraltet({}) is True                                    # vor 1.97.3 gecacht
+    assert cache_mod.detail_veraltet({"list_unsubscribe": "=?us-ascii?Q?=3Chttps...?="}) is True
+    assert cache_mod.detail_veraltet({"list_unsubscribe": "x" * 2000}) is True      # alte Kappung
+    assert cache_mod.detail_veraltet({"list_unsubscribe": ""}) is False
+    assert cache_mod.detail_veraltet(DETAIL_NEWSLETTER) is False
+
+    basis = {"subject": "N", "from": "s@shop.example", "date": "", "seen": False, "flagged": False,
+             "to": [], "text": "", "html": "", "attachments": [], "uidvalidity": 1}
+    alt = {**DETAIL_NEWSLETTER, **basis, "list_unsubscribe": "=?us-ascii?Q?=3Chttps=3A=2F=2Fshop?="}
+    live = {**DETAIL_NEWSLETTER, **basis}
+    geholt, gecacht = [], []
+    monkeypatch.setattr(cache_mod, "read_detail", lambda *a, **k: dict(alt))
+    monkeypatch.setattr(cache_mod, "write_detail", lambda s, a, f, u, d: gecacht.append(u))
+    monkeypatch.setattr(imap_mod, "get_message", lambda *a, **k: geholt.append(1) or dict(live))
+    schalter(sec_unsubscribe=True)
+    r = client.get(f"/api/v1/mail/{account}/messages/9?folder=INBOX", headers=admin)
+    assert r.status_code == 200, r.text
+    assert geholt == [1] and gecacht == ["9"]                                       # live geholt und neu gecacht
+    assert r.json()["unsubscribe"]["host"] == "shop.example"
+
+
 def test_abmelden_nur_mit_schalter(client, admin, account, schalter, monkeypatch):
     monkeypatch.setattr(mail_api, "_message_detail", lambda *a, **k: dict(DETAIL_NEWSLETTER))
     gesendet = []

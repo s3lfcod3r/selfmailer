@@ -215,7 +215,7 @@ def test_background_thread_is_not_attached_to_request(caplog):
 @pytest.mark.parametrize("source", ["cache", "imap", "cached_fallback", "header_fallback", "miss"])
 def test_read_source_and_contract(client, admin, account, monkeypatch, caplog, source):
     detail = {"uid": "7", "subject": "PRIVATE_SUBJECT", "from": "private@example.invalid", "date": "",
-              "seen": False, "flagged": False, "auth": {"verdict": "unknown"}, "text": "PRIVATE_BODY"}
+              "seen": False, "flagged": False, "auth": {"verdict": "unknown"}, "text": "PRIVATE_BODY", "list_unsubscribe": ""}
     cached = detail if source == "cache" else {**detail, "auth": None} if source == "cached_fallback" else None
     monkeypatch.setattr(cache, "read_detail", timing.measured("cache_read")(lambda *a: cached))
     monkeypatch.setattr(cache, "read_header", lambda *a: detail if source == "header_fallback" else None)
