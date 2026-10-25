@@ -8,8 +8,7 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
-## 1.97.3 · not released yet / noch nicht veröffentlicht
-_Already in the `latest` image, but not yet part of a release · Schon im `latest`-Image, aber noch in keinem Release._
+## 1.97.3 · Build 129
 - 🇬🇧 🔒 **Spam & virus protection** — new tab **Settings → Security**, every switch **off** until you turn it on, and you can turn it off again at any time:
   - **Blocks for all accounts**: a sender blocked in one account is removed from all your accounts.
   - **One-click unsubscribe** for newsletters (RFC 8058): only https, only public addresses, with a warning for unverified senders; not offered in the spam folder.
@@ -17,6 +16,7 @@ _Already in the `latest` image, but not yet part of a release · Schon im `lates
   - **Spam filter** with **rspamd** (`SELFMAILER_RSPAMD_URL`): rates new mail, moves spam away and learns from the “Spam” button (`SELFMAILER_RSPAMD_CONTROLLER_URL` / `_PASSWORD`).
 - 🇬🇧 Rules: new criteria **reply-to address** and **newsletter ID (List-Id)**, plus a **hit counter** per rule. README updated (features, blocking, security).
 - 🇬🇧 Fix: the unsubscribe button was missing for senders that encode the header (RFC 2047, e.g. OpenAI via SendGrid) or send very long links (over 2000 characters). Mails opened before are fetched from the server once more.
+- 🇬🇧 **APK:** the protection is now in the app too — unsubscribe bar with confirmation, red virus warning, “Load unchecked?” when ClamAV is not reachable, clear message for a blocked attachment. Fix: attachments in the conversation view did not open.
 - 🇩🇪 🔒 **Spam- & Virenschutz** — neuer Reiter **Einstellungen → Sicherheit**, jeder Schalter **aus**, bis du ihn einschaltest, und jederzeit wieder abschaltbar:
   - **Sperren für alle Konten**: ein in einem Konto gesperrter Absender verschwindet aus allen deinen Konten.
   - **Abmelden mit einem Klick** für Newsletter (RFC 8058): nur https, nur öffentliche Adressen, Warnung bei ungeprüftem Absender; nicht im Spam-Ordner.
@@ -24,7 +24,9 @@ _Already in the `latest` image, but not yet part of a release · Schon im `lates
   - **Spamfilter** mit **rspamd** (`SELFMAILER_RSPAMD_URL`): bewertet neue Mails, verschiebt Spam und lernt mit dem „Spam"-Knopf (`SELFMAILER_RSPAMD_CONTROLLER_URL` / `_PASSWORD`).
 - 🇩🇪 Regeln: neue Merkmale **Antwort-Adresse** und **Newsletter-Kennung (List-Id)** sowie ein **Trefferzähler** je Regel. README nachgezogen (Funktionen, Absender blockieren, Sicherheit).
 - 🇩🇪 Fix: Der Abmelde-Knopf fehlte bei Absendern, die den Header kodieren (RFC 2047, z. B. OpenAI über SendGrid) oder sehr lange Links schicken (über 2000 Zeichen). Schon einmal geöffnete Mails werden dafür einmal neu vom Server geholt.
+- 🇩🇪 **APK:** der Schutz ist jetzt auch in der App — Abmelde-Leiste mit Rückfrage, roter Virus-Hinweis, „Ungeprüft laden?", wenn ClamAV nicht erreichbar ist, klare Meldung bei gesperrtem Anhang. Fix: Anhänge in der Unterhaltungsansicht ließen sich nicht öffnen.
 - 🇩🇪 Unraid: neue Felder für ClamAV/rspamd in der Vorlage — bei einem bestehenden Container die Variable `SELFMAILER_CLAMAV` von Hand ergänzen.
+- 📄 [RELEASE-1.97.3.txt](docs/RELEASE-1.97.3.txt)
 
 ## 1.97.2 · Build 128
 - 🇬🇧 **New mail right away: IMAP IDLE on the inbox.** The server reports new mail itself instead of SelfMailer polling every 2 minutes; the text of new mails is prefetched (not marked as read). Measured on a Gmail account: new mail in the list after 17–50 s instead of 136 s (the rest is Gmail's own IMAP delay), first open 15 ms instead of 3.9 s. Switch off with `SELFMAILER_IDLE=0` / `SELFMAILER_PREFETCH_NEW=0`.
