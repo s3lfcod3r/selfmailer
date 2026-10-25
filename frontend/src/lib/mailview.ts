@@ -100,18 +100,35 @@ export function hasRemoteContent(html: string): boolean {
 // (!important schlägt die Mail-eigenen Farben), eigene Hintergründe neutralisieren.
 //  - background-image:none — dekorative HELLE Hintergrundbilder (Newsletter-Hero-
 //    Kacheln) raus, sonst liegt die erzwungene helle Schrift auf hellem Bild = unlesbar.
-//  - img{background:#fff} — helle "Sicherheitsplatte" hinter Bildern, damit dunkle/
-//    transparente Logos (schwarzes PNG) auf dem dunklen Grund sichtbar/erkennbar bleiben.
-//    Wirkt nur durch transparente Stellen; deckende Fotos bleiben unberührt.
-const _DARK_STYLE =
-  `<style>:root{color-scheme:dark}` +
+//  - Helle "Sicherheitsplatte" hinter Bildern, damit dunkle/transparente Logos
+//    (schwarzes PNG) auf dem dunklen Grund erkennbar bleiben - seit 1.97.8 nur noch
+//    bei GELADENEN Bildern und weniger grell (blockierte Bilder entfernt
+//    _prepareMailHtml ohnehin; in der App blieb davon eine weisse Flaeche).
+//  - Zaehlpixel (1x1) ausblenden: unsichtbar, hinterlassen aber Luecken.
+//  - Farbige Knoepfe ("Bestellung ansehen") behalten eine Flaeche: ohne das machte
+//    background-color:transparent sie zu blossem Linktext (46 von 92 HTML-Mails
+//    in der Stichprobe vom 25.10.2026). Weisse Zellen zaehlen nicht als Knopf.
+// Dieselben Regeln stehen in der App (MainActivity.mailDarkStyle) - gemeinsam aendern.
+const _BTN_SEL = [
+  `a[style*="background"]:not([style*="transparent"]):not(:has(img))`,
+  `td[bgcolor]:not([bgcolor="#ffffff"]):not([bgcolor="#FFFFFF"]):not([bgcolor="#fff"]):not([bgcolor="#FFF"]):not([bgcolor="white"])>a:not(:has(img))`,
+  `td[style*="background"]:not([style*="#fff"]):not([style*="#FFF"]):not([style*="white"]):not([style*="transparent"])>a:not(:has(img))`,
+];
+const _DARK_BASE =
+  `:root{color-scheme:dark}` +
   `html,body{background:#0d1117 !important;color:#e6edf3 !important;}` +
   `*{background-color:transparent !important;background-image:none !important;border-color:#30363d !important;}` +
   `*:not(a){color:#e6edf3 !important;}` +
   `a{color:#6cb6ff !important;}` +
-  `img{background:#ffffff !important;}` +
   `img,picture,video,svg,canvas{filter:none !important;}` +
-  `</style>`;
+  `img[width="0"],img[width="1"],img[height="0"],img[height="1"],img[style*="width:1px"],img[style*="height:1px"],img[style*="width: 1px"],img[style*="height: 1px"]{display:none !important;}` +
+  `${_BTN_SEL.join(",")}{background-color:#1f8f78 !important;color:#ffffff !important;border-radius:6px !important;padding:6px 14px !important;display:inline-block !important;text-decoration:none !important;}` +
+  `${_BTN_SEL.map((s) => s + " *").join(",")}{color:#ffffff !important;}`;
+const _PLATE_LOADED = `img{background:#f0f3f6 !important;border-radius:4px;}`;
+
+export function darkStyle(imagesLoaded: boolean): string {
+  return `<style>${_DARK_BASE}${imagesLoaded ? _PLATE_LOADED : ""}</style>`;
+}
 
 // Entfernt bei blockierten Bildern die externen Verweise KOMPLETT aus dem DOM.
 // Ohne das bleibt zwar durch die CSP der Ladevorgang blockiert, der Browser
@@ -176,7 +193,7 @@ export function buildSrcDoc(html: string, block: boolean, dark: boolean): string
   const body = _prepareMailHtml(html, block);
   // Immer eine CSP, nur der Bild-Teil unterscheidet sich (Befund 6).
   const csp = block ? _CSP_BLOCK : _CSP_ALLOW;
-  return `<!DOCTYPE html><meta charset="utf-8">${csp}${dark ? _DARK_STYLE : ""}<base target="_blank">${body}`;
+  return `<!DOCTYPE html><meta charset="utf-8">${csp}${dark ? darkStyle(!block) : ""}<base target="_blank">${body}`;
 }
 
 // Druckfassung einer Mail: derselbe aufbereitete Rumpf wie in der Leseansicht
