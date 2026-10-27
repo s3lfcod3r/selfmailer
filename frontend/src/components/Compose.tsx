@@ -20,6 +20,9 @@ export function emptyDraft(): Draft {
   return { to: "", cc: "", bcc: "", subject: "", body: "", in_reply_to: "" };
 }
 
+const EDITOR_H_KEY = "selfmailer.composeEditorHeight";
+const EDITOR_MIN_H = 160;
+
 const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 // Baut aus Einleitung + zitiertem Klartext beide Fassungen des Verlaufs:
@@ -200,6 +203,30 @@ export function Compose({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const editorRef = useRef<HTMLDivElement>(null);
+  // Höhe des Schreibfelds: per Balken unter dem Feld ziehbar, wird gemerkt.
+  // null = Standardhöhe aus dem CSS.
+  const [editorH, setEditorH] = useState<number | null>(() => {
+    try { const v = Number(localStorage.getItem(EDITOR_H_KEY)); return v >= EDITOR_MIN_H ? v : null; } catch { return null; }
+  });
+  function startEditorResize(e: React.PointerEvent<HTMLDivElement>) {
+    const el = editorRef.current;
+    if (!el) return;
+    e.preventDefault();
+    const grip = e.currentTarget;
+    grip.setPointerCapture(e.pointerId);
+    const startY = e.clientY, startH = el.getBoundingClientRect().height;
+    let h = startH;
+    const move = (ev: PointerEvent) => { h = Math.max(EDITOR_MIN_H, Math.round(startH + ev.clientY - startY)); setEditorH(h); };
+    const up = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      try { localStorage.setItem(EDITOR_H_KEY, String(h)); } catch { /* egal */ }
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
+  }
   // Vorlagen/Textbausteine.
   const [templates, setTemplates] = useState<MailTemplate[]>([]);
   const [tplEdit, setTplEdit] = useState<MailTemplate | null>(null);   // Vorlage bearbeiten
@@ -529,12 +556,18 @@ export function Compose({
           <div
             ref={editorRef}
             className="compose-editor"
+            style={editorH ? { height: editorH } : undefined}
             contentEditable
             suppressContentEditableWarning
             data-placeholder={t("compose.body")}
             onPaste={onPasteEditor}
             onDrop={onDropEditor}
           />
+          {/* Zieh-Balken: Schreibfeld größer/kleiner ziehen, Doppelklick = Standard. */}
+          <div className="compose-resize" role="separator" aria-orientation="horizontal"
+            title={de ? "Ziehen zum Vergrößern · Doppelklick: Standardgröße" : "Drag to resize · double-click: default size"}
+            onPointerDown={startEditorResize}
+            onDoubleClick={() => { setEditorH(null); try { localStorage.removeItem(EDITOR_H_KEY); } catch { /* egal */ } }} />
           {/* Zitierter Verlauf (Antwort): getrennt vom Schreibfeld, als grauer Balken
               wie bei Gmail — standardmäßig eingeklappt (Klick blendet ein/aus). */}
           {d.quotedHtml && (
