@@ -325,6 +325,8 @@ export function App() {
               )}
             </button>
           ))}
+          <a className="icon-btn" href="https://ko-fi.com/s3lfcod3r" target="_blank" rel="noopener noreferrer"
+            title="Ko-fi ☕ Unterstützen / Support" aria-label="Ko-fi" style={{ textDecoration: "none" }}>☕</a>
           <button className="user-chip" onClick={() => setMenu(menu === "user" ? null : "user")}>
             <span>👤</span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 120, fontSize: "0.84rem" }}>
@@ -405,6 +407,7 @@ export function App() {
           <div className="user-menu-foot">
             <span>SelfMailer{appVersion && ` ${appVersion}`}</span>
             <a href="https://github.com/s3lfcod3r/selfmailer" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+            <a href="https://ko-fi.com/s3lfcod3r" target="_blank" rel="noopener noreferrer">☕ Ko-fi ↗</a>
           </div>
         </div>
       )}

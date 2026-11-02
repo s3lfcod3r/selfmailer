@@ -140,6 +140,7 @@ export function Settings(p: SettingsProps) {
       <div className="set-foot">
         <span>SelfMailer{p.appVersion && ` ${p.appVersion}`}</span>
         <a href="https://github.com/s3lfcod3r/selfmailer" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        <a href="https://ko-fi.com/s3lfcod3r" target="_blank" rel="noopener noreferrer">☕ Ko-fi ↗</a>
       </div>
     </div>
   );
