@@ -1,0 +1,27 @@
+SelfMailer 1.98.0 - Eingebettete Bilder (cid:) / 06.11.2026
+
+Server / Web
+- Mails mit eingebetteten Bildern (multipart/related, <img src="cid:...">)
+  zeigten nur kaputte Bildsymbole, z. B. die DHL-Auftragsbestaetigung (Logo,
+  Symbole, QR-Code). Das Lese-iframe kann cid: nicht aufloesen, und der Server
+  hat die Verweise nie ersetzt.
+- Jetzt setzt der Server beim Aufbau des Volltexts jedes cid:-Bild als
+  data:-URI ein (mail/imap.py, inline_cid_images). Nur Rasterformate (PNG,
+  JPEG, GIF, WebP, BMP), kein SVG. Grenzen: 1 MB je Bild, 4 MB je Mail. Was
+  nicht passt, bleibt als cid: stehen und als Anhang herunterladbar.
+- Eingesetzte Bilder fallen aus der Anhangliste (vorher eine Reihe "inline").
+  Der Download-Index der uebrigen Anhaenge bleibt die Position in der Mail,
+  also unveraendert.
+- Schon gecachte Volltexte mit rohen cid:-Verweisen gelten als veraltet
+  (cache.detail_veraltet) und werden beim naechsten Oeffnen einmal live neu
+  geholt.
+- Eingebettete Bilder laden nichts aus dem Netz und erscheinen deshalb auch
+  bei blockierten externen Bildern.
+
+APK
+Unveraendert (1.97.8 / Build 134). Die App bekommt dieselbe aufbereitete Mail
+vom Server und zeigt die Bilder damit ebenfalls.
+
+Pruefung
+Backend 596 Tests gruen (neu: tests/test_cid_bilder.py, 8 Tests), ruff
+sauber. Gegenprobe: Einsetzen abgeschaltet -> 3 der neuen Tests schlagen fehl.

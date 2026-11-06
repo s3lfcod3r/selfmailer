@@ -8,6 +8,13 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.98.0 · Server only (APK stays 1.97.8 · Build 134)
+- 🇬🇧 **Embedded images are shown again**: logos, icons and QR codes that a mail carries inside itself (`cid:`, e.g. DHL order confirmations) appear in the reading view instead of broken image icons, and no longer show up as a row of “inline” attachments. Real attachments (PDF etc.) stay in the list. Mails opened before are fetched once more automatically.
+- 🇩🇪 **Eingebettete Bilder werden wieder angezeigt**: Logos, Symbole und QR-Codes, die eine Mail selbst mitbringt (`cid:`, z. B. DHL-Auftragsbestätigungen), erscheinen in der Lese-Ansicht statt kaputter Bildsymbole und stehen nicht mehr als Reihe von „inline“-Anhängen da. Echte Anhänge (PDF usw.) bleiben in der Liste. Schon einmal geöffnete Mails werden dafür einmal automatisch neu geholt.
+- 🇬🇧 Ko-fi link in the top bar and in Settings (tag v1.97.9).
+- 🇩🇪 Ko-fi-Link oben und in den Einstellungen (Tag v1.97.9).
+- 📄 [RELEASE-1.98.0.txt](docs/RELEASE-1.98.0.txt)
+
 ## 1.97.8 · Build 134
 - 🇬🇧 **Dark reading mode, easier to read** (web and app): colored buttons (“View order”) keep a colored area instead of turning into plain link text, tracking pixels (1×1) are hidden, the light plate behind images only appears once images are loaded and is softer. In the app, blocked images show a dark placeholder instead of white boxes. Basis: 103 mails from 8 inboxes (75 had white boxes, 46 lost their buttons).
 - 🇬🇧 APK: the “Message” title in the reading view's top bar is gone (only “N…” was left).

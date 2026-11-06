@@ -507,7 +507,11 @@ def detail_veraltet(detail: dict) -> bool:
     gespeichert oder bei 2000 Zeichen abgeschnitten - dann fehlt der
     Abmelde-Knopf. Solche Eintraege einmal live neu holen."""
     lu = detail.get("list_unsubscribe")
-    return lu is None or "=?" in lu or len(lu) == 2000
+    if lu is None or "=?" in lu or len(lu) == 2000:
+        return True
+    # Bis 1.97.9 standen eingebettete Bilder als rohes cid: im HTML (kaputte
+    # Bildsymbole) und doppelt in der Anhangliste. Solche Eintraege neu holen.
+    return detail.get("cid_inline") is None and "cid:" in (detail.get("html") or "").lower()
 
 
 @timing.measured("cache_header")

@@ -1,6 +1,7 @@
 """Synchroner IMAP-Zugriff mit wiederverwendeten, einzeln gesperrten Verbindungen."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import imaplib
@@ -11,6 +12,7 @@ import os
 import queue
 import re
 from html import unescape
+from urllib.parse import unquote
 import threading
 import time
 from contextlib import contextmanager
@@ -1534,8 +1536,64 @@ def _analyze_auth(msg, account: MailAccount) -> dict:
     }
 
 
+# Eingebettete Bilder (multipart/related, <img src="cid:...">). Das Lese-iframe kann
+# cid: nicht aufloesen, also werden die Verweise hier durch data:-URIs ersetzt. Nur
+# Rasterformate (kein SVG), mit Obergrenzen, weil das Ergebnis im Cache landet.
+CID_TYPES = frozenset({"image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp", "image/bmp"})
+CID_MAX_PART = 1024 * 1024        # ein einzelnes eingebettetes Bild
+CID_MAX_TOTAL = 4 * 1024 * 1024   # alle eingebetteten Bilder einer Mail zusammen
+_CID_RE = re.compile(r"""cid:([^"'\s)<>]+)""", re.IGNORECASE)
+
+
+def _cid_key(value: str) -> str:
+    return unquote(value or "").strip().strip("<>").strip().lower()
+
+
+def inline_cid_images(html: str, atts: list) -> tuple[str, set[int]]:
+    """Ersetzt cid:-Verweise im HTML durch data:-URIs der passenden Anhaenge.
+
+    Liefert (neues HTML, Indizes der eingesetzten Anhaenge). Was nicht passt
+    (unbekannte ID, falscher Typ, zu gross), bleibt unveraendert stehen."""
+    if not html or "cid:" not in html.lower():
+        return html, set()
+    by_cid: dict[str, int] = {}
+    for i, att in enumerate(atts):
+        key = _cid_key(getattr(att, "content_id", "") or "")
+        if key and key not in by_cid:
+            by_cid[key] = i
+    if not by_cid:
+        return html, set()
+
+    uris: dict[int, str | None] = {}
+    budget = [CID_MAX_TOTAL]
+
+    def data_uri(i: int) -> str | None:
+        if i not in uris:
+            att = atts[i]
+            ctype = (att.content_type or "").lower().split(";")[0].strip()
+            payload = att.payload or b""
+            if ctype not in CID_TYPES or not payload or len(payload) > CID_MAX_PART or len(payload) > budget[0]:
+                uris[i] = None
+            else:
+                budget[0] -= len(payload)
+                uris[i] = f"data:{ctype};base64,{base64.b64encode(payload).decode('ascii')}"
+        return uris[i]
+
+    def repl(m: re.Match) -> str:
+        i = by_cid.get(_cid_key(m.group(1)))
+        uri = data_uri(i) if i is not None else None
+        return uri or m.group(0)
+
+    out = _CID_RE.sub(repl, html)
+    return out, {i for i, uri in uris.items() if uri}
+
+
 def _detail_dict(msg, account: MailAccount) -> dict:
     """Baut das Detail-Dict (Volltext) aus einer gefetchten Nachricht."""
+    atts = list(msg.attachments)
+    html, inlined = inline_cid_images(msg.html or "", atts)
+    # "index" bleibt die Position in msg.attachments (get_attachment zaehlt genauso);
+    # eingesetzte Bilder fallen nur aus der sichtbaren Liste.
     attachments = [
         {
             "index": i,
@@ -1543,7 +1601,8 @@ def _detail_dict(msg, account: MailAccount) -> dict:
             "content_type": att.content_type or "",
             "size": att.size or len(att.payload or b""),
         }
-        for i, att in enumerate(msg.attachments)
+        for i, att in enumerate(atts)
+        if i not in inlined
     ]
     return {
         "uid": msg.uid or "",
@@ -1556,8 +1615,10 @@ def _detail_dict(msg, account: MailAccount) -> dict:
         "flagged": FLAGGED in msg.flags,
         "labels": keywords_of(msg),
         "text": msg.text or "",
-        "html": msg.html or "",
+        "html": html,
         "attachments": attachments,
+        # Marker fuer den Cache: cid:-Bilder wurden bereits eingesetzt (seit 1.98.0).
+        "cid_inline": 1,
         "auth": _analyze_auth(msg, account),
         # Bittet der Absender um eine Lesebestätigung? Adresse aus dem Header,
         # sonst leer. Das Frontend zeigt daraufhin den Bestätigungs-Hinweis.
