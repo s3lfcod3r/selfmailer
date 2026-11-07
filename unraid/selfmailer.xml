@@ -1,21 +1,24 @@
 <?xml version="1.0"?>
 <Container version="2">
+  <!-- This copy is kept only for existing installs. The maintained template lives in
+       https://github.com/s3lfcod3r/unraid-templates (templates/selfmailer.xml).
+       Please change it there, not here. -->
   <Name>SelfMailer</Name>
   <Repository>ghcr.io/s3lfcod3r/selfmailer:latest</Repository>
   <Registry>https://github.com/s3lfcod3r/selfmailer/pkgs/container/selfmailer</Registry>
   <Project>https://github.com/s3lfcod3r/selfmailer</Project>
   <Support>https://github.com/s3lfcod3r/selfmailer/issues</Support>
   <Overview>Self-hosted, multi-user e-mail client (not a mail server). Connects to existing IMAP/POP3/SMTP accounts, with calendar, contacts and notes. Admin can create users and pre-configure their accounts; users can also add accounts themselves. Single Docker container with SQLite - no external database.</Overview>
-  <Category>Tools: Network:Other</Category>
+  <Category>Productivity: Network:Messenger</Category>
   <WebUI>http://[IP]:[PORT:8090]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/unraid/selfmailer.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/s3lfcod3r/unraid-templates/main/templates/selfmailer.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/frontend/public/icon.png</Icon>
   <Network>bridge</Network>
-  <!-- Befund 12: ohne ExtraParams setzt Unraid restart=no - nach Absturz oder
-       Host-Neustart lief SelfMailer nicht wieder an. Speichergrenze schuetzt
-       den Host. Gleiche Einstellung wie in docker-compose.yml.
-       Seit 1.97.2 zusaetzlich: keine Linux-Sonderrechte (no-new-privileges,
-       cap-drop=ALL) - die App braucht keine, siehe docker-compose.yml. -->
+  <ReadMe>https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/README.md</ReadMe>
+  <License>Proprietary - free for private self-hosting, see project LICENSE</License>
+  <ExtraSearchTerms>mail email imap smtp pop3 webmail calendar contacts caldav carddav</ExtraSearchTerms>
+  <Requires>Existing e-mail accounts (IMAP/POP3 + SMTP). Set a long random Master Secret before the first start and never change it afterwards.</Requires>
+  <!-- Restart policy and memory limit keep the host safe; the app needs no extra Linux capabilities (same settings as docker-compose.yml). -->
   <ExtraParams>--restart=unless-stopped --memory=1g --security-opt=no-new-privileges --cap-drop=ALL</ExtraParams>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
