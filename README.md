@@ -188,7 +188,7 @@ Open `http://<host>:8090` → the **first-run setup** creates the admin account 
 ### 📦 Unraid
 
 Add the template from
-`https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/unraid/selfmailer.xml`
+`https://raw.githubusercontent.com/s3lfcod3r/unraid-templates/main/templates/selfmailer.xml`
 or import it under *Docker → Add Container → Template*. Set the **Master Secret**, leave the rest on defaults.
 
 > **⚠️ Master Secret:** never change `SELFMAILER_SECRET` after first run — it encrypts the stored mailbox passwords. Changing it makes them unreadable.
@@ -516,7 +516,7 @@ docker compose up -d
 ### 📦 Unraid
 
 Vorlage von
-`https://raw.githubusercontent.com/s3lfcod3r/selfmailer/main/unraid/selfmailer.xml`
+`https://raw.githubusercontent.com/s3lfcod3r/unraid-templates/main/templates/selfmailer.xml`
 hinzufügen oder unter *Docker → Add Container → Template* importieren. **Master Secret** setzen, den Rest auf Standard lassen.
 
 > **⚠️ Master Secret:** `SELFMAILER_SECRET` nach dem ersten Start **nie ändern** — damit werden die gespeicherten Postfach-Passwörter verschlüsselt. Eine Änderung macht sie unlesbar.
