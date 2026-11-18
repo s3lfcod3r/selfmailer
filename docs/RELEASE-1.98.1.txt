@@ -1,0 +1,24 @@
+SelfMailer 1.98.1 - Sicherheitsupdates / 19.11.2026
+
+Server / Web
+- Zwei bekannte Luecken in Server-Bibliotheken behoben (pip-audit in der CI
+  schlug an):
+  - dnspython 2.9.0 -> 2.9.2 (CVE-2026-128089, praeparierte Zonendatei mit
+    WKS-Eintrag kann Speicher und CPU auffressen)
+  - opentelemetry-api 1.45.1 -> 1.45.2 (CVE-2026-126360, ReDoS beim Lesen
+    eines praeparierten traceparent-Headers)
+  Nur diese beiden Pakete wurden im Lock angehoben (uv pip compile
+  --upgrade-package), alles andere bleibt gleich.
+- Python-Basis-Image python:3.13-slim auf den aktuellen Stand (Digest
+  e48f59c).
+- Bauwerkzeuge des Frontends: vite 8.3.8, @vitejs/plugin-react 6.3.0,
+  jsdom 31.0.1 (nur fuer Bau und Tests, nicht im ausgelieferten Code).
+- Uebernimmt die Dependabot-PRs #52 bis #55 als eigenen Commit.
+- Keine sichtbaren Aenderungen.
+
+APK
+Unveraendert (1.97.8 / Build 134).
+
+Pruefung
+Frontend-Build gruen, 57 Frontend-Tests gruen, pip-audit auf dem neuen
+Lock: keine bekannten Luecken. Backend-Tests und Image-Bau laufen in der CI.
