@@ -1,0 +1,39 @@
+SelfMailer 1.98.2 / Build 136 - Verschluesselte Vorschau im Push / 19.11.2026
+
+Problem
+Der Google-Push (FCM) war absichtlich leer ("Neue E-Mail"), damit Google
+keine Absender und Betreffe sieht. Absender/Betreff holte die App danach
+selbst vom Server. Das klappte nur, wenn das Handy den Server in dem Moment
+erreichte - unterwegs im Mobilfunk oft nicht, dann blieb es bei "Neue E-Mail".
+Befund 09.11.2026: das Handy rief den Server nur aus dem Heim-WLAN ab.
+
+Loesung
+- App: eigenes RSA-2048-Schluesselpaar im Android-Keystore (Alias
+  selfmailer_push_rsa_v1, nicht exportierbar). Den oeffentlichen Teil schickt
+  sie bei jeder Anmeldung mit (POST /api/v1/push/device, Feld preview_key).
+- Server: speichert den Schluessel je Geraet (devicetoken.preview_key, neue
+  Spalte, wird beim Start automatisch angelegt). Nur RSA 2048-4096, alles
+  andere wird verworfen.
+- Beim Neue-Mail-Push verschluesselt der Server Konto, Absender, Betreff,
+  Anzahl und ggf. Ordner je Geraet (backend/app/mail/push_preview.py):
+  v1.<RSA-OAEP(AES-Schluessel)>.<Nonce>.<AES-256-GCM(JSON)>, OAEP mit SHA-256
+  und MGF1-SHA-1 (geht im Keystore ab Android 8). Jeder Push hat einen neuen
+  AES-Schluessel. Im Klartext steht weiter nur "Neue E-Mail".
+- App (PushPreview.kt, Messaging.kt): entschluesselt lokal und zeigt die
+  Benachrichtigung sofort mit Absender und Betreff. Fehlt die Vorschau oder
+  passt sie nicht, laeuft der alte Weg (generisch + Nachladen vom Server).
+- Laengen begrenzt (Konto 60, Absender 80, Betreff 160 Zeichen), damit der
+  Push sicher unter der FCM-Grenze von 4 KB bleibt.
+
+Vertraeglichkeit
+Alte Apps schicken keinen Schluessel und bekommen den Push wie bisher. Die
+neue App an einem alten Server: der Server ignoriert das Feld, alles wie
+bisher.
+
+Pruefung
+Backend 603 Tests gruen, ruff sauber. Neu: tests/test_push_preview.py
+(7 Tests: Hin- und Rueckweg, kein Klartext, Android-base64url, schlechte
+Schluessel, Laengengrenze, Registrierung, Uebergabe aus push_new_mail).
+tests/test_review_regressions.py prueft jetzt, was wirklich an Google
+geht. Gegenprobe: Verschluesselung abgeschaltet -> Test schlaegt fehl.
+APK-Build gruen.

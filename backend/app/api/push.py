@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 from ..core.db import get_session
 from ..dav.client import DavUrlError, post_pinned, validate_external_url
 from ..mail import fcm as fcm_mod
+from ..mail import push_preview
 from ..models import DeviceToken, FolderNotify, MailAccount, PushConfig, User
 from ..schemas import DeviceTokenIn, FolderNotifyIn, PushConfigIn, PushConfigOut
 from .deps import get_current_user
@@ -111,8 +112,10 @@ def register_device(
     # Erst schreiben: SQLite serialisiert dadurch konkurrierende Registrierungen.
     # Ein Gerät gehört immer nur zur zuletzt angemeldeten Sitzung, nie zwei Usern.
     session.execute(delete(DeviceToken).where(DeviceToken.token == data.token))
+    # Unbrauchbarer Schluessel -> leer: das Geraet bekommt dann den alten leeren Push.
     session.add(DeviceToken(user_id=user.id, token=data.token, platform=data.platform,
-                            session_id=data.session_id))
+                            session_id=data.session_id,
+                            preview_key=push_preview.normalize_public_key(data.preview_key)))
     session.commit()
 
 

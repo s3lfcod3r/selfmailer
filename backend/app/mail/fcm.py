@@ -21,6 +21,7 @@ from sqlmodel import Session, select
 
 from ..core.config import get_settings
 from ..models import DeviceToken
+from . import push_preview
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +85,28 @@ def _access_token(sa: dict) -> str:
         return _token
 
 
-def _send_all(session: Session, user_id: int, data: dict[str, str]) -> None:
+def _device_data(row: DeviceToken, data: dict[str, str], preview: dict | None) -> dict[str, str]:
+    """Daten fuer EIN Geraet: hat es einen Schluessel, kommt die Vorschau
+    verschluesselt dazu (Google sieht nur Chiffretext). Sonst bleibt der Push leer."""
+    out = {**data, "session_id": row.session_id}
+    if preview and row.preview_key:
+        try:
+            blob = push_preview.encrypt(row.preview_key, preview)
+        except Exception:  # noqa: BLE001 - lieber leerer Push als keiner
+            logger.warning("FCM: Vorschau nicht verschluesselbar (user_id=%s)", row.user_id, exc_info=True)
+            blob = None
+        if blob:
+            out["preview"] = blob
+    return out
+
+
+def _send_all(session: Session, user_id: int, data: dict[str, str], preview: dict | None = None) -> None:
     """Sendet eine DATA-ONLY-FCM-Nachricht an alle Geräte des Users (best-effort).
 
     Data-only (kein notification-Block) → die App baut die Benachrichtigung in
     onMessageReceived selbst, mit STABILER ID, und kann sie damit auch wieder
     entfernen (Auto-Aufräumen). High-Priority, damit es auch im Hintergrund ankommt.
+    ``preview`` (Klartext) wird nie so verschickt, nur je Geraet verschluesselt.
     """
     sa = _load_sa()
     if not enabled() or sa is None:
@@ -109,7 +126,7 @@ def _send_all(session: Session, user_id: int, data: dict[str, str]) -> None:
     headers = {"Authorization": f"Bearer {access}", "Content-Type": "application/json"}
     dead: list[DeviceToken] = []
     for row in rows:
-        msg = {"message": {"token": row.token, "data": {**data, "session_id": row.session_id},
+        msg = {"message": {"token": row.token, "data": _device_data(row, data, preview),
                            "android": {"priority": "high"}}}
         try:
             resp = httpx.post(url, headers=headers, json=msg, timeout=10.0)
@@ -134,8 +151,9 @@ def notify(
     folder: str | None = None,
     uid: str | None = None,
     uidvalidity: int | None = None,
+    preview: dict | None = None,
 ) -> None:
-    """Neue-Mail-Push (data-only)."""
+    """Neue-Mail-Push (data-only). ``preview`` siehe push_preview.build_payload."""
     data: dict[str, str] = {"type": "mail", "title": title, "body": body}
     if account_id is not None:
         data["account_id"] = str(account_id)
@@ -144,7 +162,7 @@ def notify(
     if uid and uidvalidity:
         data["uid"] = uid
         data["uidvalidity"] = str(uidvalidity)
-    _send_all(session, user_id, data)
+    _send_all(session, user_id, data, preview)
 
 
 def push_refresh(session: Session, user_id: int) -> None:

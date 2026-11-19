@@ -15,13 +15,15 @@ from sqlalchemy.orm import load_only
 from ..dav.client import DavUrlError, post_pinned
 from ..models import CachedMessage, MailAccount, PushConfig
 from . import fcm as fcm_mod
+from . import push_preview
 
 logger = logging.getLogger(__name__)
 
 
-def _preview(session: Session, account: MailAccount, folder: str, count: int) -> tuple[str, str, str | None, int]:
-    """Liefert (Titel, Text, uid, uidvalidity) für die Benachrichtigung — uid = neueste
-    ungelesene Mail (für den Deep-Link „direkt zur Nachricht")."""
+def _preview(session: Session, account: MailAccount, folder: str, count: int) -> tuple[str, str, str | None, int, dict]:
+    """Liefert (Titel, Text, uid, uidvalidity, Vorschau) für die Benachrichtigung — uid =
+    neueste ungelesene Mail (für den Deep-Link „direkt zur Nachricht"). Die Vorschau
+    (Konto, Absender, Betreff) geht nur VERSCHLÜSSELT an die App (push_preview)."""
     label = account.label or account.email
     leaf = folder.rsplit("/", 1)[-1].rsplit(".", 1)[-1]
     is_inbox = folder.upper().endswith("INBOX")
@@ -40,14 +42,19 @@ def _preview(session: Session, account: MailAccount, folder: str, count: int) ->
         .limit(1)
     ).first()
 
+    sender = subject = None
+    if msg is not None:
+        sender = (msg.from_addr or "").split("<")[0].strip().strip('"') or (msg.from_addr or None)
+        subject = msg.subject or None
     if count == 1 and msg is not None:
-        sender = (msg.from_addr or "").split("<")[0].strip() or (msg.from_addr or "Neue Mail")
-        text = f"{sender}: {msg.subject or '(kein Betreff)'}"
+        text = f"{sender or 'Neue Mail'}: {subject or '(kein Betreff)'}"
     else:
         text = f"{count} neue E-Mails"
     if not is_inbox:
         text = f"{text} · {leaf}"
-    return label, text, (msg.uid if msg is not None else None), (msg.uidvalidity if msg is not None else 0)
+    vorschau = push_preview.build_payload(label, sender, subject, count, None if is_inbox else leaf)
+    return (label, text, (msg.uid if msg is not None else None),
+            (msg.uidvalidity if msg is not None else 0), vorschau)
 
 
 def _push_ntfy(session: Session, account: MailAccount, title: str, text: str) -> None:
@@ -66,12 +73,14 @@ def _push_ntfy(session: Session, account: MailAccount, title: str, text: str) ->
 
 
 def push_new_mail(session: Session, account: MailAccount, folder: str, count: int) -> None:
-    title, text, uid, generation = _preview(session, account, folder, count)
+    title, text, uid, generation, vorschau = _preview(session, account, folder, count)
     _push_ntfy(session, account, title, text)
     try:
-        # FCM ist nur ein Aufwecksignal: keine Betreffe/Absender/Kontonamen an Google.
+        # Im Klartext keine Betreffe/Absender/Kontonamen an Google: die Vorschau
+        # geht nur je Geraet verschluesselt mit (fcm._device_data).
         fcm_mod.notify(session, account.user_id, "SelfMailer", "Neue E-Mail",
-                       account_id=account.id, folder=folder, uid=uid, uidvalidity=generation)
+                       account_id=account.id, folder=folder, uid=uid, uidvalidity=generation,
+                       preview=vorschau)
     except Exception:  # noqa: BLE001 - FCM ist best-effort
         logger.warning("FCM-Push fehlgeschlagen (user_id=%s)", account.user_id, exc_info=True)
 

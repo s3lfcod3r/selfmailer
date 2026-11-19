@@ -378,16 +378,33 @@ def test_preview_loads_only_one_header_and_fcm_omits_private_text(db, monkeypatc
         if isinstance(instance, CachedMessage):
             loaded.append(inspect(instance).unloaded)
     event.listen(Session, "loaded_as_persistent", on_load)
+    # Seit 1.98.2 bekommt notify() die Vorschau und verschluesselt sie je Geraet
+    # selbst. Geprueft wird deshalb, was WIRKLICH an Google geht: ein Geraet mit
+    # Schluessel (bekommt nur Chiffretext) und eins ohne (bekommt gar keine Vorschau).
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    pub = rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key().public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    import base64
+    with Session(db) as s:
+        s.add(DeviceToken(user_id=1, token="mit", session_id="s1", preview_key=base64.b64encode(pub).decode()))
+        s.add(DeviceToken(user_id=1, token="ohne", session_id="s1"))
+        s.commit()
+    posted = []
+    monkeypatch.setattr(fcm, "_load_sa", lambda: {"private_key": "k", "client_email": "c", "project_id": "p"})
+    monkeypatch.setattr(fcm, "_access_token", lambda sa: "token")
+    monkeypatch.setattr(fcm.httpx, "post", lambda url, **kw: posted.append(kw["json"]) or NS(status_code=200, text=""))
     try:
         with Session(db) as s:
-            notify = Mock()
-            monkeypatch.setattr(fcm, "notify", notify)
             monkeypatch.setattr(push, "_push_ntfy", lambda *a: None)
             push.push_new_mail(s, s.get(MailAccount, 1), "INBOX", 1)
             assert len(loaded) == 1 and "detail_json" in loaded[0]
-            encoded = repr(notify.call_args)
+            encoded = json.dumps(posted)
+            assert len(posted) == 2
             assert "PRIVATE SUBJECT" not in encoded and "private@example.test" not in encoded
             assert "Neue E-Mail" in encoded
+            by_token = {p["message"]["token"]: p["message"]["data"] for p in posted}
+            assert by_token["mit"]["preview"].startswith("v1.") and "preview" not in by_token["ohne"]
     finally:
         event.remove(Session, "loaded_as_persistent", on_load)
 

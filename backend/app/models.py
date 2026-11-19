@@ -549,6 +549,9 @@ class DeviceToken(SQLModel, table=True):
     token: str = Field(index=True)
     platform: str = "android"
     session_id: str = ""
+    # Oeffentlicher RSA-Schluessel des Geraets (X.509 DER, base64) fuer die
+    # verschluesselte Vorschau im Push (seit 1.98.2). Leer = alte App.
+    preview_key: str = ""
     created_at: dt.datetime = Field(default_factory=_now)
 
 

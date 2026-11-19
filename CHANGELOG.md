@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.98.2 · Build 136
+- 🇬🇧 **Notifications show sender and subject on mobile data too**: the server now puts the preview into the Google push, encrypted for each phone with its own key (Google only sees unreadable text). The app decrypts it locally and no longer has to reach the server first, so “New e-mail” without details should be gone. Older apps keep the previous behaviour.
+- 🇩🇪 **Benachrichtigungen zeigen Absender und Betreff auch unterwegs**: Der Server legt die Vorschau jetzt in den Google-Push, verschlüsselt für jedes Handy mit dessen eigenem Schlüssel (Google sieht nur unlesbaren Text). Die App entschlüsselt sie selbst und muss den Server nicht mehr erst erreichen, „Neue E-Mail“ ohne Angaben sollte damit verschwinden. Ältere Apps verhalten sich wie bisher.
+- 📄 [RELEASE-1.98.2.txt](docs/RELEASE-1.98.2.txt)
+
 ## 1.98.1 · Server only (APK stays 1.97.8 · Build 134)
 - 🇬🇧 **Security updates**: two known vulnerabilities in server libraries fixed (`dnspython` 2.9.2, `opentelemetry-api` 1.45.2), current Python base image; build tools updated (Vite 8.3.8, plugin-react 6.3.0, jsdom 31). No visible changes.
 - 🇩🇪 **Sicherheitsupdates**: zwei bekannte Lücken in Server-Bibliotheken behoben (`dnspython` 2.9.2, `opentelemetry-api` 1.45.2), aktuelles Python-Basis-Image; Bauwerkzeuge aktualisiert (Vite 8.3.8, plugin-react 6.3.0, jsdom 31). Keine sichtbaren Änderungen.

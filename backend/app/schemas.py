@@ -791,6 +791,8 @@ class DeviceTokenIn(BaseModel):
     token: str = Field(max_length=4096)
     platform: str = "android"
     session_id: str = Field(default="", max_length=128)
+    # Oeffentlicher Geraete-Schluessel fuer die verschluesselte Push-Vorschau.
+    preview_key: str = Field(default="", max_length=1024)
 
 
 # ---- Export-Feed-Token --------------------------------------------------

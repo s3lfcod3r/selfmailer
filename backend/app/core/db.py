@@ -52,7 +52,7 @@ def _sqlite_pragmas(dbapi_conn, _record) -> None:
 # Additive Spalten, die ggf. in einer älteren DB fehlen (SQLite kennt kein
 # automatisches Hinzufügen über create_all). Tabelle -> [(Spalte, DDL-Typ)].
 _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
-    "devicetoken": [("session_id", "VARCHAR DEFAULT ''")],
+    "devicetoken": [("session_id", "VARCHAR DEFAULT ''"), ("preview_key", "VARCHAR DEFAULT ''")],
     "foldersync": [
         ("highest_modseq", "INTEGER DEFAULT 0"),
     ],
