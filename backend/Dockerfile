@@ -3,7 +3,7 @@
 # gerade da war. Mit Digest baut jeder Lauf dasselbe; Updates schlaegt
 # Dependabot (docker) als PR vor und sie laufen durch CI + Image-Scan.
 # --- Stage 1: Frontend bauen ---
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS frontend
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS frontend
 WORKDIR /fe
 COPY frontend/package*.json ./
 # Nur npm ci: der frueher angehaengte "|| npm install"-Fallback hat bei einem
